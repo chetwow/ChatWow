@@ -9,7 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { loginOf, useChat } from "../store/chat";
+import { avatarOf, loginOf, useChat } from "../store/chat";
 import { matchChatters } from "../lib/chatterComplete";
 import { EmotePicker } from "./EmotePicker";
 import { CommandHint, CommandPicker } from "./CommandPicker";
@@ -82,6 +82,7 @@ export function Composer({
   const runCommand = useChat((state) => state.runCommand);
   const auth = useChat((state) => state.auth);
   const login = useChat((state) => loginOf(state, account));
+  const avatar = useChat((state) => avatarOf(state, account));
   const ready = useChat((state) => state.ready[id]);
   const emoteEntries = useChat((state) => state.emoteEntries[id]);
   const emoteUses = useChat((state) => state.emoteUses);
@@ -568,37 +569,80 @@ export function Composer({
       {replyTo && <ReplyBar message={replyTo} onCancel={() => onCancelReply?.()} />}
       <div className="px-2 py-1.5">
         {error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>}
-        <input
-          ref={input}
-          value={value}
-          onChange={(event) => {
-            // Typing over a recalled message makes it yours again: the next
-            // up-arrow starts a fresh walk from the most recent send.
-            setHistoryIndex(null);
-            applyText(event.target.value, event.target.selectionStart ?? event.target.value.length);
-          }}
-          // Fires for clicks and arrow keys as well as typing, so the `:`
-          // search always knows which word the caret is actually in.
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
-          onKeyDown={onKeyDown}
-          // The other half of the tab's right-click: this is the tab speaking,
-          // so it's a place you'd reasonably ask "as whom?" and change it.
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setAccountMenu({ x: event.clientX, y: event.clientY });
-          }}
-          disabled={disabled}
-          placeholder={
-            disabled
-              ? "Right-click to send as an account"
-              : login
-                ? `Message #${channel} as ${login}`
-                : `Message #${channel}`
-          }
-          spellCheck={false}
-          autoComplete="off"
-          className="chat-text selectable w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors focus:border-accent/60 placeholder:text-ink-faint disabled:cursor-not-allowed"
-        />
+        <div className="flex items-center gap-2">
+          {/* Who this line will be sent as. The placeholder says it too, but
+              that's gone the moment you start typing, and with two accounts on
+              one channel the tabs look alike -- this is the half of the answer
+              that's still there while you type. Clicking it is the same menu
+              the right-click opens; `onMouseDown` is swallowed so the caret and
+              any selection stay where they were. */}
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setAccountMenu({ x: box.left, y: box.bottom });
+            }}
+            title={login ? `Sending as ${login}` : "Reading anonymously"}
+            aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
+            className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            {avatar ? (
+              <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
+            ) : login ? (
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
+                {login.slice(0, 1)}
+              </span>
+            ) : (
+              // Anonymous keeps the circle rather than dropping it: the row
+              // would otherwise shift sideways whenever a tab changed account,
+              // and this is where you go to give it one.
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-surface text-ink-faint">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+                  <circle cx="8" cy="5.5" r="2.75" />
+                  <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />
+                </svg>
+              </span>
+            )}
+          </button>
+          <input
+            ref={input}
+            value={value}
+            onChange={(event) => {
+              // Typing over a recalled message makes it yours again: the next
+              // up-arrow starts a fresh walk from the most recent send.
+              setHistoryIndex(null);
+              applyText(
+                event.target.value,
+                event.target.selectionStart ?? event.target.value.length,
+              );
+            }}
+            // Fires for clicks and arrow keys as well as typing, so the `:`
+            // search always knows which word the caret is actually in.
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+            onKeyDown={onKeyDown}
+            // The other half of the tab's right-click: this is the tab speaking,
+            // so it's a place you'd reasonably ask "as whom?" and change it.
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setAccountMenu({ x: event.clientX, y: event.clientY });
+            }}
+            disabled={disabled}
+            placeholder={
+              // A disabled input takes no mouse events at all, so the
+              // right-click this used to name never reached it -- the avatar
+              // beside it is the one that works here.
+              disabled
+                ? "Click the avatar to send as an account"
+                : login
+                  ? `Message #${channel} as ${login}`
+                  : `Message #${channel}`
+            }
+            spellCheck={false}
+            autoComplete="off"
+            className="chat-text selectable min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors focus:border-accent/60 placeholder:text-ink-faint disabled:cursor-not-allowed"
+          />
+        </div>
       </div>
 
       {accountMenu && (

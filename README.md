@@ -38,15 +38,15 @@ Settings -> Accounts lists them: add another with **Add another account**, mark 
 tabs should use, or sign one out. Signing an account out doesn't close its tabs -- they stay
 open and keep reading, without a composer, until you give them an account again.
 
-To change a tab's account, **right-click the tab** (or its message box) and pick one. The menu
-also offers **Anonymous**, which reads without sending, and that's the same list every tab
-starts from.
+To change a tab's account, **right-click the tab** (or click the picture beside its message
+box) and pick one. The menu also offers **Anonymous**, which reads without sending, and that's
+the same list every tab starts from.
 
 Because a tab picks the account rather than the app, the same channel can be open twice --
 once as each of you. Both are live at the same time, each with its own composer and its own
 unread count, and a message that names one of your logins highlights only in that one's tab. The
-tabs stay plain: to see which account one is on, right-click it, or read the message box, which
-names the account it sends as.
+tabs stay plain: to see which account one is on, look at the picture beside its message box,
+which is the account it sends as.
 
 Permissions and the Client ID below are shared by every account: they're what each sign-in asks
 Twitch for, not something one account holds. What Twitch actually *granted* is per account, so

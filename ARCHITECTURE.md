@@ -305,13 +305,17 @@ status dot's is reserved whether or not a dot is in it.
 
 A tab deliberately doesn't say which account it reads as. The row is scanned for channel names,
 and a second word on every tab costs more room than it buys -- the question is answered where
-it's asked instead: the right-click menu ticks the current account, and the composer's
-placeholder names the one it sends as.
+it's asked instead: the right-click menu ticks the current account, and the composer names the
+one it sends as twice over, in its placeholder and in the avatar beside it. The avatar is the
+half that survives typing, which is what it's for -- with the same channel open under two
+accounts the tabs look alike, and the placeholder is gone by the second character.
 
 Right-clicking a tab (or the composer, which is the same tab speaking) opens
-[AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab. It's
-a control's menu rather than a message's, so it doesn't close when chat scrolls underneath --
-see `closeOnScroll` on `ContextMenu`, which the split menu needs for the same reason.
+[AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab.
+Clicking the composer's avatar opens the same menu, and is the only way in when the tab is
+anonymous -- a disabled input takes no mouse events at all, so the right-click never reaches it.
+It's a control's menu rather than a message's, so it doesn't close when chat scrolls underneath
+-- see `closeOnScroll` on `ContextMenu`, which the split menu needs for the same reason.
 
 The single-row mode ([src/components/TabBar.tsx](src/components/TabBar.tsx), behind the
 `singleRowTabs` preference, and the default) skips that measurement entirely and clears any
@@ -734,7 +738,7 @@ caps were being inherited into whole sentences.
 | `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
 | `src/components/Panes.tsx` | One pane or two, the divider, and the empty-pane screen |
-| `src/components/AccountMenu.tsx` | The tab's (and composer's) right-click account picker |
+| `src/components/AccountMenu.tsx` | The tab's (and composer's) account picker |
 | `src/components/AccountPanel.tsx` | The accounts manager, permissions, and the Client ID |
 | `src/lib/commands.ts` | The command catalog the `/` picker reads |
 | `src/lib/emoteComplete.ts` | Completion cycling, picker search and ranking |

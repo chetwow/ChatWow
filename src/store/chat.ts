@@ -190,6 +190,16 @@ export function loginOf(state: { auth: AuthStatus }, account: string | undefined
 }
 
 /**
+ * The profile picture a tab sends as, empty when it's anonymous, the account
+ * has been signed out, or Twitch had no picture for it. The composer draws the
+ * login's initial instead, so an empty string is a fallback rather than a gap.
+ */
+export function avatarOf(state: { auth: AuthStatus }, account: string | undefined): string {
+  if (!account) return "";
+  return state.auth.accounts.find((held) => held.id === account)?.avatarUrl ?? "";
+}
+
+/**
  * Each pane's active tab, corrected against the tabs it actually holds. Every
  * rearrangement runs through here rather than fixing `active` by hand: a tab
  * dragged across the divider, closed, or swept up by an unsplit leaves the
