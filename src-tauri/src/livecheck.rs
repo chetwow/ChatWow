@@ -332,3 +332,53 @@ async fn live_user_card_history_resolves() {
     let missing = crate::usercard::fetch(&http, None, "thisuserdoesnotexist99123", "forsen").await;
     assert!(missing.is_err(), "a name Twitch doesn't know should be an error");
 }
+
+#[tokio::test]
+#[ignore = "fetches real pages off the internet"]
+async fn live_link_previews_read_real_pages() {
+    let http = crate::linkinfo::build_client();
+
+    for url in ["https://example.com/", "https://www.twitch.tv/", "https://7tv.app/"] {
+        let preview = crate::linkinfo::preview(&http, url).await;
+        println!("{url} -> {preview:?}");
+        let preview = preview.expect("the request should not fail").expect("a preview");
+        assert!(!preview.title.is_empty(), "{url} should have a title");
+    }
+
+    // The one site with a card's worth of things to say. Every row here comes
+    // from a different part of the page, so a drift in any of them shows up as
+    // one missing row rather than a failure -- which is why they're checked by
+    // label rather than by count.
+    let video = crate::linkinfo::preview(&http, "https://youtu.be/qMpBobAonKs")
+        .await
+        .expect("the request should not fail")
+        .expect("a video should preview");
+    println!("{video:#?}");
+    assert_eq!(video.title, "Hold Me Now");
+    assert!(!video.description.is_empty(), "a video has a description");
+    assert!(video.image.starts_with("https://"), "image: {}", video.image);
+    for label in ["Channel", "Duration", "Published", "Views", "Likes"] {
+        let row = video.facts.iter().find(|fact| fact.label == label);
+        assert!(row.is_some(), "no {label} row in {:?}", video.facts);
+        assert!(!row.unwrap().value.is_empty(), "{label} is empty");
+    }
+
+    // Not a page, so nothing to preview -- and, more to the point, not
+    // something to read a megabyte of looking for one.
+    let image = crate::linkinfo::preview(
+        &http,
+        "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0",
+    )
+    .await
+    .expect("the request should not fail");
+    assert_eq!(image, None, "an image is not a page with a preview");
+
+    // The machine's own network is off limits however the url is written.
+    for refused in ["http://127.0.0.1:1420/", "http://localhost:1420/", "file:///etc/hosts"] {
+        let answer = crate::linkinfo::preview(&http, refused).await;
+        assert!(
+            matches!(answer, Ok(None) | Err(_)),
+            "{refused} should not be fetched: {answer:?}"
+        );
+    }
+}

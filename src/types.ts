@@ -142,6 +142,10 @@ export type Preferences = {
   italicActions: boolean;
   /** Show the time beside each message. */
   showTimestamps: boolean;
+  /** Show the picture on hover when a link points straight at an image. */
+  previewImages: boolean;
+  /** Show what the page says about itself on hover, for every other link. */
+  previewPages: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
   /** Keep a tab collecting every mention, reply and whisper, from all channels. */
@@ -259,6 +263,26 @@ export type UserCard = {
   /** Account creation, ISO 8601. Empty when neither source answered. */
   createdAt: string;
   history: UserHistory | null;
+};
+
+/** One labelled row under a link preview's title, from `linkinfo::Fact`. */
+export type LinkFact = {
+  label: string;
+  value: string;
+};
+
+/**
+ * What the page behind a link says about itself, hand-mirrored from
+ * `linkinfo::LinkPreview`. Already formatted: a duration is "4:46", a count is
+ * "1.2M", a date is "3 Mar 2023" -- the card draws these, it doesn't compute
+ * them. Empty strings mean the page published nothing there.
+ */
+export type LinkPreview = {
+  title: string;
+  description: string;
+  /** Thumbnail url. Often a different host from the link itself. */
+  image: string;
+  facts: LinkFact[];
 };
 
 export type ChannelReadyEvent = {

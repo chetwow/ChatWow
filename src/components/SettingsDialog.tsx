@@ -587,6 +587,28 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
+              <Section title="Links">
+                <Row
+                  label="Preview image links"
+                  hint="Hovering a link that points straight at an image shows the picture, loaded from the host that was linked."
+                >
+                  <Toggle
+                    checked={preferences.previewImages}
+                    onChange={(previewImages) => updatePreferences({ previewImages })}
+                    label="Preview image links"
+                  />
+                </Row>
+                <Row
+                  label="Preview page links"
+                  hint="Hovering any other link shows the page's title, thumbnail and summary, which means asking that page for them."
+                >
+                  <Toggle
+                    checked={preferences.previewPages}
+                    onChange={(previewPages) => updatePreferences({ previewPages })}
+                    label="Preview page links"
+                  />
+                </Row>
+              </Section>
               <Section
                 title="Blocked"
                 hint="Their messages aren't drawn at all, in any channel, and can't mention you. Nothing is sent to Twitch -- this is between you and this app, and unblocking brings their messages straight back."

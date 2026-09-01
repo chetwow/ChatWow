@@ -93,6 +93,25 @@ to write `settings.json`.
   flatten it into the rest of the payload, and don't reach for `badge-info` as a substitute -- that
   carries months only for a current subscriber who has already spoken in that channel. Logins go
   into a URL path, so `is_login` rejects anything outside `[A-Za-z0-9_]{1,25}`.
+- **Link previews are the one fetch that goes wherever a chatter pointed.** Everything else here
+  talks to Twitch, 7TV, BTTV, FFZ or ivr.fi -- hosts compiled in. `linkinfo::build_client`
+  ([src-tauri/src/linkinfo.rs](src-tauri/src/linkinfo.rs)) is therefore its own client, kept in
+  `AppState::link_http`: a redirect policy that refuses each hop that isn't `http(s)` on a public
+  host, an eight-second timeout, and a body read in chunks and stopped as soon as it holds what's
+  wanted (`</head>`, capped at 256KB). Don't route a link fetch through `state.http`, and don't
+  drop the host check because "the user could have clicked it anyway" -- this happens on *hover*,
+  without a click. `previewImages` and `previewPages` are enforced in the frontend only (Rust
+  fetches whatever `link_preview` is handed), so a switch has to stop the call; which of the two
+  applies is decided from the url's extension, since a link that points straight at an image is
+  never fetched by Rust at all -- the frontend renders an `<img>` for those.
+- **A YouTube video url is read to a megabyte, on purpose, and `reqwest` needs its compression
+  features for that to be sane.** YouTube puts the head behind ~700KB of inline script and the
+  view/like counts behind more, so `youtube_id` recognizes a video url up front and gives that
+  fetch its own budget, stopping once the last field has turned up. That page is ~5x smaller on
+  the wire, which is the whole justification -- if `gzip`/`brotli` come off `reqwest` in
+  Cargo.toml, this quietly becomes a megabyte of real traffic per hover. Pretending to be a known
+  crawler would get the same metadata in 2KB (YouTube reorders the page for `facebookexternalhit`
+  and friends); the user agent stays honest instead, and the cost is paid in bytes.
 - **Emote providers are merged by name, lowest priority first.** `emotes::merge`
   ([src-tauri/src/emotes/mod.rs](src-tauri/src/emotes/mod.rs)) folds FFZ, then BTTV, then 7TV into
   one name→`Emote` map, so 7TV wins a shared name -- it's the set channels actually curate. Change

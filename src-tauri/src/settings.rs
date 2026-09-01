@@ -56,6 +56,17 @@ pub struct Preferences {
     pub italic_actions: bool,
     /// Show the time beside each message.
     pub show_timestamps: bool,
+    /// Show the picture on hover when a link points straight at an image.
+    /// On by default, but a setting because it's fetched from whatever host a
+    /// chatter linked -- hovering tells that host you're here, which nothing
+    /// else about reading chat does.
+    pub preview_images: bool,
+    /// The same for every other link, which shows what the page says about
+    /// itself. Separate from the switch above because the two cost different
+    /// things: an image is one request to the host in the link, where a page
+    /// is a request, a read of up to a megabyte, and a thumbnail from
+    /// wherever that page names. See `linkinfo`.
+    pub preview_pages: bool,
     /// Keep the channel tabs on one row and scroll them sideways. On by
     /// default: wrapping keeps every tab in sight, but it also lets the tab
     /// bar grow to several rows deep and take that height off the chat.
@@ -102,6 +113,8 @@ impl Default for Preferences {
             show_seventv_badges: true,
             italic_actions: true,
             show_timestamps: true,
+            preview_images: true,
+            preview_pages: true,
             single_row_tabs: true,
             mentions_tab: false,
             mentions_tab_index: 0,

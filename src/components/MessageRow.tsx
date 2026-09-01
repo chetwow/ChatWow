@@ -1,4 +1,4 @@
-import { Fragment, memo, type MouseEvent } from "react";
+import { Fragment, memo, useEffect, useRef, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
@@ -7,6 +7,8 @@ import { isAboutYou, repliesToYou } from "../lib/mentions";
 import { mentionIgnored, userBlocked } from "../lib/ignores";
 import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
+import { imagePreviewUrl, linkHost } from "../lib/links";
+import { cachedLinkPreview, loadLinkPreview } from "../lib/linkPreviews";
 import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
 
 function timeOf(ts: number) {
@@ -87,7 +89,7 @@ function HiddenEmote({
       data-emote-hidden="true"
       className="cursor-default underline decoration-ink-faint decoration-dotted underline-offset-2"
       onMouseEnter={(event) =>
-        show({ name, urlLarge, provider }, event.currentTarget.getBoundingClientRect())
+        show({ kind: "emote", name, urlLarge, provider }, event.currentTarget.getBoundingClientRect())
       }
       onMouseLeave={hide}
     >
@@ -183,7 +185,12 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
         className="relative mx-[1px] inline-block align-middle"
         onMouseEnter={(event) =>
           show(
-            { name: segment.name, urlLarge: segment.url_large, provider: segment.provider },
+            {
+              kind: "emote",
+              name: segment.name,
+              urlLarge: segment.url_large,
+              provider: segment.provider,
+            },
             event.currentTarget.getBoundingClientRect(),
           )
         }
@@ -275,15 +282,97 @@ function SegmentView({ segment }: { segment: Segment }) {
         </span>
       );
     case "link":
-      return (
-        <button
-          onClick={() => void openUrl(segment.href)}
-          className="cursor-pointer text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
-        >
-          {segment.text}
-        </button>
-      );
+      return <LinkView segment={segment} />;
   }
+}
+
+/**
+ * A link, and what it turns out to be on hover: the image itself if it points
+ * at one, otherwise the title of the page behind it.
+ *
+ * The wait before either is the point rather than polish. A preview is fetched
+ * from wherever the link points, so a mouse crossing a message on its way
+ * somewhere else shouldn't announce the reader to a host a stranger chose.
+ */
+const PREVIEW_DELAY_MS = 220;
+
+function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) {
+  const show = useTooltip((s) => s.show);
+  const hide = useTooltip((s) => s.hide);
+  // Subscribed here rather than passed down, for the reason `EmoteView` gives:
+  // rows are memoized on message identity and the messages already on screen
+  // are immutable, so switching either of these off has to reach them through
+  // the store.
+  const previewImages = useChat((state) => state.preferences.previewImages);
+  const previewPages = useChat((state) => state.preferences.previewPages);
+  // Which switch applies is decided by the link, not by what comes back: an
+  // image url is answered from the url alone, and everything else is a fetch.
+  const image = imagePreviewUrl(segment.href);
+  const enabled = image ? previewImages : previewPages;
+  const timer = useRef<number | undefined>(undefined);
+  /**
+   * Bumped every time the pointer leaves. A title arrives whenever the host
+   * answers, which may be long after that -- and a preview that appears over
+   * chat you're no longer pointing at is worse than none.
+   */
+  const hover = useRef(0);
+
+  const cancel = () => {
+    window.clearTimeout(timer.current);
+    timer.current = undefined;
+    hover.current += 1;
+  };
+  // A row trimmed out of the backlog mid-hover would otherwise fire into
+  // nothing and leave the preview up.
+  useEffect(() => cancel, []);
+
+  const preview = (element: HTMLElement) => {
+    const anchor = () => element.getBoundingClientRect();
+    if (image) return show({ kind: "image", url: image }, anchor());
+
+    const known = cachedLinkPreview(segment.href);
+    if (known !== undefined) {
+      // Asked before: draw it or don't, with no spinner in between.
+      return known ? show({ kind: "page", preview: known, host: linkHost(segment.href) }, anchor()) : undefined;
+    }
+
+    // The spinner goes up before the request, so the wait is visibly a wait.
+    show({ kind: "loading" }, anchor());
+    const token = hover.current;
+    void loadLinkPreview(segment.href).then((found) => {
+      if (hover.current !== token) return;
+      if (!found) return hide();
+      show({ kind: "page", preview: found, host: linkHost(segment.href) }, anchor());
+    });
+  };
+
+  return (
+    <button
+      onClick={() => void openUrl(segment.href)}
+      onMouseEnter={
+        enabled
+          ? (event) => {
+              const element = event.currentTarget;
+              window.clearTimeout(timer.current);
+              // Measured when it fires, not now: chat may have scrolled under
+              // the pointer in between.
+              timer.current = window.setTimeout(() => preview(element), PREVIEW_DELAY_MS);
+            }
+          : undefined
+      }
+      onMouseLeave={
+        enabled
+          ? () => {
+              cancel();
+              hide();
+            }
+          : undefined
+      }
+      className="cursor-pointer text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+    >
+      {segment.text}
+    </button>
+  );
 }
 
 function MessageRowInner({

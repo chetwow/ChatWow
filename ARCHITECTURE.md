@@ -381,6 +381,73 @@ log is the section that gives -- it has a scrollbar already, so shrinking it los
 position is measured after layout and clamped into the window: the name it hangs off is a row
 inside a scroller and can sit partly, or entirely, outside the visible area.
 
+## Link previews
+
+Hovering a link shows what's behind it. The two halves are split by what the answer costs.
+
+**An image link is answered locally.** `imagePreviewUrl` ([src/lib/links.ts](src/lib/links.ts))
+tests the extension on the url's own path -- no request, no host list -- and the preview is an
+`<img>` at that url. That misses an image served from an extensionless url, which is the right
+side to fail on: a miss leaves the link behaving as it always did, where a guess draws an empty
+frame over a page that was never an image.
+
+**Everything else has to be asked**, and that's [src-tauri/src/linkinfo.rs](src-tauri/src/linkinfo.rs):
+one GET, and the page's own account of itself out of the head -- OpenGraph first, then Twitter's
+copy of it, then the plain `<title>`. Those tags exist for exactly this, which is why the preview
+is a scan for `<meta>` and not an HTML parse: two fields don't justify a parser, and titles and
+meta tags are the two things a scan can find without meeting anything that would fool it.
+
+It's the only fetch in the app whose address a stranger chose, so it doesn't share
+`AppState::http`. `link_http` is built with a redirect policy that refuses, hop by hop, anything
+that isn't `http(s)` on a public host -- not `localhost`, not a private or loopback literal, in
+either address family -- an eight-second timeout, and a body read in chunks and stopped the
+moment it holds what's wanted. For most of the web that's the few KB up to `</head>`, with 256KB
+as the ceiling for pages that bury it. The host check is on the literal in the url: a *name*
+resolving to a private address still gets through, which would mean owning DNS resolution to
+prevent, a great deal of machinery for a threat that ends at "a page title was fetched".
+
+YouTube is the one site with a card's worth of things to say, and the one that makes you work for
+it. A video's head sits behind ~700KB of inline script and the counts behind a little more, so
+`youtube_id` recognizes a video url up front and that fetch alone gets a 1MB budget, stopping as
+soon as the last wanted field has turned up. This is why `reqwest` has `gzip`/`brotli` on: that
+page is about a fifth of its size on the wire, which is what makes reading so far defensible.
+The duration comes from schema.org microdata in the head, the channel and counts from the
+player's own JSON below it, read by looking for the field rather than parsing a megabyte of
+script. A field that isn't there is a row that isn't drawn -- an unlisted video has no view count
+worth showing, a channel that hides likes hides them here too.
+
+Rust hands over rows that are already formatted (`4:46`, `1.2M`, `3 Mar 2023`), the same split as
+everywhere else: `render.rs` sends image urls, not emote ids, and the frontend does no arithmetic.
+
+All of it shares one popup ([src/components/HoverPreview.tsx](src/components/HoverPreview.tsx))
+with the emote preview, through one store -- two would leave both on screen at once, overlapping.
+It positions itself from a measurement rather than a CSS transform: an emote is small enough to
+centre on its anchor and be done with, but a link's card is a third of the window across, and
+centred on a link near the edge (or hung above one in the top row) it would sit outside it. The
+measurement re-runs when a picture lands, since an `<img>` with nothing decoded yet is a box of
+empty space and the frame would otherwise be placed at a size it's about to outgrow.
+
+Four things about the timing are deliberate. The preview waits ~220ms before anything is fetched,
+because a request goes out to a host a stranger picked and a pointer crossing a message on its
+way elsewhere shouldn't announce the reader to it. After that the spinner goes up *before* the
+request, so the wait reads as a wait rather than as nothing happening. A preview that arrives
+after the pointer has left is dropped, by comparing a counter bumped on every `mouseleave`. And
+answers are cached for the session either way ([src/lib/linkPreviews.ts](src/lib/linkPreviews.ts))
+-- "this link has no preview" is an answer, and hovering the same link twice shouldn't ask twice
+-- with a cap, since chat is endless where the user cards are a handful of names you clicked. A
+cached link draws with no spinner at all, since there's nothing to wait for.
+
+`previewImages` and `previewPages` are separate preferences because the two halves cost different
+things -- one request to the host in the link, against a request, a read of up to a megabyte, and
+a thumbnail from a host the page named. Which one applies is decided by the *link*, not by what
+comes back: `imagePreviewUrl` answers from the url alone, so a link either takes the image path
+or the fetch path before either switch is consulted.
+
+Both gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch has to
+stop the call rather than the request. Nothing else reads them, and a message already on screen
+picks up the change because `LinkView` subscribes to the store instead of taking a prop -- the
+same reason the emote blacklists do.
+
 ## Emote completion and search
 
 Both entry points -- `Tab` and the `:` picker -- are fed by the same per-channel index (7TV

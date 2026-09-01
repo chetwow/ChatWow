@@ -8,6 +8,7 @@ mod render;
 mod settings;
 mod state;
 mod twitch;
+mod linkinfo;
 mod usercard;
 
 use std::collections::HashSet;
@@ -398,6 +399,20 @@ async fn search_channels(
 /// Everything the card behind a clicked username shows. Signed out this still
 /// answers -- the follow and sub half never needed a token, and the avatar and
 /// account age fall back to a source that doesn't either.
+/// What the page behind a link says about itself, for the hover preview.
+/// `None` covers every way there's nothing to show -- no metadata, not a page,
+/// a host that refused -- because the preview draws the same nothing for all
+/// of them.
+#[tauri::command]
+async fn link_preview(
+    state: State<'_, Shared>,
+    url: String,
+) -> Result<Option<linkinfo::LinkPreview>, String> {
+    linkinfo::preview(&state.link_http, &url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn user_card(
     state: State<'_, Shared>,
@@ -819,6 +834,7 @@ pub fn run() {
             run_chat_command,
             search_channels,
             user_card,
+            link_preview,
             start_device_auth,
             poll_device_auth,
             logout,

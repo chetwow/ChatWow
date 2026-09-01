@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   EmoteEntry,
   EmoteIndex,
+  LinkPreview,
   Overlay,
   ReplyInfo,
   Segment,
@@ -194,6 +195,28 @@ const DRAFTS: Draft[] = [
       text(" check "),
       { kind: "link", text: "https://7tv.app", href: "https://7tv.app" },
       text(" for emotes"),
+    ],
+  },
+  {
+    // One link of each kind the preview handles: a picture, a page with a
+    // card's worth of metadata, and one with nothing to say.
+    login: "linkposter",
+    displayName: "linkposter",
+    color: "#7FE3A0",
+    segments: [
+      text("look at this "),
+      { kind: "link", text: FORSEN_AVATAR, href: FORSEN_AVATAR },
+    ],
+  },
+  {
+    login: "songrequest",
+    displayName: "songrequest",
+    color: "#E39A7F",
+    segments: [
+      text("banger "),
+      { kind: "link", text: "https://youtu.be/qMpBobAonKs", href: "https://youtu.be/qMpBobAonKs" },
+      text(" and "),
+      { kind: "link", text: "https://example.com/nothing", href: "https://example.com/nothing" },
     ],
   },
   {
@@ -426,6 +449,45 @@ export function mockUserCard(login: string): UserCard {
   const shapes = Object.values(USER_CARDS);
   const hash = [...login].reduce((total, char) => total + char.charCodeAt(0), 0);
   return shapes[hash % shapes.length];
+}
+
+/**
+ * Mock mode has no backend to fetch a page with, so a link that isn't an image
+ * gets a canned preview for its host. Anything unlisted has none, which is the
+ * other half worth being able to see: the spinner goes up, then nothing.
+ */
+const LINK_PREVIEWS: Record<string, LinkPreview> = {
+  "7tv.app": {
+    title: "7TV",
+    description: "The emote platform for Twitch, YouTube and Kick.",
+    image: "",
+    facts: [],
+  },
+  "youtu.be": {
+    title: "Hold Me Now",
+    description:
+      "Provided to YouTube by BMG Rights Management (UK) Ltd. Hold Me Now \u00b7 Thompson Twins \u00b7 Arista Heritage Series.",
+    image: "https://i.ytimg.com/vi/qMpBobAonKs/maxresdefault.jpg",
+    facts: [
+      { label: "Channel", value: "Thompson Twins - Topic" },
+      { label: "Duration", value: "4:46" },
+      { label: "Published", value: "3 Mar 2023" },
+      { label: "Views", value: "1.2M" },
+      { label: "Likes", value: "17,430" },
+    ],
+  },
+};
+
+/** Deliberately slow, so the spinner before a card appears is visible. */
+export function mockLinkPreview(url: string): Promise<LinkPreview | null> {
+  let host = "";
+  try {
+    host = new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return Promise.resolve(null);
+  }
+  const preview = LINK_PREVIEWS[host] ?? null;
+  return new Promise((resolve) => window.setTimeout(() => resolve(preview), 700));
 }
 
 export function mockEmoteIndex(): EmoteIndex {

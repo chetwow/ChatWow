@@ -139,6 +139,21 @@ Twitch will only answer the first of those, so the follow and subscription lines
 [ivr.fi](https://api.ivr.fi). When it can't be reached those two rows read *Unavailable* rather
 than guessing, and the rest of the card carries on. None of it needs you to be signed in.
 
+## Links
+
+Links in chat are clickable, and hovering one shows what's behind it. A link pointing straight at
+an image previews as that image. Any other link previews as what the page says about itself --
+its title, its thumbnail and its own one-line summary, the same things that make a link unfurl in
+Slack or Discord. A YouTube video adds the channel, the duration, when it went up, and its view
+and like counts.
+
+Nothing is fetched until the pointer has rested on the link for a moment, so reading past a
+message costs nothing, and a spinner marks the wait while a preview loads. A page that publishes
+nothing about itself simply has no preview. The two kinds have their own switches in
+Settings -> General -- *Preview image links* and *Preview page links* -- since they cost
+different things: an image is one request to the host in the link, where a page is a request, a
+read, and a thumbnail from wherever that page names.
+
 ## Mentions and pings
 
 A message naming you -- `@yourname` or just your name -- is highlighted, and plays a short ping.
@@ -162,7 +177,8 @@ in Settings -> General.
 
 The gear in the title bar opens:
 
-- **General** — recent message history on join, and the list of blocked people
+- **General** — recent message history on join, the two link-preview switches, and the list of
+  blocked people
 - **Account** — sign in and out, choose permissions, set a Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
   tabs scroll on one row or wrap onto several
@@ -172,12 +188,15 @@ The gear in the title bar opens:
 Settings that need explaining carry an info dot on the label; the ones that say what they do
 don't.
 
-Two things here reach a service that isn't Twitch or an emote provider. Joining a channel asks
+Three things here reach something that isn't Twitch or an emote provider. Joining a channel asks
 [recent-messages.robotty.de](https://recent-messages.robotty.de) for its recent history -- Twitch
 offers none to apps like this one -- which tells them which channels you read; turning off *Show
 recent message history on join* in General stops it. Opening a chatter's card asks
 [ivr.fi](https://api.ivr.fi) for the follow and subscription lines, which tells them the name you
-clicked and the channel you clicked it in; that one only happens when you open a card.
+clicked and the channel you clicked it in; that one only happens when you open a card. The third
+is the only one that isn't a service this app chose: a link preview loads from whatever host was
+linked, so hovering tells that host you're here. That's why it waits before fetching, and why
+*Preview image links* and *Preview page links* are switches.
 
 ## Shortcuts
 

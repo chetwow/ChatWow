@@ -110,6 +110,9 @@ pub const MAX_PENDING: usize = 300;
 
 pub struct AppState {
     pub http: reqwest::Client,
+    /// The client link previews use. Separate from `http` because it's the one
+    /// that goes wherever a chatter pointed it -- see `linkinfo`.
+    pub link_http: reqwest::Client,
     pub commands: RwLock<Option<mpsc::UnboundedSender<IrcCommand>>>,
     /// Joined channels, lowercase, in tab order.
     pub channels: RwLock<Vec<String>>,
@@ -157,6 +160,7 @@ impl AppState {
 
         Self {
             http,
+            link_http: crate::linkinfo::build_client(),
             commands: RwLock::new(None),
             channels: RwLock::new(Vec::new()),
             data: RwLock::new(HashMap::new()),

@@ -67,6 +67,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showSeventvBadges: true,
   italicActions: true,
   showTimestamps: true,
+  previewImages: true,
+  previewPages: true,
   singleRowTabs: true,
   mentionsTab: false,
   mentionsTabIndex: 0,

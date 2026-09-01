@@ -4,7 +4,7 @@ import { TabBar } from "./components/TabBar";
 import { ChatView } from "./components/ChatView";
 import { AddChannelDialog } from "./components/AddChannelDialog";
 import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
-import { EmoteTooltip } from "./components/EmoteTooltip";
+import { HoverPreview } from "./components/HoverPreview";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 /**
@@ -109,7 +109,7 @@ export default function App() {
           onClose={() => setSettingsTab(null)}
         />
       )}
-      <EmoteTooltip />
+      <HoverPreview />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type {
   ChannelHit,
   DeviceCode,
   EmoteIndex,
+  LinkPreview,
   Preferences,
   UserCard,
 } from "../types";
@@ -37,6 +38,8 @@ export const api = {
   searchChannels: (query: string) => invoke<ChannelHit[]>("search_channels", { query }),
   /** Everything the card behind a clicked username shows. Works signed out. */
   userCard: (login: string, channel: string) => invoke<UserCard>("user_card", { login, channel }),
+  /** What the page behind a link says about itself, or null when it says nothing. */
+  linkPreview: (url: string) => invoke<LinkPreview | null>("link_preview", { url }),
   recordEmoteUses: (channel: string, names: string[]) =>
     invoke<void>("record_emote_uses", { channel, names }),
   preferences: () => invoke<Preferences>("preferences"),

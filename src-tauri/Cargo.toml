@@ -20,7 +20,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# gzip/brotli are for `linkinfo`: a page whose metadata sits behind half a
+# megabyte of inline script (YouTube does) costs a fifth of that compressed.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli"] }
 anyhow = "1"
 rand = "0.8"
 parking_lot = "0.12"
