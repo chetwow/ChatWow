@@ -42,6 +42,12 @@ pub struct Preferences {
     /// the one thing that talks to a third party, which is why it's a setting
     /// -- see `irc::history`.
     pub show_message_history: bool,
+    /// Third-party emote providers, each on by default. Off means we never
+    /// ask that service for anything -- the emotes simply aren't there, and
+    /// the ones already on screen fall back to the text that was typed.
+    pub enable_seventv: bool,
+    pub enable_bttv: bool,
+    pub enable_ffz: bool,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -70,6 +76,9 @@ impl Default for Preferences {
             notify_on_name: true,
             notify_active_tab: false,
             show_message_history: true,
+            enable_seventv: true,
+            enable_bttv: true,
+            enable_ffz: true,
             italic_actions: true,
             show_timestamps: true,
             single_row_tabs: true,

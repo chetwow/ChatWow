@@ -5,6 +5,7 @@ import { useTooltip } from "../store/tooltip";
 import { useChat } from "../store/chat";
 import { mentionsYou } from "../lib/mentions";
 import { isBlacklisted } from "../lib/emoteBlacklist";
+import { providerEnabled } from "../lib/emoteProviders";
 import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
 
 function timeOf(ts: number) {
@@ -102,27 +103,45 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
   // already on screen. A store subscription re-renders this component directly,
   // which is what lets blacklisting from the context menu repaint the backlog.
   const blacklist = useChat((state) => state.preferences.emoteBlacklist);
+  const seventv = useChat((state) => state.preferences.enableSeventv);
+  const bttv = useChat((state) => state.preferences.enableBttv);
+  const ffz = useChat((state) => state.preferences.enableFfz);
+
+  // A provider you've switched off isn't a hidden emote, it's an absent one:
+  // the word renders as the chatter typed it, with no underline and no
+  // preview behind it, exactly as it would if the emote had never existed.
+  const off = (emote: { provider: string }) =>
+    !providerEnabled(emote.provider, { seventv, bttv, ffz });
+  if (off(segment)) {
+    return <>{[segment.name, ...segment.overlays.map((overlay) => overlay.name)].join(" ")}</>;
+  }
 
   const hidden = isBlacklisted(segment, blacklist);
   // Overlays have no room of their own -- they're stacked on the base -- so
   // hiding the base hides the whole combo. Each part falls back to its own
   // name, which is the space-separated text that was typed before
   // `fold_overlays` merged them.
+  const offOverlays = segment.overlays.filter(off);
   const hiddenOverlays = hidden
-    ? segment.overlays
-    : segment.overlays.filter((overlay) => isBlacklisted(overlay, blacklist));
+    ? segment.overlays.filter((overlay) => !off(overlay))
+    : segment.overlays.filter((overlay) => !off(overlay) && isBlacklisted(overlay, blacklist));
 
-  const trailing = hiddenOverlays.map((overlay) => (
-    <Fragment key={`${overlay.provider}-${overlay.id}`}>
-      {" "}
-      <HiddenEmote
-        id={overlay.id}
-        name={overlay.name}
-        provider={overlay.provider}
-        urlLarge={overlay.url}
-      />
-    </Fragment>
-  ));
+  const trailing = [
+    ...offOverlays.map((overlay) => (
+      <Fragment key={`off-${overlay.provider}-${overlay.id}`}> {overlay.name}</Fragment>
+    )),
+    ...hiddenOverlays.map((overlay) => (
+      <Fragment key={`${overlay.provider}-${overlay.id}`}>
+        {" "}
+        <HiddenEmote
+          id={overlay.id}
+          name={overlay.name}
+          provider={overlay.provider}
+          urlLarge={overlay.url}
+        />
+      </Fragment>
+    )),
+  ];
 
   if (hidden) {
     return (
@@ -161,7 +180,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
           className="inline-block h-7 max-w-none align-middle"
         />
         {segment.overlays
-          .filter((overlay) => !isBlacklisted(overlay, blacklist))
+          .filter((overlay) => !off(overlay) && !isBlacklisted(overlay, blacklist))
           .map((overlay) => (
             <EmoteImage
               key={overlay.name}

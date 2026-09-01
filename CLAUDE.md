@@ -73,6 +73,25 @@ to write `settings.json`.
   Don't merge those names into `ChannelData::emotes` or `global_emotes` to save a lookup — those
   maps are matched by name against message *text*, so any word matching an emote name would
   render as that emote even from someone who doesn't own it.
+- **Emote providers are merged by name, lowest priority first.** `emotes::merge`
+  ([src-tauri/src/emotes/mod.rs](src-tauri/src/emotes/mod.rs)) folds FFZ, then BTTV, then 7TV into
+  one name→`Emote` map, so 7TV wins a shared name -- it's the set channels actually curate. Change
+  that order and emotes silently swap provider in every channel that has both. Channel sets are
+  fetched and merged the same way, and overwrite the globals by landing in `ChannelData::emotes`.
+- **Switching a provider off has to be handled twice, and both halves are load-bearing.** Rust
+  skips fetching it (`Providers` in [src-tauri/src/emotes/mod.rs](src-tauri/src/emotes/mod.rs)), so
+  the service is never asked and its emotes leave completion -- but the messages already rendered
+  were resolved before the switch and are immutable, so `EmoteView` also asks
+  [src/lib/emoteProviders.ts](src/lib/emoteProviders.ts) on every render and draws the plain word
+  instead. `set_preferences` respawns `client::reload_emotes` when the set changes, which is what
+  makes switching one back *on* fetch anything.
+- **FFZ images can't be served from the `emote://` cache.** FFZ puts animated emotes on a
+  different path (`/emote/<id>/animated/2.webp`) from static ones, and a cache key is only
+  `<provider>-<id>` -- nothing in it says which kind. Asking for the animated url of a static
+  emote doesn't 404, it hangs, so probing isn't an option either. `is_valid_key`
+  ([src-tauri/src/emotes/cache.rs](src-tauri/src/emotes/cache.rs)) deliberately omits `ffz`, and
+  `CACHED_PROVIDERS` in [src/components/EmoteImage.tsx](src/components/EmoteImage.tsx) mirrors it;
+  FFZ emotes use the CDN url the API gave us, which is already the right one for either kind.
 - **Emote images are cached on disk by provider id, never by name.** 7TV names are aliased
   per channel, so the same image arrives under different names and one name can mean different
   images in different channels. [src-tauri/src/emotes/cache.rs](src-tauri/src/emotes/cache.rs)
@@ -249,5 +268,5 @@ to write `settings.json`.
 
 ## Out of scope
 
-BTTV/FFZ emotes, a dedicated whisper view, searching chat history — see
+A dedicated whisper view, searching chat history — see
 [README.md](README.md#not-supported-yet) for current status before adding these.

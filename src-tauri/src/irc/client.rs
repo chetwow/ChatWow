@@ -6,6 +6,7 @@
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -13,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::emotes::{cache, seventv};
+use crate::emotes::{self, bttv, cache, ffz, seventv, Emote, Providers};
 use crate::irc::history;
 use crate::irc::parse::{self, ChannelRole, IrcMessage};
 use crate::render::{self, BadgeLookup, ChatMessage, EmoteLookup};
@@ -101,11 +102,56 @@ fn render_and_queue(state: &AppState, sink: &MessageSink, channel: &str, msg: &I
     let _ = sink.send(message);
 }
 
-/// Fetch the global 7TV set and global Twitch badges. Safe to call again after login.
-pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
-    if let Ok(Ok(emotes)) = timeout(ASSET_TIMEOUT, seventv::fetch_global(&state.http)).await {
-        *state.global_emotes.write() = emotes;
+/// One provider's map, or an empty one -- a provider that's switched off is
+/// never asked, and one that's down or slow costs only its own emotes.
+async fn or_empty(
+    enabled: bool,
+    fetch: impl std::future::Future<Output = anyhow::Result<HashMap<String, Emote>>>,
+) -> HashMap<String, Emote> {
+    if !enabled {
+        return HashMap::new();
     }
+    timeout(ASSET_TIMEOUT, fetch).await.ok().and_then(|result| result.ok()).unwrap_or_default()
+}
+
+/// Every enabled provider's global set, merged. They're fetched together --
+/// three sequential round trips would be three chances to hold up a join.
+async fn global_emotes(state: &AppState, providers: Providers) -> HashMap<String, Emote> {
+    let (ffz_set, bttv_set, seventv_set) = tokio::join!(
+        or_empty(providers.ffz, ffz::fetch_global(&state.http)),
+        or_empty(providers.bttv, bttv::fetch_global(&state.http)),
+        or_empty(providers.seventv, seventv::fetch_global(&state.http)),
+    );
+    // Lowest priority first: where two providers ship the same name, 7TV's is
+    // the one channels actually curate, so it wins.
+    emotes::merge(vec![ffz_set, bttv_set, seventv_set])
+}
+
+/// The same for one channel's sets, keyed by its Twitch user id.
+async fn channel_emotes(
+    state: &AppState,
+    providers: Providers,
+    room_id: &str,
+) -> HashMap<String, Emote> {
+    let (ffz_set, bttv_set, seventv_set) = tokio::join!(
+        or_empty(providers.ffz, ffz::fetch_channel(&state.http, room_id)),
+        or_empty(providers.bttv, bttv::fetch_channel(&state.http, room_id)),
+        or_empty(providers.seventv, seventv::fetch_channel(&state.http, room_id)),
+    );
+    emotes::merge(vec![ffz_set, bttv_set, seventv_set])
+}
+
+/// Which providers to ask, as of now. Read into an owned value: the guard
+/// can't be held across the awaits that follow.
+fn providers(state: &AppState) -> Providers {
+    Providers::from(&*state.preferences.read())
+}
+
+/// Fetch the global emote sets and global Twitch badges. Safe to call again
+/// after login, or after the enabled providers change.
+pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
+    let emotes = global_emotes(&state, providers(&state)).await;
+    *state.global_emotes.write() = emotes;
 
     let credentials = { state.auth.read().credentials() };
     if let Some((client_id, token)) = credentials {
@@ -158,11 +204,7 @@ async fn load_channel_assets(
     channel: String,
     room_id: String,
 ) {
-    let emotes = timeout(ASSET_TIMEOUT, seventv::fetch_channel(&state.http, &room_id))
-        .await
-        .ok()
-        .and_then(|result| result.ok())
-        .unwrap_or_default();
+    let emotes = channel_emotes(&state, providers(&state), &room_id).await;
 
     let credentials = { state.auth.read().credentials() };
     let (badge_map, twitch_emote_names) = match credentials {
@@ -232,6 +274,48 @@ async fn load_channel_assets(
     let _ = app.emit(
         "chat://channel-ready",
         json!({ "channel": channel, "emoteCount": emote_count }),
+    );
+
+    purge_image_cache(&app, &state);
+}
+
+/// Re-fetch the emote sets after the enabled providers changed. Only the
+/// emotes: badges, roles and history are unaffected, and a channel that's
+/// already ready stays ready -- nothing here touches `pending`.
+///
+/// Messages already rendered keep the emotes they were resolved with; the
+/// frontend is what stops drawing a switched-off provider's images in the
+/// backlog (see `EmoteView`). This is what makes switching one back *on* work.
+pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
+    let providers = providers(&state);
+
+    let global = global_emotes(&state, providers).await;
+    *state.global_emotes.write() = global;
+
+    let rooms: Vec<(String, String)> = state
+        .data
+        .read()
+        .iter()
+        .filter_map(|(channel, data)| {
+            data.room_id.clone().map(|room_id| (channel.clone(), room_id))
+        })
+        .collect();
+
+    for (channel, room_id) in rooms {
+        let emotes = channel_emotes(&state, providers, &room_id).await;
+        if let Some(entry) = state.data.write().get_mut(&channel) {
+            entry.emotes = emotes;
+        }
+    }
+
+    // The frontend rebuilds every channel's completion index off this, which
+    // is exactly what a changed provider set needs.
+    let _ = app.emit(
+        "chat://assets",
+        json!({
+            "globalEmotes": state.global_emotes.read().len(),
+            "globalBadges": state.global_badges.read().len(),
+        }),
     );
 
     purge_image_cache(&app, &state);

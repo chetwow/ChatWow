@@ -172,8 +172,20 @@ fn set_preferences(
     state: State<'_, Shared>,
     preferences: settings::Preferences,
 ) -> settings::Preferences {
+    let before = emotes::Providers::from(&*state.preferences.read());
+    let after = emotes::Providers::from(&preferences);
     *state.preferences.write() = preferences;
     persist(&app, &state);
+
+    // Switching a provider on has to go and fetch it -- nothing else will, the
+    // sets being loaded on join. Switching one off goes through the same path,
+    // which is what drops its emotes from completion.
+    if before != after {
+        let shared = Arc::clone(&state);
+        let handle = app.clone();
+        tauri::async_runtime::spawn(client::reload_emotes(handle, shared));
+    }
+
     state.preferences.read().clone()
 }
 

@@ -1,8 +1,8 @@
 # ChatWow
 
 A desktop Twitch chat client. Read and write several channels at once, with chat rendered the
-way Twitch renders it: native Twitch emotes, 7TV global and channel emotes (zero-width overlays
-included), user badges, and everyone's real name color.
+way Twitch renders it: native Twitch emotes, 7TV, BetterTTV and FrankerFaceZ emotes (zero-width
+overlays included), user badges, and everyone's real name color.
 
 - Tabs for as many channels as you like, on one scrolling row or wrapped onto several
 - Recent messages on join, so a channel is never a blank pane
@@ -92,6 +92,12 @@ always ping unless you're muted.
 
 ## Emotes
 
+Emotes come from Twitch itself and from three third-party services: 7TV, BetterTTV and
+FrankerFaceZ, each in both its global set and the channel's own. Where two of them ship an emote
+under the same name, 7TV's is the one you see. Any of the three can be switched off in
+Settings -> Emotes, which stops the app asking that service for anything at all -- its emotes
+leave the picker, and words that were drawn as one go back to being words.
+
 `Tab` completes the word you're typing -- emotes first, then chatters whose name starts the same
 way. Press it again to cycle, `Shift+Tab` to go back. A word starting with `@` completes to a
 name only.
@@ -120,7 +126,7 @@ The gear in the title bar opens:
 - **Account** — sign in and out, choose permissions, set a Client ID
 - **Appearance** — chat font size, timestamps, italic `/me` actions, and whether tabs scroll on
   one row or wrap onto several
-- **Emotes** — the hidden-emote lists
+- **Emotes** — which emote services to use, and the hidden-emote lists
 - **Notifications** — which mentions ping
 
 Every setting explains itself behind the info dot on its label.
@@ -146,8 +152,8 @@ On macOS the window closes with its own button or `Cmd+Q`, since `Cmd+W` closes 
 
 ## Not supported yet
 
-BTTV/FFZ emotes, a dedicated whisper view (they land in the channel you're reading), and
-searching chat history.
+A dedicated whisper view (they land in the channel you're reading), and searching chat
+history.
 
 ## Working on it
 

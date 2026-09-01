@@ -1,4 +1,5 @@
-//! Opt-in smoke test against the real Twitch IRC gateway and the real 7TV API.
+//! Opt-in smoke tests against the real Twitch IRC gateway and the real emote
+//! provider APIs.
 //!
 //! Excluded from the normal suite because it needs the network:
 //!   cargo test -- --ignored --nocapture
@@ -193,4 +194,75 @@ async fn live_pipeline_resolves_real_messages() {
         !raw_messages.is_empty(),
         "expected at least some chat traffic across {CHANNELS:?}"
     );
+}
+
+/// The BetterTTV and FrankerFaceZ endpoints, against real channels. Their
+/// response shapes are hand-mirrored like 7TV's, so this is what catches a
+/// provider changing one under us -- an empty map is the symptom, and it looks
+/// exactly like a channel that simply has no emotes.
+#[tokio::test]
+#[ignore = "hits the live BetterTTV and FrankerFaceZ APIs"]
+async fn live_bttv_and_ffz_sets_parse() {
+    // forsen: carries emotes on both services. (Channel size is no guide --
+    // xQc's BTTV set is empty and his FFZ set is one emote.)
+    const ROOM_ID: &str = "22484632";
+
+    let http = reqwest::Client::builder()
+        .user_agent("chatwow/0.1 livecheck")
+        .build()
+        .unwrap();
+
+    let bttv_global = crate::emotes::bttv::fetch_global(&http)
+        .await
+        .expect("global BTTV set should load");
+    println!("global BTTV emotes: {}", bttv_global.len());
+    assert!(bttv_global.len() > 20, "expected a populated set, got {}", bttv_global.len());
+
+    let ffz_global = crate::emotes::ffz::fetch_global(&http)
+        .await
+        .expect("global FFZ set should load");
+    println!("global FFZ emotes: {}", ffz_global.len());
+    // A lower bar than the others on purpose: FFZ's default global set is
+    // genuinely small (~15), where BTTV's is dozens. Anything above zero
+    // proves the shape parsed; the number itself is FFZ's business.
+    assert!(ffz_global.len() > 5, "expected a populated set, got {}", ffz_global.len());
+
+    let bttv_channel = crate::emotes::bttv::fetch_channel(&http, ROOM_ID)
+        .await
+        .expect("channel BTTV set should load");
+    let ffz_channel = crate::emotes::ffz::fetch_channel(&http, ROOM_ID)
+        .await
+        .expect("channel FFZ set should load");
+    println!(
+        "forsen: {} BTTV, {} FFZ channel emotes",
+        bttv_channel.len(),
+        ffz_channel.len()
+    );
+    // BTTV's channel response splits into a channel's own emotes and the ones
+    // it borrows; both are usable in chat, so both have to land here.
+    assert!(bttv_channel.len() > 50, "expected forsen's own and shared BTTV emotes");
+    assert!(!ffz_channel.is_empty(), "forsen should have FFZ channel emotes");
+
+    // Every url has to be absolute and https -- FFZ answers protocol-relative,
+    // and a `//cdn...` src in the webview resolves against `tauri://`.
+    for (name, emote) in bttv_global.iter().chain(&ffz_global).chain(&ffz_channel) {
+        assert!(
+            emote.url.starts_with("https://") && emote.url_large.starts_with("https://"),
+            "{name} has a relative url: {} / {}",
+            emote.url,
+            emote.url_large
+        );
+        assert!(!emote.id.is_empty(), "{name} has no id to cache it under");
+    }
+
+    // A channel neither service knows is an empty map, not an error -- it's
+    // the common case for a small streamer and must not break a join.
+    let unknown = crate::emotes::bttv::fetch_channel(&http, "1")
+        .await
+        .expect("an unknown channel is not an error");
+    assert!(unknown.is_empty());
+    let unknown = crate::emotes::ffz::fetch_channel(&http, "1")
+        .await
+        .expect("an unknown channel is not an error");
+    assert!(unknown.is_empty());
 }

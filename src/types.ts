@@ -15,7 +15,7 @@ export type Segment =
       name: string;
       url: string;
       url_large: string;
-      provider: "twitch" | "7tv";
+      provider: EmoteProvider;
       overlays: Overlay[];
     }
   | { kind: "mention"; text: string }
@@ -130,6 +130,10 @@ export type Preferences = {
   notifyActiveTab: boolean;
   /** Load a channel's recent messages when you join it. */
   showMessageHistory: boolean;
+  /** Third-party emote providers, each on by default. */
+  enableSeventv: boolean;
+  enableBttv: boolean;
+  enableFfz: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */
@@ -166,6 +170,9 @@ export type ClearEvent = {
   messageId?: string | null;
   duration?: number | null;
 };
+
+/** Where an emote came from. Twitch's own are never optional; the rest are. */
+export type EmoteProvider = "twitch" | "7tv" | "bttv" | "ffz";
 
 /** One emote the composer can complete to and the picker can show. */
 export type EmoteEntry = {

@@ -31,12 +31,24 @@ pub fn dir(app: &AppHandle) -> Result<PathBuf> {
 /// rather than trusted -- a key is one provider and one id, nothing that could
 /// climb out of the cache directory.
 pub fn is_valid_key(key: &str) -> bool {
-    let Some(id) = key.strip_prefix("7tv-").or_else(|| key.strip_prefix("twitch-")) else {
-        return false;
-    };
+    let Some((_, id)) = split_key(key) else { return false };
     !id.is_empty()
         && id.len() <= 64
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The providers whose images we serve. FFZ is deliberately absent: it splits
+/// animated emotes onto their own url path, and an id alone can't say which
+/// kind it is -- asking for the animated one first hangs on the emotes that
+/// aren't (their CDN doesn't answer that path at all, not even a 404). Its
+/// emotes go straight to the CDN url the API gave us, which is already the
+/// right one; the webview's own HTTP cache is what stops the refetching.
+const PROVIDERS: [&str; 3] = ["7tv", "twitch", "bttv"];
+
+fn split_key(key: &str) -> Option<(&'static str, &str)> {
+    PROVIDERS
+        .iter()
+        .find_map(|provider| key.strip_prefix(&format!("{provider}-")).map(|id| (*provider, id)))
 }
 
 /// Where to download a key from. Both providers address images by id, so the
@@ -45,11 +57,15 @@ pub fn source_url(key: &str) -> Option<String> {
     if !is_valid_key(key) {
         return None;
     }
-    if let Some(id) = key.strip_prefix("7tv-") {
-        return Some(format!("https://cdn.7tv.app/emote/{id}/2x.webp"));
+    let (provider, id) = split_key(key)?;
+    match provider {
+        "7tv" => Some(format!("https://cdn.7tv.app/emote/{id}/2x.webp")),
+        "twitch" => Some(super::twitch_emote(id, "").url),
+        // One url whatever the emote's format: BTTV serves png, gif or webp
+        // from the same path, so an animated emote needs no special case.
+        "bttv" => Some(format!("https://cdn.betterttv.net/emote/{id}/2x")),
+        _ => None,
     }
-    let id = key.strip_prefix("twitch-")?;
-    Some(super::twitch_emote(id, "").url)
 }
 
 /// Sniffed rather than assumed: 7TV serves webp, Twitch serves png or gif, and
@@ -142,6 +158,7 @@ mod tests {
         assert!(is_valid_key("7tv-01FCY771D800007PQ2DF3GDTN6"));
         assert!(is_valid_key("twitch-25"));
         assert!(is_valid_key("twitch-emotesv2_a1b2"), "Twitch's newer id format");
+        assert!(is_valid_key("bttv-54fa8f1401e468494b85b537"));
     }
 
     #[test]
@@ -150,18 +167,24 @@ mod tests {
         assert!(!is_valid_key("7tv-a/b"));
         assert!(!is_valid_key("../secrets"));
         assert!(!is_valid_key("7tv-"), "a provider with no emote");
-        assert!(!is_valid_key("bttv-abc"), "provider we don't serve");
+        assert!(!is_valid_key("nowhere-abc"), "provider we don't serve");
         assert!(!is_valid_key(&format!("7tv-{}", "a".repeat(65))));
     }
 
     #[test]
     fn source_urls_are_derived_from_the_id() {
-        assert_eq!(
-            source_url("7tv-abc").unwrap(),
-            "https://cdn.7tv.app/emote/abc/2x.webp"
-        );
+        assert_eq!(source_url("7tv-abc").unwrap(), "https://cdn.7tv.app/emote/abc/2x.webp");
         assert!(source_url("twitch-25").unwrap().contains("/emoticons/v2/25/"));
+        assert_eq!(source_url("bttv-abc").unwrap(), "https://cdn.betterttv.net/emote/abc/2x");
         assert!(source_url("nonsense").is_none());
+    }
+
+    #[test]
+    fn ffz_images_are_not_served_from_the_cache() {
+        // Its animated emotes live on a different path, and a key carries no
+        // hint which kind it is -- so FFZ emotes keep their CDN url.
+        assert!(!is_valid_key("ffz-28138"));
+        assert!(source_url("ffz-28138").is_none());
     }
 
     #[test]

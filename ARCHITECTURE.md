@@ -207,6 +207,34 @@ started, and typing over a recalled message ends the walk so the next `↑` star
 History is per channel and lives only for the session, and a repeat of the previous message
 doesn't add a second entry. The emote picker takes the arrows first while it's open.
 
+## Emote providers
+
+Three services, plus Twitch's own emotes: 7TV
+([src-tauri/src/emotes/seventv.rs](src-tauri/src/emotes/seventv.rs)), BetterTTV
+([bttv.rs](src-tauri/src/emotes/bttv.rs)) and FrankerFaceZ
+([ffz.rs](src-tauri/src/emotes/ffz.rs)). Each is asked for its global set once at startup and for
+a channel's set on join, by Twitch user id; the three run concurrently, and a provider that's
+down, slow or has never heard of the channel yields an empty map rather than an error -- a
+channel with no BTTV account 404s, which is the common case, not a failure.
+
+`emotes::merge` folds them into one name→`Emote` map, lowest priority first: FFZ, BTTV, 7TV. So
+where two providers ship the same name, 7TV's is the one that renders -- it's the set channels
+actually curate. Channel emotes land in `ChannelData::emotes` and are looked up before the
+globals, so a channel's own version of a name always wins.
+
+Only 7TV marks zero-width overlays. BTTV and FFZ both have a notion of "modifier" emotes, but
+theirs is a prefix syntax (`w!`, `z!`) applied to the emote *after* them rather than something
+that stacks on the one before, so nothing here folds them.
+
+Each provider can be switched off, and that takes two mechanisms for one reason. Rust stops
+asking the service, which is what removes its emotes from the maps and from completion -- but the
+messages already on screen were resolved before the switch and are immutable, so
+[src/lib/emoteProviders.ts](src/lib/emoteProviders.ts) is consulted by `EmoteView` on every render
+and draws the plain word instead. Turning one back on has nothing to draw until the sets are
+fetched again, so `set_preferences` respawns `client::reload_emotes` whenever the enabled set
+changes; it re-fetches the globals and every joined channel, then emits `chat://assets`, which the
+frontend already treats as "rebuild every channel's completion index".
+
 ## Emote completion and search
 
 Both entry points -- `Tab` and the `:` picker -- are fed by the same per-channel index (7TV
@@ -248,6 +276,14 @@ displayed), and a miss or failure falls back to the CDN url. Images that no join
 reach any more are purged once every channel's set has loaded -- purging on a partial picture
 would evict images the other channels are about to ask for.
 
+FFZ is the exception: its images aren't served from the cache at all. A key is
+`<provider>-<id>` and nothing more, but FFZ puts animated emotes on a different path from static
+ones (`/emote/<id>/animated/2.webp`), so the key can't say which url to fetch -- and asking for
+the animated one speculatively doesn't 404, it hangs. `is_valid_key` omits `ffz` and
+`CACHED_PROVIDERS` in [src/components/EmoteImage.tsx](src/components/EmoteImage.tsx) mirrors that,
+so FFZ emotes load from the url the API handed us, which is already the right one for either
+kind. BTTV needs no such care: it serves png, gif and webp from the same path.
+
 ## Settings
 
 Preferences live in `settings.json` next to the tokens and channel list -- `Preferences` in
@@ -275,6 +311,8 @@ sits behind the info dot on its label, which keeps the list scannable.
 | `src-tauri/src/render.rs` | Emote ranges, overlay folding, badge and segment resolution |
 | `src-tauri/src/color.rs` | Twitch default color palette + dark-background readability lift |
 | `src-tauri/src/emotes/seventv.rs` | 7TV v3 global and channel emote sets |
+| `src-tauri/src/emotes/bttv.rs` | BetterTTV global, channel and shared emotes |
+| `src-tauri/src/emotes/ffz.rs` | FrankerFaceZ global and room sets |
 | `src-tauri/src/emotes/cache.rs` | On-disk emote images, served over `emote://` |
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
@@ -301,6 +339,10 @@ cd src-tauri && cargo test
 Covers tag unescaping, code-point emote ranges, zero-width overlay folding, badge lookup
 fallbacks, the default color hash, emote-index ordering and use counting, command argument
 parsing, the backlog's filtering, and the image cache's key validation, content-type sniffing and
-purge selection. `cargo test -- --ignored` additionally hits the real Twitch and 7TV APIs.
+purge selection. `cargo test -- --ignored` additionally hits the real APIs: one check runs a
+message through the whole pipeline off the live Twitch socket and 7TV, another parses the
+BetterTTV and FrankerFaceZ sets for real channels. Those are the ones that catch a provider
+changing its response shape -- the symptom is an empty map, which is indistinguishable from a
+channel that simply has no emotes there.
 
 The frontend has no test suite; `npm run build` type-checks it.

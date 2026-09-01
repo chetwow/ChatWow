@@ -523,6 +523,33 @@ export function SettingsDialog({
 
           {tab === "emotes" && (
             <div className="flex flex-col gap-5">
+              <Section title="Sources">
+                {/* Off means the service is never asked at all, so its emotes
+                    leave completion and the words they were drawn from go back
+                    to being words. Twitch's own emotes aren't a source you can
+                    switch off: they arrive named in the message itself. */}
+                <Row label="7TV">
+                  <Toggle
+                    checked={preferences.enableSeventv}
+                    onChange={(enableSeventv) => updatePreferences({ enableSeventv })}
+                    label="7TV emotes"
+                  />
+                </Row>
+                <Row label="BetterTTV">
+                  <Toggle
+                    checked={preferences.enableBttv}
+                    onChange={(enableBttv) => updatePreferences({ enableBttv })}
+                    label="BetterTTV emotes"
+                  />
+                </Row>
+                <Row label="FrankerFaceZ">
+                  <Toggle
+                    checked={preferences.enableFfz}
+                    onChange={(enableFfz) => updatePreferences({ enableFfz })}
+                    label="FrankerFaceZ emotes"
+                  />
+                </Row>
+              </Section>
               <Section
                 title="Hidden emotes"
                 hint="Drawn as their underlined name instead of their image; hover the name for the usual preview. A name rule catches every emote called that, an id rule catches one image however it's aliased."

@@ -2,6 +2,10 @@ import { useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { IS_TAURI } from "../lib/tauri";
 
+/** Kept in step with `is_valid_key` in `emotes/cache.rs`; anything else --
+ *  FFZ, whose images aren't id-derivable -- is served straight from its CDN. */
+const CACHED_PROVIDERS = new Set(["7tv", "twitch", "bttv"]);
+
 /**
  * An emote image, served from the on-disk cache when there is one.
  *
@@ -15,7 +19,7 @@ import { IS_TAURI } from "../lib/tauri";
  */
 function cachedSrc(provider: string, id: string, remote: string): string {
   if (!IS_TAURI || !id) return remote;
-  if (provider !== "7tv" && provider !== "twitch") return remote;
+  if (!CACHED_PROVIDERS.has(provider)) return remote;
   return convertFileSrc(`${provider}-${id}`, "emote");
 }
 

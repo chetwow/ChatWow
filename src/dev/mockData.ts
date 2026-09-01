@@ -63,6 +63,42 @@ function sevenTv(name: string, url: string, overlays: Overlay[] = []): Segment {
   };
 }
 
+/** Real ids, so the images load from the providers' own CDNs like the 7TV ones. */
+const BTTV_EMOTES: [string, string][] = [
+  ["5590b223b344e2c42a9e28e3", "haHAA"],
+  ["566ca38765dbbdab32ec0560", "SourPls"],
+];
+const FFZ_EMOTES: [string, string][] = [
+  ["28138", "CatBag"],
+  ["25927", "ZreknarF"],
+];
+
+function bttv(name: string): Segment {
+  const id = BTTV_EMOTES.find(([, code]) => code === name)?.[0] ?? "";
+  return {
+    kind: "emote",
+    id,
+    name,
+    url: `https://cdn.betterttv.net/emote/${id}/2x`,
+    url_large: `https://cdn.betterttv.net/emote/${id}/3x`,
+    provider: "bttv",
+    overlays: [],
+  };
+}
+
+function ffz(name: string): Segment {
+  const id = FFZ_EMOTES.find(([, code]) => code === name)?.[0] ?? "";
+  return {
+    kind: "emote",
+    id,
+    name,
+    url: `https://cdn.frankerfacez.com/emote/${id}/2`,
+    url_large: `https://cdn.frankerfacez.com/emote/${id}/4`,
+    provider: "ffz",
+    overlays: [],
+  };
+}
+
 function twitch(id: string, name: string): Segment {
   return {
     kind: "emote",
@@ -95,6 +131,21 @@ const DRAFTS: Draft[] = [
     color: "#FF0000",
     badges: [SUB, PRIME],
     segments: [text("that play was insane "), twitch("305954156", "PogChamp"), text(" "), twitch("25", "Kappa")],
+  },
+  {
+    // One of each third-party provider, so the Emotes tab's toggles have
+    // something to switch off in the preview.
+    login: "provider_check",
+    displayName: "provider_check",
+    color: "#F5A9B8",
+    segments: [
+      text("7tv "),
+      sevenTv("Clap", "https://cdn.7tv.app/emote/01GAM8EFQ00004MXFXAJYKA859/2x.webp"),
+      text(" bttv "),
+      bttv("haHAA"),
+      text(" ffz "),
+      ffz("CatBag"),
+    ],
   },
   {
     login: "yumier_",
@@ -303,6 +354,14 @@ export function mockEmoteIndex(): EmoteIndex {
       url: `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/2.0`,
       provider: "twitch",
     });
+  }
+
+  for (const [id, name] of BTTV_EMOTES) {
+    entries.push({ id, name, url: `https://cdn.betterttv.net/emote/${id}/2x`, provider: "bttv" });
+  }
+
+  for (const [id, name] of FFZ_EMOTES) {
+    entries.push({ id, name, url: `https://cdn.frankerfacez.com/emote/${id}/2`, provider: "ffz" });
   }
 
   return {
