@@ -206,6 +206,31 @@ fn set_client_id_override(
     state.auth_status()
 }
 
+/// Channel suggestions for the join dialog.
+///
+/// Empty rather than an error when signed out: Helix has no unauthenticated
+/// channel search and this app can't mint an app token (that needs the client
+/// secret it deliberately never has), so there's simply nothing to look in.
+/// The dialog knows the sign-in state and says so itself.
+#[tauri::command]
+async fn search_channels(
+    state: State<'_, Shared>,
+    query: String,
+) -> Result<Vec<twitch::search::ChannelHit>, String> {
+    let trimmed = query.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let Some((client_id, token)) = ({ state.auth.read().credentials() }) else {
+        return Ok(Vec::new());
+    };
+
+    twitch::search::search_channels(&state.http, &client_id, &token, &trimmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn start_device_auth(state: State<'_, Shared>) -> Result<auth::DeviceCode, String> {
     let client_id = {
@@ -488,6 +513,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             auth_status,
             set_client_id_override,
+            search_channels,
             start_device_auth,
             poll_device_auth,
             logout,

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AuthStatus, DeviceCode, EmoteIndex, Preferences } from "../types";
+import type { AuthStatus, ChannelHit, DeviceCode, EmoteIndex, Preferences } from "../types";
 
 export const api = {
   authStatus: () => invoke<AuthStatus>("auth_status"),
@@ -20,6 +20,8 @@ export const api = {
   sendMessage: (channel: string, text: string, replyToId?: string) =>
     invoke<void>("send_message", { channel, text, replyToId }),
   emoteIndex: (channel: string) => invoke<EmoteIndex>("emote_index", { channel }),
+  /** Empty when signed out -- Helix has no unauthenticated channel search. */
+  searchChannels: (query: string) => invoke<ChannelHit[]>("search_channels", { query }),
   recordEmoteUses: (channel: string, names: string[]) =>
     invoke<void>("record_emote_uses", { channel, names }),
   preferences: () => invoke<Preferences>("preferences"),

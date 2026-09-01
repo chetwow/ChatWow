@@ -197,8 +197,7 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
       {auth.loggedIn ? (
         <>
           <p>
-            Signed in as <span className="font-semibold text-ink">@{auth.login}</span>. Badge art
-            is loading from the Twitch API.
+            Signed in as <span className="font-semibold text-ink">@{auth.login}</span>.
           </p>
           <button
             onClick={() => void signOut()}

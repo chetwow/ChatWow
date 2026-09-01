@@ -142,6 +142,19 @@ export type EmoteIndex = {
   uses: Record<string, number>;
 };
 
+/** One channel-search suggestion, hand-mirrored from `twitch::search::ChannelHit`. */
+export type ChannelHit = {
+  /** The lowercase name to join. */
+  login: string;
+  /** How the broadcaster capitalizes it -- display only. */
+  displayName: string;
+  isLive: boolean;
+  /** Empty when offline, or when Twitch has no game for the stream. */
+  gameName: string;
+  /** Profile image, empty if Twitch gave us none. */
+  thumbnailUrl: string;
+};
+
 export type ChannelReadyEvent = {
   channel: string;
   emoteCount: number;

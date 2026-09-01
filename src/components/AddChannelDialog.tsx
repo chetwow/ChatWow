@@ -1,17 +1,143 @@
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "../store/chat";
+import { api } from "../lib/api";
+import { IS_TAURI } from "../lib/tauri";
+import type { ChannelHit } from "../types";
 
-const SUGGESTIONS = ["forsen", "xqc", "sodapoppin", "moistcr1tikal", "hasanabi"];
+/** Wait this long after the last keystroke before asking Twitch. */
+const DEBOUNCE_MS = 250;
+/**
+ * Below this, search isn't worth a request: one character returns near-random
+ * relevance ordering, and anyone who knows the channel is about to type more.
+ */
+const MIN_QUERY = 2;
+
+/**
+ * Mock mode has no backend to invoke. The import stays dynamic so the sample
+ * data never reaches a production bundle.
+ */
+async function searchChannels(query: string): Promise<ChannelHit[]> {
+  if (!IS_TAURI) {
+    const { mockSearchChannels } = await import("../dev/mockData");
+    return mockSearchChannels(query);
+  }
+  return api.searchChannels(query);
+}
+
+function LiveDot() {
+  return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />;
+}
+
+function Suggestion({
+  hit,
+  joined,
+  active,
+  onHover,
+  onPick,
+}: {
+  hit: ChannelHit;
+  joined: boolean;
+  active: boolean;
+  onHover: () => void;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={joined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+        joined ? "cursor-default opacity-50" : active ? "bg-surface-hover" : "",
+      ].join(" ")}
+    >
+      {hit.thumbnailUrl ? (
+        <img
+          src={hit.thumbnailUrl}
+          alt=""
+          loading="lazy"
+          className="h-6 w-6 shrink-0 rounded-full object-cover"
+        />
+      ) : (
+        <span className="h-6 w-6 shrink-0 rounded-full bg-line" />
+      )}
+
+      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{hit.displayName}</span>
+
+      {hit.isLive && !joined && (
+        <span className="flex min-w-0 shrink items-center gap-1.5 text-[11px] text-ink-faint">
+          <LiveDot />
+          <span className="truncate">{hit.gameName || "Live"}</span>
+        </span>
+      )}
+      {joined && <span className="shrink-0 text-[10px] text-ink-faint">joined</span>}
+    </button>
+  );
+}
 
 export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   const join = useChat((state) => state.join);
   const channels = useChat((state) => state.channels);
+  const loggedIn = useChat((state) => state.auth.loggedIn);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [hits, setHits] = useState<ChannelHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  /** -1 means "join exactly what's typed" -- the arrow keys step into the list. */
+  const [active, setActive] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  /** Only the newest search may write results; earlier ones land out of order. */
+  const request = useRef(0);
 
   useEffect(() => input.current?.focus(), []);
+
+  const query = value.trim();
+  const canSearch = IS_TAURI ? loggedIn : true;
+
+  useEffect(() => {
+    setActive(-1);
+    if (!canSearch || query.length < MIN_QUERY) {
+      setHits([]);
+      setSearching(false);
+      return;
+    }
+
+    const ticket = ++request.current;
+    setSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const found = await searchChannels(query);
+        if (ticket === request.current) setHits(found);
+      } catch {
+        // A failed search shouldn't take over the dialog -- you can still type
+        // a name and press Enter, which is the path that never needed Twitch.
+        if (ticket === request.current) setHits([]);
+      } finally {
+        if (ticket === request.current) setSearching(false);
+      }
+    }, DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [query, canSearch]);
+
+  /**
+   * Next selectable row, wrapping back through -1 so the text you typed is
+   * always reachable. Channels you're already in are skipped: they're disabled,
+   * so landing on one would highlight nothing and look like a dead keypress.
+   * Returns -1 if every hit is already joined.
+   */
+  const step = (from: number, direction: 1 | -1): number => {
+    let next = from;
+    for (let i = 0; i <= hits.length; i++) {
+      next += direction;
+      if (next >= hits.length) next = -1;
+      else if (next < -1) next = hits.length - 1;
+      if (next === -1 || !channels.includes(hits[next].login)) return next;
+    }
+    return -1;
+  };
 
   const submit = async (name: string) => {
     const trimmed = name.trim();
@@ -29,9 +155,20 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const available = SUGGESTIONS.filter(
-    (name) => !channels.includes(name) && name.includes(value.trim().toLowerCase()),
-  );
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") return onClose();
+
+    if (event.key === "Enter") {
+      const hit = active >= 0 ? hits[active] : null;
+      return void submit(hit ? hit.login : value);
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (hits.length === 0) return;
+      event.preventDefault();
+      setActive(step(active, event.key === "ArrowDown" ? 1 : -1));
+    }
+  };
 
   return (
     <div
@@ -49,16 +186,17 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
             ref={input}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit(value);
-              if (event.key === "Escape") onClose();
-            }}
+            onKeyDown={onKeyDown}
             placeholder="Join a channel"
             spellCheck={false}
             autoComplete="off"
             className="selectable flex-1 bg-transparent py-3 text-[14px] text-ink outline-none placeholder:text-ink-faint"
           />
-          {busy && <span className="text-[11px] text-ink-faint">joining...</span>}
+          {busy ? (
+            <span className="text-[11px] text-ink-faint">joining...</span>
+          ) : (
+            searching && <span className="text-[11px] text-ink-faint">searching...</span>
+          )}
         </div>
 
         {error && (
@@ -67,27 +205,33 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {available.length > 0 && (
-          <div className="p-1">
-            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-              Suggestions
-            </div>
-            {available.map((name) => (
-              <button
-                key={name}
-                onClick={() => void submit(name)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
-              >
-                <span className="text-ink-faint">#</span>
-                {name}
-              </button>
+        {hits.length > 0 && (
+          <div className="scroller max-h-[260px] overflow-y-auto p-1">
+            {hits.map((hit, index) => (
+              <Suggestion
+                key={hit.login}
+                hit={hit}
+                joined={channels.includes(hit.login)}
+                active={index === active}
+                onHover={() => setActive(index)}
+                onPick={() => void submit(hit.login)}
+              />
             ))}
           </div>
         )}
 
         <div className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
-          Press <kbd className="rounded bg-line px-1">Enter</kbd> to join,{" "}
-          <kbd className="rounded bg-line px-1">Esc</kbd> to close
+          {!canSearch ? (
+            // Helix has no unauthenticated channel search, so this is a real
+            // limit rather than something to paper over -- but typing a name
+            // still works, which is worth saying in the same breath.
+            <>Sign in to search channels, or type a name and press Enter</>
+          ) : (
+            <>
+              Press <kbd className="rounded bg-line px-1">Enter</kbd> to join,{" "}
+              <kbd className="rounded bg-line px-1">Esc</kbd> to close
+            </>
+          )}
         </div>
       </div>
     </div>

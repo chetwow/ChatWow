@@ -1,4 +1,13 @@
-import type { Badge, ChatMessage, EmoteEntry, EmoteIndex, Overlay, ReplyInfo, Segment } from "../types";
+import type {
+  Badge,
+  ChannelHit,
+  ChatMessage,
+  EmoteEntry,
+  EmoteIndex,
+  Overlay,
+  ReplyInfo,
+  Segment,
+} from "../types";
 
 /**
  * Sample data for design iteration in a plain browser (no Rust backend).
@@ -289,4 +298,23 @@ export function buildOwnMockMessage(channel: string, raw: string, replyTo?: Repl
     channel,
     Date.now(),
   );
+}
+
+/** Stand-in channel search, so the join dialog is exercisable in mock mode. */
+const MOCK_SEARCH: ChannelHit[] = [
+  { login: "forsen", displayName: "Forsen", isLive: true, gameName: "Chess", thumbnailUrl: "" },
+  { login: "forsenlol", displayName: "forsenlol", isLive: false, gameName: "", thumbnailUrl: "" },
+  { login: "nymn", displayName: "NymN", isLive: true, gameName: "Just Chatting", thumbnailUrl: "" },
+  { login: "nmplol", displayName: "Nmplol", isLive: false, gameName: "", thumbnailUrl: "" },
+  { login: "sodapoppin", displayName: "sodapoppin", isLive: false, gameName: "", thumbnailUrl: "" },
+  { login: "solary", displayName: "Solary", isLive: true, gameName: "VALORANT", thumbnailUrl: "" },
+  { login: "xqc", displayName: "xQc", isLive: true, gameName: "Just Chatting", thumbnailUrl: "" },
+];
+
+export function mockSearchChannels(query: string): ChannelHit[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const hits = MOCK_SEARCH.filter((hit) => hit.login.includes(needle));
+  // Live first, matching what the backend sorts.
+  return [...hits].sort((a, b) => Number(b.isLive) - Number(a.isLive));
 }
