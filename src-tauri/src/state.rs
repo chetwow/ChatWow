@@ -153,7 +153,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let http = reqwest::Client::builder()
-            .user_agent("chatwow/0.1")
+            .user_agent(concat!("chatwow/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .expect("failed to build HTTP client");

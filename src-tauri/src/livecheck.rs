@@ -23,7 +23,7 @@ const LISTEN_FOR: Duration = Duration::from_secs(25);
 #[ignore = "hits the live Twitch and 7TV APIs"]
 async fn live_pipeline_resolves_real_messages() {
     let http = reqwest::Client::builder()
-        .user_agent("chatwow/0.1 livecheck")
+        .user_agent(concat!("chatwow/", env!("CARGO_PKG_VERSION"), " livecheck"))
         .build()
         .unwrap();
 
@@ -208,7 +208,7 @@ async fn live_bttv_and_ffz_sets_parse() {
     const ROOM_ID: &str = "22484632";
 
     let http = reqwest::Client::builder()
-        .user_agent("chatwow/0.1 livecheck")
+        .user_agent(concat!("chatwow/", env!("CARGO_PKG_VERSION"), " livecheck"))
         .build()
         .unwrap();
 
@@ -275,7 +275,7 @@ async fn live_bttv_and_ffz_sets_parse() {
 #[ignore = "hits the live 7TV GraphQL API"]
 async fn live_seventv_badges_resolve() {
     let http = reqwest::Client::builder()
-        .user_agent("chatwow/0.1 livecheck")
+        .user_agent(concat!("chatwow/", env!("CARGO_PKG_VERSION"), " livecheck"))
         .build()
         .unwrap();
 
@@ -307,7 +307,7 @@ async fn live_seventv_badges_resolve() {
 #[ignore = "hits the live ivr.fi API"]
 async fn live_user_card_history_resolves() {
     let http = reqwest::Client::builder()
-        .user_agent("chatwow/0.1 livecheck")
+        .user_agent(concat!("chatwow/", env!("CARGO_PKG_VERSION"), " livecheck"))
         .build()
         .unwrap();
 
