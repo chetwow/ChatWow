@@ -35,10 +35,15 @@ export function Hinted({
         <path d="M8 7.2v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
       {/* Anchored under the label and clamped to the panel's width, so a long
-          explanation can't push a scrollbar into the dialog. */}
+          explanation can't push a scrollbar into the dialog.
+
+          Case, weight and tracking are reset rather than merely unset: the
+          label this hangs off can be styled, and a section heading's small
+          caps were inherited straight into the sentence below it. A tooltip is
+          prose wherever it's used. */}
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] leading-relaxed text-ink-dim shadow-lg shadow-black/50 group-hover/hint:block group-focus/hint:block"
+        className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] font-normal normal-case leading-relaxed tracking-normal text-ink-dim shadow-lg shadow-black/50 group-hover/hint:block group-focus/hint:block"
       >
         {hint}
       </span>

@@ -341,27 +341,38 @@ function NameListEditor({
       </div>
 
       {entries.length === 0 ? (
-        <p className="py-1.5 text-[11px] text-ink-faint">{empty}</p>
+        // Boxed like the populated list, so the panel doesn't change shape
+        // when the first entry lands -- and like the emote lists above it.
+        <p className="mt-1.5 rounded-md border border-line px-2 py-2 text-[11px] text-ink-faint">
+          {empty}
+        </p>
       ) : (
-        <ul className="mt-1">
-          {entries.map((entry) => (
-            <li
-              key={entry}
-              className="flex items-center gap-2 border-b border-line py-1.5 last:border-b-0"
-            >
-              <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{format(entry)}</span>
-              <button
-                onClick={() => onRemove(entry)}
-                aria-label={`Remove ${format(entry)}`}
-                className="grid h-5 w-5 shrink-0 place-items-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
+        // Boxed and capped rather than left to grow: a long list would
+        // otherwise push the panel's own scrollbar and bury whatever section
+        // comes after it.
+        <div className="scroller mt-1.5 max-h-40 overflow-y-auto rounded-md border border-line px-2">
+          <ul>
+            {entries.map((entry) => (
+              <li
+                key={entry}
+                className="flex items-center gap-2 border-b border-line py-1.5 last:border-b-0"
               >
-                <svg width="8" height="8" viewBox="0 0 10 10">
-                  <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
-                </svg>
-              </button>
-            </li>
-          ))}
-        </ul>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
+                  {format(entry)}
+                </span>
+                <button
+                  onClick={() => onRemove(entry)}
+                  aria-label={`Remove ${format(entry)}`}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
+                >
+                  <svg width="8" height="8" viewBox="0 0 10 10">
+                    <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
