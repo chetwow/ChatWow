@@ -280,9 +280,12 @@ add-channel button, and re-runs that from a `ResizeObserver`. That makes a tab's
 load-bearing: anything that changes it on hover (or when a channel finishes loading, or goes
 live) re-triggers the observer mid-transition, corrupts the measurement, and flickers a tab
 between rows. Hence the fixed-size slots -- the close button shares the unread badge's, the
-status dot's is reserved whether or not a dot is in it. A tab also names the account it reads as
-once there's more than one to choose from, which does change its width -- but only when the
-account changes, never on hover, so the measurement is never corrupted mid-transition.
+status dot's is reserved whether or not a dot is in it.
+
+A tab deliberately doesn't say which account it reads as. The row is scanned for channel names,
+and a second word on every tab costs more room than it buys -- the question is answered where
+it's asked instead: the right-click menu ticks the current account, and the composer's
+placeholder names the one it sends as.
 
 Right-clicking a tab (or the composer, which is the same tab speaking) opens
 [AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab. It's

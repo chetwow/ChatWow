@@ -45,7 +45,8 @@ starts from.
 Because a tab picks the account rather than the app, the same channel can be open twice --
 once as each of you. Both are live at the same time, each with its own composer and its own
 unread count, and a message that names one of your logins highlights only in that one's tab. The
-tab bar says which account each tab is on as soon as there's more than one to choose from.
+tabs stay plain: to see which account one is on, right-click it, or read the message box, which
+names the account it sends as.
 
 Permissions and the Client ID below are shared by every account: they're what each sign-in asks
 Twitch for, not something one account holds. What Twitch actually *granted* is per account, so
@@ -78,8 +79,8 @@ since a Twitch token belongs to one specific app.
 `Ctrl/Cmd+T` (or the `+` button) joins a channel, `Ctrl/Cmd+W` leaves the one you're reading,
 and tabs reorder by dragging. A tab shows a dot while it's still loading, a red one while the
 channel is live, and an unread count once you look away -- in rose rather than purple when some
-of those messages name you. With more than one account signed in, each tab also says which one
-it's reading as; the join dialog picks that, and right-clicking the tab changes it.
+of those messages name you. Which account a tab reads as is set in the join dialog and changed
+by right-clicking the tab.
 
 There's one kind of tab that isn't a channel. Open the join dialog with nothing typed and it
 offers **Mentions** as well -- a tab collecting every message that names you, every reply to

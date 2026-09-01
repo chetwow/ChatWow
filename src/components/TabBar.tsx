@@ -31,7 +31,6 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
   const live = useChat((state) => state.live);
-  const accounts = useChat((state) => state.auth.accounts);
   const setActive = useChat((state) => state.setActive);
   const closeTab = useChat((state) => state.closeTab);
   const moveTab = useChat((state) => state.moveTab);
@@ -57,15 +56,6 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   );
   /** Cheap dependency for effects that only care that the tabs changed. */
   const tabKey = tabList.map((tab) => `${tab.id}:${tab.account}`).join(" ");
-
-  /**
-   * Whether to say which account each tab reads as. With one account (or
-   * none) every tab reads as the same thing and the label is noise; with two
-   * it's the first thing you need to know about a row of tabs.
-   */
-  const showAccounts = accounts.length > 1 || (accounts.length === 1 && tabList.some((tab) => !tab.account));
-  const loginOf = (account: string) =>
-    accounts.find((held) => held.id === account)?.login ?? "anon";
 
   // Shared with the other pane's bar: a tab dragged across the divider is
   // lifted in one of these components and dropped in the other.
@@ -362,15 +352,6 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
             {isMentions ? "mentions" : tab.channel}
           </span>
-
-          {/* Which account this tab reads as, once there's more than one
-              answer. Dimmer and smaller than the channel: it qualifies the
-              tab rather than naming it, and the name is what you scan for. */}
-          {showAccounts && (
-            <span className="max-w-[9ch] shrink-0 truncate text-[10px] text-ink-faint">
-              {loginOf(tab.account)}
-            </span>
-          )}
 
           {/* The slot is always here, whether or not there's a dot in it.
               Rendering the dot conditionally changed the tab's width the
