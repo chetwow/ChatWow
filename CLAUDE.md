@@ -145,6 +145,14 @@ to write `settings.json`.
   iterates lightness until the actual WCAG contrast ratio against the background hits 4.5:1.
   If a name color still looks unreadable, check the contrast math, don't just raise a lightness
   constant.
+- **Tauri installs a default menu on macOS, and it owns `Cmd+W`.** A menu key equivalent is
+  matched before the keystroke reaches the webview, so the frontend's close-tab shortcut can
+  never fire while a Close Window item exists -- the window vanishes instead. `macos_menu`
+  ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) is the default menu with that one item dropped,
+  and it's `#[cfg(target_os = "macos")]` on both sides: no other platform gets a menu from Tauri,
+  and setting one on Windows would draw a menu bar into a window that has `decorations: false`.
+  Don't swap it back for `Menu::default` or `enable_macos_default_menu` -- the first breaks
+  `Cmd+W`, the second takes `Cmd+Q` and the Edit items (copy and paste in the composer) with it.
 - **`dragDropEnabled` must stay `false`** ([src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)).
   Tauri's default native drag-drop handling intercepts drag events at the window level for OS
   file-drop support, which swallows the HTML5 Drag and Drop API before the page ever sees it —

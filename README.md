@@ -324,6 +324,10 @@ mode has no backend to write to and falls back to `localStorage`.
 ## Shortcuts
 
 - `Ctrl+K` — join a channel
+- `Ctrl/Cmd+T` — join a channel, the same dialog under the browser's new-tab key
+- `Ctrl/Cmd+W` — leave the channel you're reading. On macOS this means the menu bar ships
+  without a Close Window item, since a menu accelerator is matched before the page ever sees the
+  keystroke -- the window closes from its own button, or `Cmd+Q`.
 - `Tab` — complete the word you're typing to an emote or a chatter; again to cycle, `Shift+Tab`
   to go back
 - `@` + `Tab` — complete a chatter's name only, inserted as `@name, `

@@ -604,10 +604,89 @@ async fn send_message(
     .map_err(|e| e.to_string())
 }
 
+/// The macOS menu bar, minus a Close Window item.
+///
+/// Tauri installs a default menu on macOS (and only there -- every other
+/// platform leaves the accelerators to the page), and it binds `Cmd+W` to
+/// closing the *window*, twice: File and Window both carry the item. A menu
+/// key equivalent is matched before the keystroke ever reaches the webview,
+/// so leaving it in place means the frontend's close-tab shortcut can never
+/// fire -- the window would just vanish instead. This is the default menu with
+/// that one item dropped; everything else, `Cmd+Q` and the Edit items that
+/// make copy and paste work in the composer included, is kept as it was.
+#[cfg(target_os = "macos")]
+fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
+
+    let info = app.package_info();
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app.config().bundle.publisher.clone().map(|p| vec![p]),
+        ..Default::default()
+    };
+
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                info.name.clone(),
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[&PredefinedMenuItem::fullscreen(app, None)?],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                ],
+            )?,
+        ],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    // Only macOS gets one: Tauri leaves every other platform menu-less, where
+    // the keystrokes reach the page on their own.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(macos_menu);
+
+    builder
         // Emote images are served from disk and downloaded on a miss, so a
         // busy channel re-renders the same emotes without re-hitting the CDN.
         // Failures answer 404 and the frontend falls back to the CDN url.

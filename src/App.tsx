@@ -39,12 +39,30 @@ export default function App() {
     };
   }, [bootstrap]);
 
-  // Ctrl+K opens the channel switcher, matching the command-palette convention.
+  // Ctrl+K opens the channel switcher, matching the command-palette
+  // convention. Ctrl/Cmd+T and Ctrl/Cmd+W are the browser's new-tab and
+  // close-tab, which is what a row of tabs sets people up to expect --
+  // reaching the page at all on macOS took dropping Close Window from the menu
+  // bar (see `macos_menu` in src-tauri/src/lib.rs).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "k") {
         event.preventDefault();
         setShowAdd(true);
+        return;
+      }
+      // A dialog is its own context: closing the channel behind it, unseen,
+      // isn't what Cmd+W means while you're looking at settings.
+      if (document.querySelector("[data-modal]")) return;
+      if (key === "t") {
+        event.preventDefault();
+        setShowAdd(true);
+      } else if (key === "w") {
+        event.preventDefault();
+        const { active: channel, part } = useChat.getState();
+        if (channel) void part(channel);
       }
     };
     window.addEventListener("keydown", onKey);
