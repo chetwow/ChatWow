@@ -1,0 +1,89 @@
+# Builds the installers on real machines of each kind and attaches them to a
+# draft GitHub release.
+#
+# Windows is why this exists: a .msi can only be produced on Windows (the WiX
+# toolset runs nowhere else), and Tauri treats cross-compiling the NSIS .exe
+# from macOS as a last resort it doesn't test. A Windows runner sidesteps both.
+#
+# Run it from the Actions tab, or by pushing a tag:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Either way the release lands as a draft, named from the version in
+# tauri.conf.json -- nothing is published until you say so.
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build needs the webview and its packaging tools; the
+      # other two runners ship theirs.
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # One macOS runner builds both architectures, an entry at a time.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: only a fork building against its own Twitch app needs
+          # this. Unset, it arrives empty and build.rs falls back to the
+          # committed Client ID, which is the one this app ships with.
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: ChatWow v__VERSION__
+          releaseBody: |
+            Download the installer for your platform below.
+
+            - **Windows** — `.msi`, or `-setup.exe` if you'd rather have the NSIS installer
+            - **macOS** — `aarch64.dmg` for Apple Silicon, `x64.dmg` for Intel
+            - **Linux** — `.AppImage`, `.deb` or `.rpm`
+
+            Nothing here is code-signed yet, so both Windows and macOS will want
+            convincing on first launch.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
