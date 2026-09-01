@@ -372,8 +372,9 @@ backend to write to and falls back to `localStorage`.
 The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100%)`, setting rows
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the
-window rather than the content, so switching tabs doesn't resize it. Each setting's explanation
-sits behind the info dot on its label, which keeps the list scannable.
+window rather than the content, so switching tabs doesn't resize it. The settings that need
+explaining carry an info dot on the label -- history, the two blacklists, the notification
+toggles -- and the ones whose label is the whole story don't, which keeps the list scannable.
 
 ## Layout
 
@@ -393,6 +394,7 @@ sits behind the info dot on its label, which keeps the list scannable.
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
 | `src-tauri/src/twitch/eventsub.rs` | The whisper socket |
+| `src-tauri/src/usercard.rs` | The card behind a name: Helix profile, ivr.fi follow and subs |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/settings.rs` | `settings.json`: tokens, channels, emote counts, preferences |
 | `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer |
@@ -400,9 +402,10 @@ sits behind the info dot on its label, which keeps the list scannable.
 | `src/lib/emoteComplete.ts` | Completion cycling, picker search and ranking |
 | `src/lib/chatterComplete.ts` | Chatters seen this session, matched for `@` and Tab |
 | `src/lib/mentions.ts` | Whether (and how) a message names the signed-in user |
+| `src/lib/userCard.ts` | User-card session cache and the "14 years ago" phrasing |
 | `src/lib/notify.ts` | The synthesized mention ping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |
-| `src/components/` | Title bar, tabs, chat view, composer, picker, settings |
+| `src/components/` | Title bar, tabs, chat view, composer, pickers, user card, settings |
 | `scripts/generate-emoji.py` | Regenerates `src/lib/emoji.json` from Unicode |
 
 ## Tests
@@ -416,9 +419,10 @@ fallbacks, the default color hash, emote-index ordering and use counting, comman
 parsing, the backlog's filtering, and the image cache's key validation, content-type sniffing and
 purge selection. `cargo test -- --ignored` additionally hits the real APIs: one check runs a
 message through the whole pipeline off the live Twitch socket and 7TV, another parses the
-BetterTTV and FrankerFaceZ sets for real channels, and a third resolves 7TV badges for users
-who do and don't have one. Those are the ones that catch a provider
-changing its response shape -- the symptom is an empty map, which is indistinguishable from a
-channel that simply has no emotes there.
+BetterTTV and FrankerFaceZ sets for real channels, a third resolves 7TV badges for users who do
+and don't have one, and a fourth loads a user card unauthenticated -- the path with no Helix
+token, where ivr.fi answers both halves. Those are the ones that catch a provider changing its
+response shape -- the symptom is an empty map, which is indistinguishable from a channel that
+simply has no emotes there.
 
 The frontend has no test suite; `npm run build` type-checks it.

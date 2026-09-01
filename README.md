@@ -149,7 +149,8 @@ The gear in the title bar opens:
 - **Emotes** — which emote services to use, and the hidden-emote lists
 - **Notifications** — which mentions ping
 
-Every setting explains itself behind the info dot on its label.
+Settings that need explaining carry an info dot on the label; the ones that say what they do
+don't.
 
 Two things here reach a service that isn't Twitch or an emote provider. Joining a channel asks
 [recent-messages.robotty.de](https://recent-messages.robotty.de) for its recent history -- Twitch
@@ -168,7 +169,7 @@ clicked and the channel you clicked it in; that one only happens when you open a
 - `:` — open the emote and emoji search; `↑`/`↓` to move, `Tab`/`Enter` to take, `Esc` to close
 - `/` — open the command picker, same keys
 - `↑`/`↓` — step back and forward through your sent messages in this channel
-- `Esc` — cancel a reply
+- `Esc` — close a chatter's card, or cancel a reply
 
 On macOS the window closes with its own button or `Cmd+Q`, since `Cmd+W` closes a tab here.
 
