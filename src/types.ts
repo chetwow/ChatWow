@@ -108,6 +108,11 @@ export type AccountInfo = {
    * it's per account: two logins can differ in what they may do.
    */
   scopes: string[];
+  /**
+   * The account's Twitch profile picture. Empty when Twitch has none for them
+   * or hasn't been asked yet -- the accounts list falls back to a monogram.
+   */
+  avatarUrl: string;
 };
 
 export type AuthStatus = {

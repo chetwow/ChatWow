@@ -26,6 +26,13 @@ pub struct Account {
     pub refresh_token: String,
     /// What `/oauth2/validate` last said this token carries.
     pub scopes: Vec<String>,
+    /// The account's Twitch profile picture, for the accounts list. Stored
+    /// rather than fetched when the panel opens, so the rows draw with the
+    /// settings file rather than after a round trip -- `check_token` refreshes
+    /// it on the same pass that refreshes the login, and it's empty both for an
+    /// account signed in by an earlier build and whenever Twitch didn't answer.
+    #[serde(default)]
+    pub avatar_url: String,
 }
 
 /// The id of the account a tab reads as, or `ANONYMOUS` for none.
@@ -258,6 +265,8 @@ fn migrate(settings: &mut Settings, raw: &str) {
                 access_token: access,
                 refresh_token: refresh,
                 scopes: std::mem::take(&mut settings.scopes),
+                // Nothing to migrate from: the first token check fills it in.
+                avatar_url: String::new(),
             });
             settings.default_account = id;
         }

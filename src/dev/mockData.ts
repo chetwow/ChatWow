@@ -22,14 +22,21 @@ import type {
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
 
+/** Real Twitch profile images, so the user card and the accounts list show real ones. */
+const FORSEN_AVATAR =
+  "https://static-cdn.jtvnw.net/jtv_user_pictures/forsen-profile_image-48b43e1e4f54b5c8-600x600.png";
+const NYMN_AVATAR =
+  "https://static-cdn.jtvnw.net/jtv_user_pictures/aa24a66f-6cb9-48da-8bcc-80cbf725f99e-profile_image-600x600.png";
+
 /**
  * Two accounts, so the multi-account paths -- a tab per account, the same
  * channel open twice, the account picker on a tab and on the composer -- are
  * all exercisable without signing in to Twitch.
  */
 export const MOCK_ACCOUNTS: AccountInfo[] = [
-  { id: "1", login: "you", scopes: [] },
-  { id: "2", login: "you_alt", scopes: [] },
+  { id: "1", login: "you", scopes: [], avatarUrl: FORSEN_AVATAR },
+  // No avatar, so the accounts list's monogram fallback is exercised too.
+  { id: "2", login: "you_alt", scopes: [], avatarUrl: "" },
 ];
 
 /**
@@ -45,12 +52,6 @@ export function mockTabs(): Tab[] {
     { id: "mock-tab-4", kind: "channel", channel: MOCK_CHANNELS[0], account: "2" },
   ];
 }
-
-/** Real Twitch profile images, so the user card's avatar is a real avatar. */
-const FORSEN_AVATAR =
-  "https://static-cdn.jtvnw.net/jtv_user_pictures/forsen-profile_image-48b43e1e4f54b5c8-600x600.png";
-const NYMN_AVATAR =
-  "https://static-cdn.jtvnw.net/jtv_user_pictures/aa24a66f-6cb9-48da-8bcc-80cbf725f99e-profile_image-600x600.png";
 
 const MOD: Badge = {
   id: "moderator/1",

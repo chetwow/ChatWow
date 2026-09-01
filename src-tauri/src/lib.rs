@@ -125,6 +125,18 @@ enum TokenCheck {
     Lost,
 }
 
+/// The profile picture Twitch has for one account, for the accounts list.
+///
+/// Best-effort in every direction: `GET /users` needs a token but no scope, so
+/// an account can always ask about itself, and a call that fails answers `None`
+/// -- which the callers read as "keep what's stored" rather than "there is no
+/// avatar". A row without one draws the login's initial instead.
+async fn fetch_avatar(state: &Shared, token: &str, login: &str) -> Option<String> {
+    let client_id = { state.auth.read().client_id().map(str::to_string)? };
+    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token };
+    twitch::users::fetch_profile(&helix, login).await.ok().map(|profile| profile.avatar_url)
+}
+
 /// Validate one account's token, renewing it if Twitch says it has expired or
 /// is close to it, and write whatever we learn back into `state`.
 ///
@@ -145,16 +157,24 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
     // exactly that reason.
     if let Ok(validation) = auth::validate(&state.http, &account.access_token).await {
         if validation.expires_in > REFRESH_MARGIN_SECS {
+            // Asked for on the same pass as the login, and for the same reason:
+            // either can have changed on Twitch's side since we last looked.
+            let avatar = fetch_avatar(state, &account.access_token, &validation.login).await;
             let mut auth_state = state.auth.write();
             let Some(stored) = auth_state.accounts.iter_mut().find(|a| a.id == account.id) else {
                 return TokenCheck::Unchanged;
             };
+            // A call that didn't answer must not blank the avatar we hold.
+            let avatar = avatar.unwrap_or_else(|| stored.avatar_url.clone());
             // Only claim a change when there is one. This runs every hour, and
             // an unconditional yes would mean rewriting the settings file and
             // waking the frontend hourly to tell it nothing.
-            let differs = stored.login != validation.login || stored.scopes != validation.scopes;
+            let differs = stored.login != validation.login
+                || stored.scopes != validation.scopes
+                || stored.avatar_url != avatar;
             stored.login = validation.login;
             stored.scopes = validation.scopes;
+            stored.avatar_url = avatar;
             return if differs { TokenCheck::Validated } else { TokenCheck::Unchanged };
         }
     }
@@ -192,10 +212,15 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
         return TokenCheck::Unchanged;
     };
 
+    let avatar = fetch_avatar(state, &tokens.access_token, &validation.login).await;
+
     let mut auth_state = state.auth.write();
     let Some(stored) = auth_state.accounts.iter_mut().find(|a| a.id == account.id) else {
         return TokenCheck::Unchanged;
     };
+    if let Some(avatar) = avatar {
+        stored.avatar_url = avatar;
+    }
     stored.access_token = tokens.access_token;
     // Twitch normally issues a fresh refresh token alongside; when it doesn't,
     // the one we hold stays valid and must not be overwritten with nothing.
@@ -644,6 +669,9 @@ async fn poll_device_auth(
             let validation = auth::validate(&state.http, &tokens.access_token)
                 .await
                 .map_err(|e| e.to_string())?;
+            // Fetched here rather than when the accounts list is opened, so a
+            // row that has just appeared already has a face on it.
+            let avatar = fetch_avatar(&state, &tokens.access_token, &validation.login).await;
 
             {
                 let mut auth_state = state.auth.write();
@@ -655,6 +683,7 @@ async fn poll_device_auth(
                     // What was actually granted, which can be less than we
                     // asked for: the consent screen lets scopes be declined.
                     scopes: validation.scopes.clone(),
+                    avatar_url: avatar.unwrap_or_default(),
                 };
                 // Signing the same account in again replaces its tokens rather
                 // than listing it twice -- which is how you widen what one

@@ -172,11 +172,23 @@ function AccountRow({
     // about 400px they'd otherwise leave the login no width at all and push
     // the tab count out around them. They drop onto their own line instead.
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-3 py-2">
-      {/* An initial rather than an avatar: the profile image would be another
-          Twitch call, and this only has to tell two logins apart. */}
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
-        {account.login.slice(0, 1)}
-      </span>
+      {/* The account's own profile picture, which is the fastest way to tell
+          two logins apart. It rides on the auth status rather than being
+          fetched here, so a row draws with a face immediately -- and an account
+          Twitch has no picture for (or hasn't been asked about yet, which is
+          every account signed in before this shipped) falls back to its
+          initial rather than to an empty circle. */}
+      {account.avatarUrl ? (
+        <img
+          src={account.avatarUrl}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded-full object-cover"
+        />
+      ) : (
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
+          {account.login.slice(0, 1)}
+        </span>
+      )}
 
       <div className="min-w-0 flex-1 basis-28">
         <div className="flex items-center gap-1.5">

@@ -136,6 +136,9 @@ pub struct AccountInfo {
     pub login: String,
     /// What this account's token actually allows.
     pub scopes: Vec<String>,
+    /// Twitch's profile picture for this account. Empty when Twitch has none
+    /// or hasn't answered yet, which the accounts list draws as a monogram.
+    pub avatar_url: String,
 }
 
 /// What the UI needs to know about the auth state.
@@ -383,6 +386,7 @@ impl AppState {
                     id: account.id.clone(),
                     login: account.login.clone(),
                     scopes: account.scopes.clone(),
+                    avatar_url: account.avatar_url.clone(),
                 })
                 .collect(),
             default_account: auth.default_account.clone(),
@@ -539,6 +543,7 @@ mod tests {
             access_token: format!("token-{id}"),
             refresh_token: format!("refresh-{id}"),
             scopes: vec!["chat:read".to_string()],
+            avatar_url: String::new(),
         }
     }
 
