@@ -127,11 +127,11 @@ into that account's mentions log.
 The restart signal is owned by the supervisor rather than by each socket: one `Notify` wakes one
 waiter, so several sockets can't share it. A subscription belongs to the token that made it, so a
 token change drops every socket and brings back the ones still wanted. What must *not* happen is
-restarting them when nothing changed -- re-validating a good token on startup rewrites its scopes
-and login, which is worth persisting but leaves the old subscription behind on Twitch's side, and
-three of those is the limit for one type and condition. Past that Twitch refuses and whispers
-stop arriving, silently. `restore_session` keeps `changed` and `credentials_changed` apart for
-exactly this reason; it was a real bug.
+restarting them when nothing changed -- re-validating a good token, at startup or at an hourly
+check, rewrites its scopes and login, which is worth persisting but leaves the old subscription
+behind on Twitch's side, and three of those is the limit for one type and condition. Past that
+Twitch refuses and whispers stop arriving, silently. `restore_session` keeps `changed` and
+`credentials_changed` apart for exactly this reason; it was a real bug.
 
 A whisper always pings unless you're muted, since unlike a mention in the channel you're already
 reading, it arrived from outside the room.
@@ -184,7 +184,28 @@ Client ID, and one held across a switch reads as a broken session rather than a 
 The tabs stay, anonymous, as they do whenever an account goes away.
 
 No client secret is ever needed or stored. Tokens live in `settings.json` under the app's
-config directory, one entry per account, and are refreshed automatically.
+config directory, one entry per account.
+
+They don't last, and the app outlives them. A Twitch user token is good for a few hours where a
+chat client is left open for days, so `poll_tokens` walks every account once an hour and renews
+anything with less than ninety minutes left on it -- a margin deliberately wider than the gap
+between checks, or a token could die in between. `restore_session` makes the same pass at launch,
+against the same margin and through the same `check_token`, so an app opened shortly before an
+expiry doesn't start on a token that dies before the first check. Both read the remaining life
+from `/oauth2/validate` rather than storing a deadline, which would be wrong on a machine whose
+clock has drifted or that slept through the interval.
+
+Nothing enforced this before, and the symptom was misleading: IRC authenticates once, at connect,
+and Twitch leaves the connection alone afterwards, so chat kept arriving perfectly while every
+Helix call -- sending a message included -- answered 401, with only a re-login to fix it.
+
+A renewal deliberately touches nothing else. The live IRC socket stays authenticated, and
+`connect_once` reads the current token whenever it next reconnects for its own reasons; the
+whisper socket is left alone for the reason above. Only losing an account reconnects anything,
+because its tabs have just become anonymous. And losing one takes a refusal, not a failure:
+`auth::RefreshOutcome` separates Twitch rejecting a refresh -- the grant is gone, the account with
+it -- from being unable to ask at all, which changes nothing and is retried at the next check.
+Collapsing the two would sign everybody out the first time a laptop woke before its network did.
 
 ## Mentions
 

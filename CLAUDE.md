@@ -287,12 +287,25 @@ there, since there's no backend to write `settings.json`.
   holds what belongs to one login in it: `ready`, the pre-ready buffer, the `USERSTATE` role, and
   that account's own Twitch emotes. A second account joining a room the first is already in still
   needs its own backlog and its own `ready` -- don't collapse the two back together.
-- **Only `restore_session` may leave the sockets alone.** Re-validating a good token rewrites its
+- **Renewing a token must not restart the sockets.** Re-validating a good token rewrites its
   scopes and login, which is worth persisting but is *not* a credentials change -- reconnecting
   the whisper socket every launch orphans its EventSub subscription, and three of those is
   Twitch's limit for one type and condition, after which whispers silently stop. That's why
   `changed` and `credentials_changed` are separate in
-  [src-tauri/src/lib.rs](src-tauri/src/lib.rs); this was a real bug.
+  [src-tauri/src/lib.rs](src-tauri/src/lib.rs); this was a real bug. The same holds for a
+  *refreshed* token, which `poll_tokens` stores without telling anyone: IRC authenticates once at
+  connect and `connect_once` picks the new one up at its next reconnect. Only an account that has
+  been lost reconnects anything, because its tabs have just gone anonymous.
+- **Tokens expire mid-session, and only `check_token` renews one.** A Twitch user token lasts
+  hours and the app runs for days, so `poll_tokens` ([src-tauri/src/lib.rs](src-tauri/src/lib.rs))
+  re-checks every account hourly and renews anything inside `REFRESH_MARGIN_SECS` -- which has to
+  stay wider than `TOKEN_CHECK_SECS`, or a token can die between two checks. `restore_session`
+  makes the same pass at launch through the same function, and its first tick is deliberately
+  swallowed so the two can't race: a second refresh presenting a spent refresh token gets a
+  refusal, which is indistinguishable from a dead grant. Don't add a second place that refreshes.
+  Failing to renew is not the same as being refused -- `auth::RefreshOutcome` keeps `Rejected`
+  (grant gone, drop the account) apart from `Unreachable` (know nothing, change nothing), and
+  merging them signs everyone out whenever the network is slower to wake than the app.
 - **Anonymous is an account, not a failure.** `settings::ANONYMOUS` (the empty id) is how the app
   works signed out, stays a per-tab choice afterwards, and is where a tab lands when its account
   is signed out -- it keeps reading and loses its composer. Calls that ask Twitch about the world

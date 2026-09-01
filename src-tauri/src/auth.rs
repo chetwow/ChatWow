@@ -154,6 +154,13 @@ pub struct Validation {
     /// rather than what we asked for.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// Seconds of life left. The only place Twitch tells us this after the
+    /// grant, which is what makes renewing ahead of an expiry possible rather
+    /// than only reacting to one -- and it beats storing a deadline of our
+    /// own, which would be wrong on any machine whose clock has drifted or
+    /// which was asleep across the interval.
+    #[serde(default)]
+    pub expires_in: u64,
 }
 
 #[derive(Debug)]
@@ -219,12 +226,27 @@ pub async fn poll_device(
     Ok(PollOutcome::Failed(body))
 }
 
+/// How an attempt to trade a refresh token for a new one ended.
+///
+/// Refused and unreachable are different answers, and telling them apart is
+/// the whole point: Twitch saying no means the grant is gone and no amount of
+/// waiting brings it back, so the account may as well be dropped -- where a
+/// timeout means we simply don't know yet, and the tokens we already hold are
+/// very probably still good. Collapsing the two would sign everybody out the
+/// first time a laptop woke up before its network did.
+#[derive(Debug)]
+pub enum RefreshOutcome {
+    Renewed(Tokens),
+    Rejected(String),
+    Unreachable(String),
+}
+
 pub async fn refresh(
     client: &reqwest::Client,
     client_id: &str,
     refresh_token: &str,
-) -> Result<Tokens> {
-    let response = client
+) -> RefreshOutcome {
+    let response = match client
         .post(TOKEN_URL)
         .form(&[
             ("client_id", client_id),
@@ -232,9 +254,32 @@ pub async fn refresh(
             ("grant_type", "refresh_token"),
         ])
         .send()
-        .await?
-        .error_for_status()?;
-    Ok(response.json().await?)
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return RefreshOutcome::Unreachable(error.to_string()),
+    };
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        // A 4xx is Twitch telling us about the grant: the refresh token was
+        // spent, revoked, or issued to a different Client ID. A 5xx is Twitch
+        // having a bad day, which says nothing about what we hold.
+        return if status.is_client_error() {
+            RefreshOutcome::Rejected(format!("Twitch refused the refresh ({status}): {body}"))
+        } else {
+            RefreshOutcome::Unreachable(format!("Twitch answered {status}"))
+        };
+    }
+
+    match serde_json::from_str(&body) {
+        Ok(tokens) => RefreshOutcome::Renewed(tokens),
+        // A success we can't parse is the one genuinely ambiguous case. Treat
+        // it as unreachable: the cost of being wrong is one wasted retry,
+        // against signing an account out over a response we misread.
+        Err(error) => RefreshOutcome::Unreachable(format!("unexpected refresh response: {error}")),
+    }
 }
 
 /// Confirms a stored token is still good and tells us which account it belongs to.
