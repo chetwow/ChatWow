@@ -9,6 +9,7 @@ mod settings;
 mod state;
 mod twitch;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -206,6 +207,58 @@ fn set_client_id_override(
     state.auth_status()
 }
 
+/// How often to re-ask Twitch who's live. Cheap -- one request covers every
+/// joined channel -- but a stream going up isn't urgent enough to poll harder.
+const LIVE_POLL_SECS: u64 = 60;
+
+/// Keep the tab bar's live dots current.
+///
+/// Ticks on an interval, and also whenever `live_poll` is notified, so joining
+/// a channel lights its dot immediately instead of at the next tick. A failed
+/// request changes nothing: the previous answer stands rather than every tab
+/// blinking offline because one call timed out.
+async fn poll_live(app: AppHandle, state: Shared) {
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(LIVE_POLL_SECS));
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = state.live_poll.notified() => {}
+        }
+
+        let (credentials, logins) = {
+            let auth = state.auth.read();
+            (auth.credentials(), state.channels.read().clone())
+        };
+
+        // Signed out we can't ask, so nothing is claimed live. Clearing matters
+        // on sign-out: stale dots would otherwise sit there indefinitely.
+        let live = match credentials {
+            Some((client_id, token)) if !logins.is_empty() => {
+                match twitch::streams::fetch_live(&state.http, &client_id, &token, &logins).await {
+                    Ok(live) => live,
+                    Err(_) => continue,
+                }
+            }
+            _ => HashSet::new(),
+        };
+
+        let changed = {
+            let mut current = state.live.write();
+            if *current == live {
+                false
+            } else {
+                *current = live.clone();
+                true
+            }
+        };
+        // Only on a change: this runs every minute forever, and an unchanged
+        // payload would re-render every tab for nothing.
+        if changed {
+            let _ = app.emit("chat://live", live.iter().collect::<Vec<_>>());
+        }
+    }
+}
+
 /// Channel suggestions for the join dialog.
 ///
 /// Empty rather than an error when signed out: Helix has no unauthenticated
@@ -284,6 +337,8 @@ async fn poll_device_auth(
             }
             tauri::async_runtime::spawn(client::load_global_assets(app.clone(), shared));
             state.send(IrcCommand::Reconnect);
+            // We can ask about live status now that there's a token.
+            state.live_poll.notify_one();
 
             Ok(json!({ "status": "granted", "login": validation.login }))
         }
@@ -293,6 +348,8 @@ async fn poll_device_auth(
 #[tauri::command]
 fn logout(app: AppHandle, state: State<'_, Shared>) -> AuthStatus {
     clear_session(&state);
+    // Whether we can ask about live status at all just changed.
+    state.live_poll.notify_one();
     persist(&app, &state);
     state.send(IrcCommand::Reconnect);
     state.auth_status()
@@ -357,6 +414,9 @@ fn join_channel(
 
     state.data.write().entry(name.clone()).or_default();
     state.send(IrcCommand::Join(name));
+    // Ask who's live now rather than leaving the new tab dotless until the
+    // poller's next tick.
+    state.live_poll.notify_one();
     persist(&app, &state);
 
     Ok(state.channels.read().clone())
@@ -500,6 +560,7 @@ pub fn run() {
             let sink = client::spawn_emitter(handle.clone());
 
             tauri::async_runtime::spawn(restore_session(handle.clone(), Arc::clone(&shared)));
+            tauri::async_runtime::spawn(poll_live(handle.clone(), Arc::clone(&shared)));
             tauri::async_runtime::spawn(client::run(
                 handle.clone(),
                 Arc::clone(&shared),

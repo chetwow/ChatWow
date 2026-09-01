@@ -100,6 +100,12 @@ pub struct AppState {
     /// on every change so a crash can't lose a toggle.
     pub preferences: RwLock<crate::settings::Preferences>,
     pub auth: RwLock<Auth>,
+    /// Logins currently broadcasting, refreshed by the live poller. Empty when
+    /// signed out, where we simply don't know rather than knowing they're off.
+    pub live: RwLock<HashSet<String>>,
+    /// Kicks the live poller off its interval, so a channel you just joined
+    /// gets its dot now rather than up to a poll period later.
+    pub live_poll: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -121,6 +127,8 @@ impl AppState {
             emote_uses: RwLock::new(HashMap::new()),
             preferences: RwLock::new(crate::settings::Preferences::default()),
             auth: RwLock::new(Auth::default()),
+            live: RwLock::new(HashSet::new()),
+            live_poll: tokio::sync::Notify::new(),
         }
     }
 

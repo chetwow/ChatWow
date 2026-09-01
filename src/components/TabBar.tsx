@@ -12,6 +12,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   const unread = useChat((state) => state.unread);
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
+  const live = useChat((state) => state.live);
   const setActive = useChat((state) => state.setActive);
   const part = useChat((state) => state.part);
   const reorderChannels = useChat((state) => state.reorderChannels);
@@ -99,8 +100,9 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   useLayoutEffect(recompute, [channels]);
 
   // Recompute whenever a tab (or the row, or the add button) actually
-  // changes size -- an unread count ticking up, a ready-dot appearing, a
-  // window resize. Driving this off a ResizeObserver instead of off `unread`
+  // changes size -- an unread count gaining a digit, a window resize. (The
+  // status dot no longer counts: its slot is reserved whether or not a dot
+  // is in it.) Driving this off a ResizeObserver instead of off `unread`
   // directly matters: `unread` changes on every incoming message, far more
   // often than any tab's rendered width actually does (most increments don't
   // even change the badge's digit count), so watching it directly was
@@ -212,7 +214,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
               }}
               onDragEnd={() => setDragIndex(null)}
               onClick={() => setActive(channel)}
-              className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md px-2 text-[12px] transition-colors ${
+              className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
                 isActive
                   ? "bg-surface text-ink"
                   : "text-ink-dim hover:bg-surface-hover hover:text-ink"
@@ -227,9 +229,19 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
                 {channel}
               </span>
 
-              {!ready[channel] && (
-                <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
-              )}
+              {/* The slot is always here, whether or not there's a dot in it.
+                  Rendering the dot conditionally changed the tab's width the
+                  moment a channel finished loading or went live, and a
+                  width change is exactly what corrupts the row-wrap
+                  measurement mid-transition -- same reason the close button
+                  shares the badge's slot below. */}
+              <span className="grid h-1.5 w-1.5 shrink-0 place-items-center">
+                {!ready[channel] ? (
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                ) : live[channel] ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                ) : null}
+              </span>
 
               {/* The close button takes over the unread badge's slot on
                   hover instead of growing the tab to fit alongside it --
@@ -252,7 +264,12 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
                     void part(channel);
                   }}
                   aria-label={`Leave ${channel}`}
-                  className="invisible absolute inset-0 grid place-items-center rounded text-ink-faint transition-colors hover:bg-line hover:text-ink group-hover:visible"
+                  // Square, and pinned to the right of the slot rather than
+                  // filling or centring in it. The slot has to stay as wide as
+                  // "99+" for the badge it shares, but the X shouldn't inherit
+                  // that width as a lozenge, nor leave the slot's leftover
+                  // width sitting as dead space against the tab's edge.
+                  className="invisible absolute right-0 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded text-ink-faint transition-colors hover:bg-line hover:text-ink group-hover:visible"
                 >
                   <svg width="7" height="7" viewBox="0 0 10 10">
                     <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />

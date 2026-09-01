@@ -100,6 +100,12 @@ type ChatState = {
   /** Everything the settings dialog edits, as stored in `settings.json`. */
   preferences: Preferences;
   ready: Record<string, boolean>;
+  /**
+   * Channels currently broadcasting. Only known while signed in -- Helix has no
+   * anonymous way to ask -- so an absent entry means "not known to be live",
+   * never a confident "offline".
+   */
+  live: Record<string, boolean>;
   emoteCounts: Record<string, number>;
   /** Completable emotes per channel, sorted case-insensitively by name. */
   emoteEntries: Record<string, EmoteEntry[]>;
@@ -195,6 +201,7 @@ export const useChat = create<ChatState>((set) => ({
   chatters: {},
   preferences: DEFAULT_PREFERENCES,
   ready: {},
+  live: {},
   emoteCounts: {},
   emoteEntries: {},
   emoteUses: {},
@@ -451,6 +458,7 @@ export const useChat = create<ChatState>((set) => ({
         active: MOCK_CHANNELS[0],
         ready: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, true])),
         emoteCounts: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, 886])),
+        live: { [MOCK_CHANNELS[0]]: true, [MOCK_CHANNELS[2]]: true },
         connection: "connected",
         globalEmotes: 45,
         // `login` is set (despite `loggedIn: false`, matching real signed-out
@@ -533,6 +541,14 @@ export async function subscribeToBackend() {
 
     listen<AuthStatus>("chat://auth", (event) => {
       useChat.getState().setAuth(event.payload);
+    }),
+
+    // Sent whole rather than as deltas, and only when the set actually
+    // changes, so replacing the map wholesale is both correct and cheap.
+    listen<string[]>("chat://live", (event) => {
+      useChat.setState({
+        live: Object.fromEntries(event.payload.map((login) => [login, true])),
+      });
     }),
   ]);
 
