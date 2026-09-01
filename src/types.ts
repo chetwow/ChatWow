@@ -130,6 +130,10 @@ export type Preferences = {
   notifyActiveTab: boolean;
   /** Load a channel's recent messages when you join it. */
   showMessageHistory: boolean;
+  /** Draw `/me` actions in italics. */
+  italicActions: boolean;
+  /** Show the time beside each message. */
+  showTimestamps: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
   /** The title bar's quick mute, which leaves the two toggles above alone. */

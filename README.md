@@ -4,7 +4,7 @@ A desktop Twitch chat client. Read and write several channels at once, with chat
 way Twitch renders it: native Twitch emotes, 7TV global and channel emotes (zero-width overlays
 included), user badges, and everyone's real name color.
 
-- Tabs for as many channels as you like, wrapped onto rows or scrolling on one
+- Tabs for as many channels as you like, on one scrolling row or wrapped onto several
 - Recent messages on join, so a channel is never a blank pane
 - Mention highlighting, per-channel unread counts, and an optional ping
 - Twitch's slash commands from a `/` picker that only offers what you can run
@@ -56,16 +56,17 @@ and tabs reorder by dragging. A tab shows a dot while it's still loading, a red 
 channel is live, and an unread count once you look away -- in rose rather than purple when some
 of those messages name you.
 
-By default tabs wrap onto as many rows as they need, so everything you've joined is on screen.
-Settings -> Appearance -> *Keep tabs on one row* switches to a single row that scrolls sideways
-instead, with the join button pinned to the right. If a channel that's mentioned you scrolls out
-of sight, the edge it's past shows a rose bar until you scroll back or read it.
+Tabs stay on one row and scroll sideways when there are more than fit, with the join button
+pinned to the right. If a channel that's mentioned you scrolls out of sight, the edge it's past
+shows a rose bar until you scroll back or read it. Turn off Settings -> Appearance -> *Keep tabs
+on one row* and they wrap onto as many rows as they need instead, so everything you've joined is
+on screen at once.
 
 ## Talking
 
 Type and press Enter. Right-click a message for Copy and Reply; a reply shows what it's
-answering above the composer, and Escape cancels it. `/me` italicises a message in your name
-color, the way it always has.
+answering above the composer, and Escape cancels it. `/me` sends a message in your name color
+instead of after your name, italicised unless you'd rather it wasn't.
 
 `↑` and `↓` in an empty composer walk back and forward through what you've sent in that channel.
 
@@ -117,7 +118,8 @@ The gear in the title bar opens:
 
 - **General** — whether to load a channel's recent messages when you join it
 - **Account** — sign in and out, choose permissions, set a Client ID
-- **Appearance** — chat font size, and whether tabs wrap or scroll
+- **Appearance** — chat font size, timestamps, italic `/me` actions, and whether tabs scroll on
+  one row or wrap onto several
 - **Emotes** — the hidden-emote lists
 - **Notifications** — which mentions ping
 

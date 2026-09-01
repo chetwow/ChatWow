@@ -42,8 +42,14 @@ pub struct Preferences {
     /// the one thing that talks to a third party, which is why it's a setting
     /// -- see `irc::history`.
     pub show_message_history: bool,
-    /// Keep the channel tabs on one row and scroll them sideways, instead of
-    /// wrapping onto as many rows as they need.
+    /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
+    /// the sender's color but upright.
+    pub italic_actions: bool,
+    /// Show the time beside each message.
+    pub show_timestamps: bool,
+    /// Keep the channel tabs on one row and scroll them sideways. On by
+    /// default: wrapping keeps every tab in sight, but it also lets the tab
+    /// bar grow to several rows deep and take that height off the chat.
     pub single_row_tabs: bool,
     /// The title bar's quick mute. Silences the ping without touching the two
     /// toggles above, so unmuting restores exactly what you had.
@@ -64,7 +70,9 @@ impl Default for Preferences {
             notify_on_name: true,
             notify_active_tab: false,
             show_message_history: true,
-            single_row_tabs: false,
+            italic_actions: true,
+            show_timestamps: true,
+            single_row_tabs: true,
             muted: false,
             emote_blacklist: Vec::new(),
             emote_complete_blacklist: Vec::new(),

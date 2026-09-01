@@ -244,6 +244,12 @@ function MessageRowInner({
 }) {
   const time = timeOf(message.ts);
   const myLogin = useChat((state) => state.auth.login);
+  // Read from the store rather than passed down: this component is memoized on
+  // message identity, and the messages already on screen are immutable, so a
+  // prop would never reach a row that's already rendered. Same reason
+  // `EmoteView` subscribes to the blacklist itself.
+  const italicActions = useChat((state) => state.preferences.italicActions);
+  const showTimestamps = useChat((state) => state.preferences.showTimestamps);
   const isReplyToYou = Boolean(
     message.replyTo && myLogin && message.replyTo.login.toLowerCase() === myLogin.toLowerCase(),
   );
@@ -288,9 +294,13 @@ function MessageRowInner({
         aboutYou ? "border-l-2 border-rose-400/70 bg-rose-400/[0.06]" : "",
       ].join(" ")}
     >
-      <span className="w-8 shrink-0 pt-[1px] text-right text-[10px] tabular-nums text-ink-faint">
-        {time}
-      </span>
+      {/* Dropped entirely rather than blanked, so the row reclaims the gutter
+          instead of keeping an empty column of it. */}
+      {showTimestamps && (
+        <span className="w-8 shrink-0 pt-[1px] text-right text-[10px] tabular-nums text-ink-faint">
+          {time}
+        </span>
+      )}
 
       <div className="selectable min-w-0 flex-1 break-words">
         {message.replyTo && <ReplyQuote replyTo={message.replyTo} highlighted={isReplyToYou} />}
@@ -316,7 +326,15 @@ function MessageRowInner({
               {message.displayName}
             </span>
             {message.isAction ? (
-              <span className="italic" style={{ color: message.color }}> {body}</span>
+              // Still the sender's color and still without the colon -- that's
+              // what makes it an action. Only the slant is optional.
+              <span
+                className={italicActions ? "italic" : undefined}
+                style={{ color: message.color }}
+              >
+                {" "}
+                {body}
+              </span>
             ) : (
               <>
                 <span className="text-ink-faint">: </span>

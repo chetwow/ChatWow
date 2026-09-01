@@ -477,22 +477,33 @@ export function SettingsDialog({
 
           {tab === "appearance" && (
             <div className="flex flex-col gap-5">
+              {/* No hints on this tab: every row here changes something you can
+                  see the moment you flip it, which explains it better than a
+                  sentence behind a dot would. */}
               <Section title="Chat">
-                <Row
-                  label="Font size"
-                  hint="Applies to messages and the composer. Timestamps and tabs keep their size."
-                >
+                <Row label="Font size">
                   <SegmentedFontSize
                     value={preferences.chatFontSize}
                     onChange={(chatFontSize) => updatePreferences({ chatFontSize })}
                   />
                 </Row>
+                <Row label="Display /me messages in italics">
+                  <Toggle
+                    checked={preferences.italicActions}
+                    onChange={(italicActions) => updatePreferences({ italicActions })}
+                    label="Display /me messages in italics"
+                  />
+                </Row>
+                <Row label="Display timestamps">
+                  <Toggle
+                    checked={preferences.showTimestamps}
+                    onChange={(showTimestamps) => updatePreferences({ showTimestamps })}
+                    label="Display timestamps"
+                  />
+                </Row>
               </Section>
               <Section title="Tabs">
-                <Row
-                  label="Keep tabs on one row"
-                  hint="Scroll sideways when there are more channels than fit, instead of wrapping."
-                >
+                <Row label="Keep tabs on one row">
                   <Toggle
                     checked={preferences.singleRowTabs}
                     onChange={(singleRowTabs) => updatePreferences({ singleRowTabs })}

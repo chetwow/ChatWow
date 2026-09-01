@@ -7,16 +7,30 @@ import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/Set
 import { EmoteTooltip } from "./components/EmoteTooltip";
 import { subscribeToBackend, useChat } from "./store/chat";
 
-/** Nothing joined: just the way in. The button says what this is. */
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+/**
+ * Nothing joined: the ways in, and nothing else. Signing in is offered
+ * alongside because the title bar's own button is easy to miss on a screen
+ * that's otherwise empty -- but it stays secondary, since reading a channel
+ * doesn't need an account.
+ */
+function EmptyState({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => void }) {
+  const loggedIn = useChat((state) => state.auth.loggedIn);
   return (
-    <div className="flex flex-1 items-center justify-center">
+    <div className="flex flex-1 items-center justify-center gap-2">
       <button
         onClick={onAdd}
         className="rounded-md bg-accent px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-accent-dim"
       >
         Join a channel
       </button>
+      {!loggedIn && (
+        <button
+          onClick={onSignIn}
+          className="rounded-md border border-line px-4 py-2 text-[12px] font-semibold text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+        >
+          Sign in
+        </button>
+      )}
     </div>
   );
 }
@@ -82,7 +96,9 @@ export default function App() {
       {active ? (
         <ChatView key={active} channel={active} />
       ) : (
-        channels.length === 0 && <EmptyState onAdd={() => setShowAdd(true)} />
+        channels.length === 0 && (
+          <EmptyState onAdd={() => setShowAdd(true)} onSignIn={() => setSettingsTab("account")} />
+        )
       )}
 
       {showAdd && <AddChannelDialog onClose={() => setShowAdd(false)} />}
