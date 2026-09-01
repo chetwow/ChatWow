@@ -65,6 +65,18 @@ pub struct Preferences {
     /// find yourself with. Nothing else here changes with it -- the log is
     /// kept either way, so opening the tab isn't opening an empty one.
     pub mentions_tab: bool,
+    /// Where that tab sits among the channel tabs. It's an ordinary tab, so
+    /// it can be dragged anywhere in the row; an index past the end lands it
+    /// last rather than being an error.
+    pub mentions_tab_index: usize,
+    /// Mentions to say nothing about, each entry either `@login` or
+    /// `#channel`. One list rather than two: they're the same instruction
+    /// ("don't tell me about this") and the prefix is what it applies to.
+    /// Not validated here -- see the note on `chat_font_size`.
+    pub mention_ignores: Vec<String>,
+    /// Logins whose messages aren't drawn at all. Matched at render time in
+    /// the frontend, so unblocking brings the backlog back.
+    pub blocked_users: Vec<String>,
     /// The title bar's quick mute. Silences the ping without touching the two
     /// toggles above, so unmuting restores exactly what you had.
     pub muted: bool,
@@ -92,6 +104,9 @@ impl Default for Preferences {
             show_timestamps: true,
             single_row_tabs: true,
             mentions_tab: false,
+            mentions_tab_index: 0,
+            mention_ignores: Vec::new(),
+            blocked_users: Vec::new(),
             muted: false,
             emote_blacklist: Vec::new(),
             emote_complete_blacklist: Vec::new(),

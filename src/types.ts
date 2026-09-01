@@ -146,6 +146,12 @@ export type Preferences = {
   singleRowTabs: boolean;
   /** Keep a tab collecting every mention, reply and whisper, from all channels. */
   mentionsTab: boolean;
+  /** Where that tab sits among the channel tabs. Past the end means last. */
+  mentionsTabIndex: number;
+  /** Mentions to stay quiet about: `@login` or `#channel`, in one list. */
+  mentionIgnores: string[];
+  /** Logins whose messages aren't drawn at all. */
+  blockedUsers: string[];
   /** The title bar's quick mute, which leaves the two toggles above alone. */
   muted: boolean;
   /** Emotes drawn as their underlined name instead of their image. */

@@ -4,6 +4,7 @@ import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
 import { Hinted } from "./Hinted";
 import { imageKey, ruleKey } from "../lib/emoteBlacklist";
+import { normalizeIgnore } from "../lib/ignores";
 import type { ChatFontSize, EmoteEntry, EmoteRule } from "../types";
 
 export type SettingsTab = "general" | "account" | "appearance" | "notifications" | "emotes";
@@ -273,6 +274,100 @@ function AddButtons({
 }
 
 /**
+ * A plain list of names you can add to and remove from -- the ignore list and
+ * the blocked list, which differ only in what counts as a valid entry. Rejected
+ * input reddens the box rather than throwing a sentence at you: the placeholder
+ * already says the shape, and the only way to get it wrong is a typo.
+ */
+function NameListEditor({
+  entries,
+  placeholder,
+  empty,
+  parse,
+  onAdd,
+  onRemove,
+  format = (entry: string) => entry,
+}: {
+  entries: string[];
+  placeholder: string;
+  empty: string;
+  /** What was typed, as an entry -- or null if it isn't one. */
+  parse: (raw: string) => string | null;
+  onAdd: (entry: string) => void;
+  onRemove: (entry: string) => void;
+  format?: (entry: string) => string;
+}) {
+  const [text, setText] = useState("");
+  const [rejected, setRejected] = useState(false);
+
+  const submit = () => {
+    const entry = parse(text);
+    if (!entry) {
+      setRejected(text.trim().length > 0);
+      return;
+    }
+    onAdd(entry);
+    setText("");
+    setRejected(false);
+  };
+
+  return (
+    <div>
+      <div className="flex gap-1">
+        <input
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setRejected(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            submit();
+          }}
+          placeholder={placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          className={`selectable min-w-0 flex-1 rounded-md border bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint ${
+            rejected ? "border-rose-500/60" : "border-line"
+          }`}
+        />
+        <button
+          onClick={submit}
+          className="shrink-0 rounded-md bg-accent/15 px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25"
+        >
+          Add
+        </button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="py-1.5 text-[11px] text-ink-faint">{empty}</p>
+      ) : (
+        <ul className="mt-1">
+          {entries.map((entry) => (
+            <li
+              key={entry}
+              className="flex items-center gap-2 border-b border-line py-1.5 last:border-b-0"
+            >
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{format(entry)}</span>
+              <button
+                onClick={() => onRemove(entry)}
+                aria-label={`Remove ${format(entry)}`}
+                className="grid h-5 w-5 shrink-0 place-items-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
+              >
+                <svg width="8" height="8" viewBox="0 0 10 10">
+                  <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * One blacklist: an add box that searches the emotes currently loaded, and the
  * rules themselves. The search is a convenience, not the only way in -- the raw
  * row below it adds whatever you typed, so an emote from a channel you're not
@@ -406,6 +501,8 @@ export function SettingsDialog({
 }) {
   const preferences = useChat((state) => state.preferences);
   const updatePreferences = useChat((state) => state.updatePreferences);
+  const setMentionIgnored = useChat((state) => state.setMentionIgnored);
+  const setUserBlocked = useChat((state) => state.setUserBlocked);
   const auth = useChat((state) => state.auth);
 
   // Escape closes, matching every other dialog in the app.
@@ -466,18 +563,39 @@ export function SettingsDialog({
 
         <div className="scroller min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {tab === "general" && (
-            <Section title="Chat history">
-              <Row
-                label="Show recent message history on join"
-                hint="Loads a channel's last 150 messages when you join it, so the pane isn't empty."
-              >
-                <Toggle
-                  checked={preferences.showMessageHistory}
-                  onChange={(showMessageHistory) => updatePreferences({ showMessageHistory })}
+            <div className="flex flex-col gap-5">
+              <Section title="Chat history">
+                <Row
                   label="Show recent message history on join"
+                  hint="Loads a channel's last 150 messages when you join it, so the pane isn't empty."
+                >
+                  <Toggle
+                    checked={preferences.showMessageHistory}
+                    onChange={(showMessageHistory) => updatePreferences({ showMessageHistory })}
+                    label="Show recent message history on join"
+                  />
+                </Row>
+              </Section>
+              <Section
+                title="Blocked"
+                hint="Their messages aren't drawn at all, in any channel, and can't mention you. Nothing is sent to Twitch -- this is between you and this app, and unblocking brings their messages straight back."
+              >
+                <NameListEditor
+                  entries={preferences.blockedUsers}
+                  placeholder="Twitch username"
+                  empty="Nobody blocked. Right-click a message in chat to add someone."
+                  parse={(raw) => {
+                    const entry = normalizeIgnore(raw);
+                    // Only people can be blocked, so a #channel isn't an entry
+                    // here even though the same parser reads it.
+                    return entry?.startsWith("@") ? entry.slice(1) : null;
+                  }}
+                  format={(login) => `@${login}`}
+                  onAdd={(login) => setUserBlocked(login, true)}
+                  onRemove={(login) => setUserBlocked(login, false)}
                 />
-              </Row>
-            </Section>
+              </Section>
+            </div>
           )}
 
           {tab === "account" && <AccountPanel onDone={onClose} />}
@@ -579,38 +697,53 @@ export function SettingsDialog({
           )}
 
           {tab === "notifications" && (
-            <Section title="Mentions">
-              <Row
-                label="Notify when tagged"
-                hint={`Plays a sound when someone writes @${auth.login ?? "yourname"}.`}
-              >
-                <Toggle
-                  checked={preferences.notifyOnTag}
-                  onChange={(notifyOnTag) => updatePreferences({ notifyOnTag })}
+            <div className="flex flex-col gap-5">
+              <Section title="Mentions">
+                <Row
                   label="Notify when tagged"
-                />
-              </Row>
-              <Row
-                label="Notify on any mention"
-                hint="Also plays a sound when your name is used without the @."
-              >
-                <Toggle
-                  checked={preferences.notifyOnName}
-                  onChange={(notifyOnName) => updatePreferences({ notifyOnName })}
+                  hint={`Plays a sound when someone writes @${auth.login ?? "yourname"}.`}
+                >
+                  <Toggle
+                    checked={preferences.notifyOnTag}
+                    onChange={(notifyOnTag) => updatePreferences({ notifyOnTag })}
+                    label="Notify when tagged"
+                  />
+                </Row>
+                <Row
                   label="Notify on any mention"
-                />
-              </Row>
-              <Row
-                label="Notify for active tab"
-                hint="Off by default -- no sound for mentions in the channel you're already reading."
-              >
-                <Toggle
-                  checked={preferences.notifyActiveTab}
-                  onChange={(notifyActiveTab) => updatePreferences({ notifyActiveTab })}
+                  hint="Also plays a sound when your name is used without the @."
+                >
+                  <Toggle
+                    checked={preferences.notifyOnName}
+                    onChange={(notifyOnName) => updatePreferences({ notifyOnName })}
+                    label="Notify on any mention"
+                  />
+                </Row>
+                <Row
                   label="Notify for active tab"
+                  hint="Off by default -- no sound for mentions in the channel you're already reading."
+                >
+                  <Toggle
+                    checked={preferences.notifyActiveTab}
+                    onChange={(notifyActiveTab) => updatePreferences({ notifyActiveTab })}
+                    label="Notify for active tab"
+                  />
+                </Row>
+              </Section>
+              <Section
+                title="Ignored"
+                hint="No sound, no rose badge, and nothing in the mentions tab. @name silences one person wherever they are; #name silences a whole channel."
+              >
+                <NameListEditor
+                  entries={preferences.mentionIgnores}
+                  placeholder="@user or #channel"
+                  empty="Nothing ignored. Right-click a message in chat to add someone."
+                  parse={normalizeIgnore}
+                  onAdd={(entry) => setMentionIgnored(entry, true)}
+                  onRemove={(entry) => setMentionIgnored(entry, false)}
                 />
-              </Row>
-            </Section>
+              </Section>
+            </div>
           )}
         </div>
       </div>

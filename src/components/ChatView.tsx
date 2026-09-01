@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import { MessageRow, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
@@ -6,6 +14,7 @@ import { UserCard, type UserCardTarget } from "./UserCard";
 import { MENTIONS_TAB, useChat, type BlacklistKind } from "../store/chat";
 import { messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
+import { ignoreForChannel, ignoreForUser, mentionIgnored } from "../lib/ignores";
 import type { EmoteRule, StoredMessage } from "../types";
 
 /** How close to the bottom still counts as "pinned". */
@@ -18,7 +27,6 @@ export function ChatView({ channel }: { channel: string }) {
   const isMentions = channel === MENTIONS_TAB;
   const channelMessages = useChat((state) => state.messages[channel]);
   const mentionLog = useChat((state) => state.mentionLog);
-  const messages = isMentions ? mentionLog : channelMessages;
   const ready = useChat((state) => state.ready[channel]);
   const channels = useChat((state) => state.channels);
   const setActive = useChat((state) => state.setActive);
@@ -32,6 +40,20 @@ export function ChatView({ channel }: { channel: string }) {
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const addEmoteRule = useChat((state) => state.addEmoteRule);
   const removeEmoteRule = useChat((state) => state.removeEmoteRule);
+  const mentionIgnores = useChat((state) => state.preferences.mentionIgnores);
+  const blockedUsers = useChat((state) => state.preferences.blockedUsers);
+
+  // Filtered here rather than dropped on the way in, for the reason the emote
+  // blacklists are: adding a rule has to clear out what's already listed, and
+  // taking one back has to bring it in again.
+  const shown = useMemo(
+    () => mentionLog.filter((message) => !mentionIgnored(message, mentionIgnores)),
+    [mentionLog, mentionIgnores],
+  );
+  const messages = isMentions ? shown : channelMessages;
+  const setMentionIgnored = useChat((state) => state.setMentionIgnored);
+  const setUserBlocked = useChat((state) => state.setUserBlocked);
+  const myLogin = useChat((state) => state.auth.login);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
 
@@ -188,6 +210,49 @@ export function ChatView({ channel }: { channel: string }) {
     ];
   };
 
+  /**
+   * The two ways to hear less from someone, offered on their message rather
+   * than buried in settings -- which is where you are when you decide. Not on
+   * your own messages, and not on notices, which have no author.
+   */
+  const personOptions = (message: StoredMessage): ContextMenuOption[] => {
+    const login = message.login.toLowerCase();
+    if (!login || message.kind === "notice") return [];
+    if (myLogin && login === myLogin.toLowerCase()) return [];
+
+    const name = message.displayName || login;
+    const ignoring = mentionIgnores.includes(ignoreForUser(login));
+    const blocked = blockedUsers.includes(login);
+
+    return [
+      { separator: true },
+      {
+        label: ignoring ? `Hear mentions from ${name} again` : `Ignore mentions from ${name}`,
+        onSelect: () => setMentionIgnored(ignoreForUser(login), !ignoring),
+      },
+      {
+        label: blocked ? `Unblock ${name}` : `Block ${name}`,
+        onSelect: () => setUserBlocked(login, !blocked),
+      },
+      // Only where several channels are mixed together: in a channel's own
+      // view the room you'd be silencing is the one you're reading.
+      ...(isMentions && message.kind !== "whisper" && message.channel
+        ? [
+            {
+              label: mentionIgnores.includes(ignoreForChannel(message.channel))
+                ? `Hear mentions in #${message.channel} again`
+                : `Ignore mentions in #${message.channel}`,
+              onSelect: () =>
+                setMentionIgnored(
+                  ignoreForChannel(message.channel),
+                  !mentionIgnores.includes(ignoreForChannel(message.channel)),
+                ),
+            },
+          ]
+        : []),
+    ];
+  };
+
   const menuOptions: ContextMenuOption[] = menu
     ? [
         {
@@ -201,6 +266,7 @@ export function ChatView({ channel }: { channel: string }) {
         ...(menu.message.kind === "chat" && !isMentions
           ? [{ label: "Reply", onSelect: () => setReplyTo(menu.message) }]
           : []),
+        ...personOptions(menu.message),
         ...(menu.emote ? emoteOptions(menu.emote) : []),
       ]
     : [];

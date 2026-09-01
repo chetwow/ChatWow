@@ -6,7 +6,7 @@ overlays included), user badges, and everyone's real name color.
 
 - Tabs for as many channels as you like, on one scrolling row or wrapped onto several
 - Recent messages on join, so a channel is never a blank pane
-- Mention highlighting, per-channel unread counts, and an optional ping
+- Mention highlighting, per-channel unread counts, an optional ping, and an ignore list
 - An optional tab collecting every mention, reply and whisper from all channels at once
 - Twitch's slash commands from a `/` picker that only offers what you can run
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
@@ -63,8 +63,9 @@ There's one tab that isn't a channel. Open the join dialog with nothing typed an
 **Mentions** as well -- a tab collecting every message that names you, every reply to something
 you said, and every whisper, from all your channels at once. Each row is chipped with the
 channel it came from; click that chip to go there. It has no composer, since there's no one
-channel a message typed into it would belong to. Close it like any other tab, and it comes back
-holding what arrived while it was shut.
+channel a message typed into it would belong to. Otherwise it's an ordinary tab: drag it
+anywhere in the row, close it like the rest, and it comes back where you left it holding what
+arrived while it was shut.
 
 Tabs stay on one row and scroll sideways when there are more than fit, with the join button
 pinned to the right. If a channel that's mentioned you scrolls out of sight, the edge it's past
@@ -146,16 +147,27 @@ whether the channel you're already reading should ping at all (off by default --
 land). The speaker button in the title bar mutes the lot without disturbing those toggles;
 highlighting and unread counts carry on regardless.
 
+Right-click anyone's message for two ways to hear less from them. **Ignore mentions from
+<name>** leaves them able to talk to you but stops the app telling you about it: no sound, no
+rose badge, and nothing in the mentions tab. **Block <name>** goes further and stops drawing
+their messages at all, in every channel. Neither is sent to Twitch -- both are between you and
+this app, and undoing either brings everything straight back, including the messages already
+scrolled past.
+
+The ignore list lives in Settings -> Notifications and takes both kinds of entry: `@name`
+silences one person wherever they turn up, `#name` silences a whole channel. Blocked people are
+in Settings -> General.
+
 ## Settings
 
 The gear in the title bar opens:
 
-- **General** — whether to load a channel's recent messages when you join it
+- **General** — recent message history on join, and the list of blocked people
 - **Account** — sign in and out, choose permissions, set a Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
   tabs scroll on one row or wrap onto several
 - **Emotes** — which emote services to use, and the hidden-emote lists
-- **Notifications** — which mentions ping
+- **Notifications** — which mentions ping, and which to ignore entirely
 
 Settings that need explaining carry an info dot on the label; the ones that say what they do
 don't.

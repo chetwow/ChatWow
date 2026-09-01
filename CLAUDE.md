@@ -218,10 +218,19 @@ to write `settings.json`.
   channels -- `@` is illegal in a Twitch login, so it can't collide -- which is what makes it
   behave like an ordinary tab without a parallel set of state. It must never enter `channels`:
   that array is the backend's, and anything in it is something to join, part and reorder. The tab
-  bar therefore measures over its own `tabList`, and `part` routes the sentinel to closing the
-  tab instead of leaving a channel. Its messages are appended to `mentionLog` in `ingest` as the
+  bar therefore measures over its own `tabList` -- the channels with the sentinel spliced in at
+  `mentionsTabIndex` -- and splits a drop back apart on the way out: channel order to the
+  backend, the sentinel's index to the preferences. `part` routes the sentinel to closing the tab
+  instead of leaving a channel. Its messages are appended to `mentionLog` in `ingest` as the
   *same objects* their channel gets, so anything that rewrites a stored message (`clear`) has to
   rewrite both copies or the two views disagree.
+- **Ignoring and blocking are matched in the frontend, like the emote blacklists and for the same
+  reason** ([src/lib/ignores.ts](src/lib/ignores.ts)). Rust only persists the two lists. An
+  ignored mention keeps its message but loses everything a *mention* has -- ping, count,
+  highlight, and its place in the mentions tab -- while a blocked user's message isn't drawn at
+  all (`MessageRow` returns null). Blocking implies ignoring: a row that isn't drawn must not
+  still be ringing a bell. Both are local; Twitch's own block needs a scope this app doesn't ask
+  for and still delivers the messages over IRC, so it would need this half regardless.
 - **A tab's rendered width must never change on hover** ([src/components/TabBar.tsx](src/components/TabBar.tsx)).
   The tab bar computes its own row-wrap breaks in JS (measuring each tab, reserving room for the
   add-channel button) and re-runs that via a `ResizeObserver` on real size changes. If hovering a

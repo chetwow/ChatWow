@@ -186,6 +186,17 @@ selecting it clears its counts, its badge is drawn by the same code, `Ctrl+W` cl
 the same `part` call. It is deliberately *not* in `channels` -- that list is the backend's, and a
 name in it would be something to join, part and reorder.
 
+It's an ordinary tab in the row, not a pinned one: it drags anywhere, and where it ended up is
+the `mentionsTabIndex` preference. The tab bar folds the sentinel into `tabList` at that index
+and measures, wraps, drags and scroll-checks over that rather than `channels`, so nothing in the
+layout has to know it's there. A drop is handled entirely in `tabList` terms and only split
+apart on the way out: the channel order goes to the backend, the sentinel's new index goes to
+the preferences, and only the one that actually moved is written.
+
+One exemption: the rose bar at a scrolled-off edge skips it. That bar means "something past this
+edge named you", and pointing at the tab those are already gathered in says nothing you didn't
+know.
+
 The messages live in `mentionLog`, appended in `ingest` from the same pass that files them into
 their channels, and kept whether or not the tab is open -- opening it shouldn't open an empty
 pane. A message enters the log as the same object (same `key`) its channel holds, so a row shown
@@ -197,17 +208,38 @@ Replayed backlog never lands there. It arrives stamped older than what's already
 a channel joined at noon would file this morning's mentions below this minute's -- and the same
 rule already keeps it from pinging or counting as unread.
 
-The tab bar folds the sentinel into `tabList` and measures, wraps and scroll-checks over that
-rather than `channels`, so the extra tab takes part in the layout like any other. Only dragging
-tells them apart: it's pinned first and isn't draggable, and a drop onto it is ignored, since the
-reorder it would write goes to a backend list that has never heard of it.
-
 [ChatView.tsx](src/components/ChatView.tsx) renders it with the same scroller, context menu and
 user cards as a channel; only the source and the composer differ. There's no composer because
 there's no one channel to send to -- the row's channel chip is the way back to one -- and Reply
 is dropped from the context menu for the same reason. The user card takes its channel from the
 clicked *message* rather than the view, which is what keeps the follow and subscription lines
 about the channel the message was actually said in.
+
+## Ignoring and blocking
+
+Two lists, in [src/lib/ignores.ts](src/lib/ignores.ts), both matched in the frontend for the
+reason the emote blacklists are: adding a rule has to change what's already on screen, and those
+messages were resolved before the rule existed and are immutable.
+
+`mentionIgnores` is one mixed list because the two things in it are one instruction with
+different scope -- `@login` is "don't tell me when this person names me", `#channel` is "don't
+tell me about mentions in this room". The prefix is both the scope and what you type to add one;
+a bare word is read as a person, which is the case worth defaulting to. A channel rule
+deliberately doesn't silence whispers: a whisper's channel is only wherever you happened to be
+reading when it arrived.
+
+An ignored mention loses everything a mention has -- the ping, the count, the rose highlight, and
+its place in the mentions tab. It stays an ordinary message in its channel, because the person
+isn't being silenced, only the alarm.
+
+`blockedUsers` is stronger and simpler, and holds bare logins: `MessageRow` returns null for
+them, so nothing is drawn at all rather than a "message hidden" placeholder -- the point of
+blocking someone is not to be reminded of them. Blocking implies ignoring, since a message that
+isn't drawn shouldn't still be ringing a bell somewhere; `ingest` checks both together.
+
+Neither list touches Twitch. Twitch's own block is an account-level thing that follows you to
+every client, needs a scope this app doesn't ask for, and still delivers the blocked person's
+messages over IRC -- so it would need this local half anyway to visibly do anything.
 
 ## Tabs
 
@@ -442,6 +474,7 @@ toggles -- and the ones whose label is the whole story don't, which keeps the li
 | `src/lib/emoteComplete.ts` | Completion cycling, picker search and ranking |
 | `src/lib/chatterComplete.ts` | Chatters seen this session, matched for `@` and Tab |
 | `src/lib/mentions.ts` | Whether (and how) a message names the signed-in user |
+| `src/lib/ignores.ts` | The mention-ignore and blocked-user lists, and what they match |
 | `src/lib/userCard.ts` | User-card session cache and the "14 years ago" phrasing |
 | `src/lib/notify.ts` | The synthesized mention ping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |

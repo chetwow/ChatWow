@@ -6,6 +6,14 @@ import { emotesIn } from "../lib/emoteComplete";
 import type { Chatters } from "../lib/chatterComplete";
 import { isAboutYou, mentionKind } from "../lib/mentions";
 import { normalizeRules, withRule, withoutRule } from "../lib/emoteBlacklist";
+import {
+  mentionIgnored,
+  normalizeIgnores,
+  normalizeLogins,
+  userBlocked,
+  withEntry,
+  withoutEntry,
+} from "../lib/ignores";
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
@@ -61,6 +69,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showTimestamps: true,
   singleRowTabs: true,
   mentionsTab: false,
+  mentionsTabIndex: 0,
+  mentionIgnores: [],
+  blockedUsers: [],
   muted: false,
   emoteBlacklist: [],
   emoteCompleteBlacklist: [],
@@ -82,6 +93,11 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
   merged.emoteBlacklist = normalizeRules(merged.emoteBlacklist);
   merged.emoteCompleteBlacklist = normalizeRules(merged.emoteCompleteBlacklist);
+  merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
+  merged.blockedUsers = normalizeLogins(merged.blockedUsers);
+  if (!Number.isInteger(merged.mentionsTabIndex) || merged.mentionsTabIndex < 0) {
+    merged.mentionsTabIndex = DEFAULT_PREFERENCES.mentionsTabIndex;
+  }
   return merged;
 }
 
@@ -191,6 +207,10 @@ type ChatState = {
   addEmoteRule: (list: BlacklistKind, rule: EmoteRule) => void;
   /** Drop a rule from one of the emote blacklists. */
   removeEmoteRule: (list: BlacklistKind, rule: EmoteRule) => void;
+  /** Add or drop a `@login`/`#channel` entry on the mention-ignore list. */
+  setMentionIgnored: (entry: string, ignored: boolean) => void;
+  /** Add or drop a login on the blocked list. */
+  setUserBlocked: (login: string, blocked: boolean) => void;
   toggleMuted: () => void;
   /** Open the mentions tab and switch to it. Already open: just switch. */
   openMentionsTab: () => void;
@@ -460,11 +480,33 @@ export const useChat = create<ChatState>((set) => ({
       [list]: withoutRule(useChat.getState().preferences[list], rule),
     }),
 
+  setMentionIgnored: (entry, ignored) => {
+    const list = useChat.getState().preferences.mentionIgnores;
+    useChat.getState().updatePreferences({
+      mentionIgnores: ignored ? withEntry(list, entry) : withoutEntry(list, entry),
+    });
+  },
+
+  setUserBlocked: (login, blocked) => {
+    const name = login.toLowerCase();
+    const list = useChat.getState().preferences.blockedUsers;
+    useChat.getState().updatePreferences({
+      blockedUsers: blocked ? withEntry(list, name) : withoutEntry(list, name),
+    });
+  },
+
   toggleMuted: () =>
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
 
   openMentionsTab: () => {
-    useChat.getState().updatePreferences({ mentionsTab: true });
+    const { preferences, channels } = useChat.getState();
+    useChat.getState().updatePreferences({
+      mentionsTab: true,
+      // Where joining a channel would have put it. Only on the way in: a tab
+      // reopened after being dragged somewhere should come back where it was,
+      // but the first time it has no remembered place.
+      ...(preferences.mentionsTab ? {} : { mentionsTabIndex: channels.length }),
+    });
     useChat.getState().setActive(MENTIONS_TAB);
   },
 
@@ -498,6 +540,15 @@ export const useChat = create<ChatState>((set) => ({
         list.push(message);
         grouped.set(message.channel, list);
       }
+
+      const { mentionIgnores, blockedUsers } = state.preferences;
+      /**
+       * Whether this message is allowed to be a mention at all. Blocking
+       * someone implies ignoring them: a message that isn't drawn shouldn't
+       * still be ringing a bell somewhere.
+       */
+      const heard = (message: StoredMessage) =>
+        !mentionIgnored(message, mentionIgnores) && !userBlocked(message, blockedUsers);
 
       const messages = { ...state.messages };
       const unread = { ...state.unread };
@@ -538,11 +589,14 @@ export const useChat = create<ChatState>((set) => ({
         // A whisper always pings, unlike a mention in the channel you're
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
-        if (!muted && fresh.some((message) => message.kind === "whisper")) mentioned = true;
+        if (!muted && fresh.some((message) => message.kind === "whisper" && heard(message))) {
+          mentioned = true;
+        }
         // The channel you're looking at stays silent unless you ask for it:
         // you can already see the mention land.
         const audible = !muted && (channel !== state.active || notifyActiveTab);
         const naming = fresh.filter((message) => {
+          if (!heard(message)) return false;
           const kind = mentionKind(message, state.auth.login);
           if (!kind) return false;
           // The badge and the highlight count every mention; only the sound
@@ -567,6 +621,7 @@ export const useChat = create<ChatState>((set) => ({
       const addressed = stamped.filter(
         (message) =>
           !message.historical &&
+          heard(message) &&
           (message.kind === "whisper" || isAboutYou(message, state.auth.login)),
       );
 

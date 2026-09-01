@@ -4,6 +4,7 @@ import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
 import { useChat } from "../store/chat";
 import { isAboutYou, repliesToYou } from "../lib/mentions";
+import { mentionIgnored, userBlocked } from "../lib/ignores";
 import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
 import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
@@ -309,11 +310,17 @@ function MessageRowInner({
   // `EmoteView` subscribes to the blacklist itself.
   const italicActions = useChat((state) => state.preferences.italicActions);
   const showTimestamps = useChat((state) => state.preferences.showTimestamps);
+  // Subscribed here for the same reason the blacklists are: adding a rule has
+  // to repaint the messages already on screen, and those are immutable.
+  const blockedUsers = useChat((state) => state.preferences.blockedUsers);
+  const mentionIgnores = useChat((state) => state.preferences.mentionIgnores);
   const isReplyToYou = repliesToYou(message, myLogin);
   // Being named reads the same as being replied to -- both are chat talking to
   // you -- so they share one highlight rather than competing for the row. The
-  // mentions tab collects exactly what this is true of.
-  const aboutYou = isAboutYou(message, myLogin);
+  // mentions tab collects exactly what this is true of, ignore rules included:
+  // a mention you've asked not to hear about shouldn't still be shouting in
+  // the one place it does appear.
+  const aboutYou = isAboutYou(message, myLogin) && !mentionIgnored(message, mentionIgnores);
   const handleContextMenu = onContextMenu
     ? (event: MouseEvent) => {
         event.preventDefault();
@@ -326,6 +333,11 @@ function MessageRowInner({
   // 2px border between the two. Both row kinds take the same inset, so they
   // still share a left edge.
   const leftPad = showTimestamps ? "pl-1.5" : "pl-3";
+
+  // Blocked: nothing at all, rather than a "message hidden" placeholder --
+  // the point of blocking someone is not to be reminded of them. Unblocking
+  // brings the row straight back, since the message is still stored.
+  if (userBlocked(message, blockedUsers)) return null;
 
   if (message.kind === "notice") {
     return (

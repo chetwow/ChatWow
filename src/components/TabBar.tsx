@@ -19,16 +19,24 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // One scrolling row, or as many wrapped rows as the tabs need.
   const singleRow = useChat((state) => state.preferences.singleRowTabs);
   const mentionsTab = useChat((state) => state.preferences.mentionsTab);
+  const mentionsTabIndex = useChat((state) => state.preferences.mentionsTabIndex);
+  const updatePreferences = useChat((state) => state.updatePreferences);
 
   /**
-   * Every tab, in bar order -- the mentions tab pinned first when it's open,
-   * then the channels. Measurement, wrapping and the scrolled-off-edge check
-   * all run over this rather than `channels`, so the extra tab takes part in
-   * the layout like any other; only dragging tells them apart.
+   * Every tab, in bar order: the channels with the mentions tab dropped in
+   * wherever it was last left. Everything below -- measuring, wrapping,
+   * dragging, the scrolled-off-edge check -- runs over this rather than
+   * `channels`, so the extra tab is an ordinary tab in every respect.
+   *
+   * An index past the end lands it last, which is what a parted channel or a
+   * hand-edited settings file leaves behind.
    */
-  const tabList = mentionsTab ? [MENTIONS_TAB, ...channels] : channels;
-  /** Bar index -> `channels` index. The one the backend's list knows about. */
-  const channelOffset = mentionsTab ? 1 : 0;
+  const tabList = (() => {
+    if (!mentionsTab) return channels;
+    const next = channels.slice();
+    next.splice(Math.min(mentionsTabIndex, channels.length), 0, MENTIONS_TAB);
+    return next;
+  })();
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -124,7 +132,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Recompute whenever the channel list itself changes shape (join, part,
   // drag-reorder) -- this can change bucketing even when no individual tab's
   // rendered width changed.
-  useLayoutEffect(recompute, [channels, mentionsTab, singleRow]);
+  useLayoutEffect(recompute, [channels, mentionsTab, mentionsTabIndex, singleRow]);
 
   // Recompute whenever a tab (or the row, or the add button) actually
   // changes size -- an unread count gaining a digit, a window resize. (The
@@ -175,7 +183,11 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
     let right = false;
     for (const channel of tabList) {
       // Same condition as the badge itself: reading a channel clears its
-      // mentions, and the active tab shows no badge to be missing.
+      // mentions, and the active tab shows no badge to be missing. The
+      // mentions tab is exempt on top of that -- the bar means "something
+      // named you past this edge", and pointing at the tab those are already
+      // gathered in says nothing you didn't know.
+      if (channel === MENTIONS_TAB) continue;
       if (channel === active || (mentions[channel] ?? 0) === 0) continue;
       const rect = tabRefs.current.get(channel)?.getBoundingClientRect();
       if (!rect) continue;
@@ -195,13 +207,16 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // answer does -- `mentions` itself is a fresh object on every batch of
   // messages, which would re-measure the row a dozen times a second.
   const mentionKey = tabList
-    .filter((channel) => channel !== active && (mentions[channel] ?? 0) > 0)
+    .filter(
+      (channel) =>
+        channel !== MENTIONS_TAB && channel !== active && (mentions[channel] ?? 0) > 0,
+    )
     .join(" ");
 
   useLayoutEffect(() => {
     checkRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mentionKey, channels, mentionsTab, singleRow]);
+  }, [mentionKey, channels, mentionsTab, mentionsTabIndex, singleRow]);
 
   // The row scrolling isn't the only way a badge crosses an edge: resizing the
   // window moves the right one under the tabs.
@@ -236,12 +251,26 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
     };
   }, [dragIndex]);
 
+  /**
+   * Both indices are into `tabList`, so a drag doesn't care which kind of tab
+   * it moved. Writing back splits them again: the channel order belongs to the
+   * backend, the mentions tab's place is a preference, and only the one that
+   * actually changed is written.
+   */
   const moveTab = (from: number, to: number) => {
     if (from === to) return;
-    const next = channels.slice();
+    const next = tabList.slice();
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    reorderChannels(next);
+
+    const nextChannels = next.filter((tab) => tab !== MENTIONS_TAB);
+    if (nextChannels.some((name, index) => name !== channels[index])) {
+      reorderChannels(nextChannels);
+    }
+    const at = next.indexOf(MENTIONS_TAB);
+    if (at >= 0 && at !== Math.min(mentionsTabIndex, channels.length)) {
+      updatePreferences({ mentionsTabIndex: at });
+    }
   };
 
   // Which wrapped row each tab lands on, purely so tabs past the first row
@@ -259,11 +288,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // leaves `breakAfter` empty there.
   const tabs = tabList.map((channel, index) => {
     const isActive = channel === active;
-    // The mentions tab is pinned first and stays put: there's nothing to
-    // reorder it against, and the backend's list -- which is what a reorder
-    // writes -- has never heard of it.
     const isMentions = channel === MENTIONS_TAB;
-    const channelIndex = index - channelOffset;
     const count = unread[channel] ?? 0;
     // Only the badge's colors change, never its size -- see the slot
     // comment below for why a tab's width has to stay put.
@@ -282,9 +307,9 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
               tabRefs.current.delete(channel);
             }
           }}
-          draggable={!isMentions}
+          draggable
           onDragStart={(event) => {
-            setDragIndex(channelIndex);
+            setDragIndex(index);
             event.dataTransfer.effectAllowed = "move";
           }}
           onDragEnter={allowDrop}
@@ -294,9 +319,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
             // shuffling the DOM under the cursor while the drag is still
             // in progress -- the actual move happens once, on release.
             event.preventDefault();
-            // Dropping onto the pinned tab just ends the drag -- moving a
-            // channel "before" it would be a position that doesn't exist.
-            if (dragIndex !== null && !isMentions) moveTab(dragIndex, channelIndex);
+            if (dragIndex !== null) moveTab(dragIndex, index);
             setDragIndex(null);
           }}
           onDragEnd={() => setDragIndex(null)}
@@ -304,7 +327,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
           className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
             isActive ? "bg-surface text-ink" : "text-ink-dim hover:bg-surface-hover hover:text-ink"
           } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
-            !isMentions && dragIndex === channelIndex ? "opacity-50" : ""
+            dragIndex === index ? "opacity-50" : ""
           }`}
         >
           {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
