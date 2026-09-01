@@ -46,7 +46,7 @@ function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line py-3 last:border-b-0">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-1">
       <div className="min-w-0">
         {hint ? (
           <Hinted hint={hint} className="text-[12px] text-ink">
@@ -64,6 +64,13 @@ function Row({
   );
 }
 
+/**
+ * A group of settings under a heading. The heading is a small caps label
+ * rather than a bold line of body text: several of these stack in one panel,
+ * and at the old size a section title read like another setting's name. It's
+ * also the only separator these groups need -- the rows themselves carry no
+ * rules, so a short group reads as a list rather than a table.
+ */
 function Section({
   title,
   hint,
@@ -75,7 +82,7 @@ function Section({
 }) {
   return (
     <div>
-      <h3 className="mb-1 text-[13px] font-semibold text-ink">
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
         {hint ? <Hinted hint={hint}>{title}</Hinted> : title}
       </h3>
       <div>{children}</div>
@@ -98,13 +105,13 @@ function Toggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 rounded-full transition-colors ${
+      className={`relative h-4 w-7 rounded-full transition-colors ${
         checked ? "bg-accent" : "bg-line"
       }`}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-[left] ${
-          checked ? "left-[18px]" : "left-0.5"
+        className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-[left] ${
+          checked ? "left-[14px]" : "left-0.5"
         }`}
       />
     </button>
@@ -440,13 +447,13 @@ export function SettingsDialog({
         {/* Scrolls sideways rather than wrapping: at the minimum window width
             the row is wider than the dialog, and a second row of tabs would
             push the panel's content off the bottom instead. */}
-        <div className="scroller flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 pb-2">
+        <div className="quiet-scroller flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 pb-1.5">
           {TABS.map((entry) => (
             <button
               key={entry.id}
               onClick={() => onChangeTab(entry.id)}
               aria-current={entry.id === tab}
-              className={`shrink-0 rounded-md px-2.5 py-1.5 text-[12px] transition-colors ${
+              className={`shrink-0 rounded-md px-2 py-1 text-[12px] transition-colors ${
                 entry.id === tab
                   ? "bg-surface-hover font-semibold text-ink"
                   : "text-ink-dim hover:bg-surface-hover/60 hover:text-ink"

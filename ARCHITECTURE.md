@@ -181,8 +181,8 @@ status dot's is reserved whether or not a dot is in it.
 The single-row mode ([src/components/TabBar.tsx](src/components/TabBar.tsx), behind the
 `singleRowTabs` preference, and the default) skips that measurement entirely and clears any
 breaks left from wrap mode, and its observer is rebuilt on the toggle -- switching back mounts a
-row element the original observer never saw. Its scrollbar is styled through
-`::-webkit-scrollbar` alone: the
+row element the original observer never saw. Its scrollbar (`.quiet-scroller`, shared with the
+settings dialog's own tab row) is styled through `::-webkit-scrollbar` alone: the
 standard `scrollbar-width`/`scrollbar-color` pair has no hover state to hook, and setting either
 makes Chromium ignore the pseudo-element rules entirely (`scrollbar-width: none` hides the bar
 outright). The 6px gutter is reserved whether or not a thumb is drawn, since a bar that grew on

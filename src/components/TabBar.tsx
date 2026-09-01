@@ -391,7 +391,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
           <div
             ref={scrollerRef}
             onScroll={() => checkRef.current()}
-            className="tab-scroller flex items-start gap-x-1 overflow-x-auto"
+            className="quiet-scroller flex items-start gap-x-1 overflow-x-auto"
             {...dragHandlers}
           >
             {tabs}

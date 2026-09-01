@@ -67,28 +67,30 @@ body {
   background: transparent;
 }
 
-/* The tab bar's single-row mode. The bar is chrome, not content, so its
-   scrollbar stays out of the way until you're actually pointing at it -- but
-   the track's height is reserved whether or not a thumb is drawn in it, since
-   a bar that changed height on hover would shift the whole chat pane.
+/* A row that scrolls sideways and keeps quiet about it: the channel tabs in
+   single-row mode, and the settings dialog's own tab row. Both are chrome
+   rather than content, so the scrollbar stays out of the way until you're
+   actually pointing at the row -- but the track's height is reserved whether
+   or not a thumb is drawn in it, since a row that changed height on hover
+   would shove what's under it around.
    Deliberately webkit-only: the standard `scrollbar-width`/`scrollbar-color`
    pair has no hover state to hook, and setting either of them makes Chromium
    ignore these rules entirely -- `scrollbar-width: none` hid the bar outright
    rather than styling it. Every webview Tauri targets has the pseudo-elements. */
-.tab-scroller::-webkit-scrollbar {
+.quiet-scroller::-webkit-scrollbar {
   height: 6px;
 }
-.tab-scroller::-webkit-scrollbar-thumb {
+.quiet-scroller::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 999px;
   transition: background 120ms ease;
 }
-.tab-scroller:hover::-webkit-scrollbar-thumb {
+.quiet-scroller:hover::-webkit-scrollbar-thumb {
   /* The same grey the chat scroller's thumb brightens to -- `--color-line` is
      pitched for a 1px border and all but disappears as a 6px bar. */
   background: #33333f;
 }
-.tab-scroller::-webkit-scrollbar-track {
+.quiet-scroller::-webkit-scrollbar-track {
   background: transparent;
 }
 
