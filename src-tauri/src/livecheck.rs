@@ -266,3 +266,39 @@ async fn live_bttv_and_ffz_sets_parse() {
         .expect("an unknown channel is not an error");
     assert!(unknown.is_empty());
 }
+
+/// The 7TV badge lookup, batched the way the resolver batches it. Worth a live
+/// check for the same reason as the emote sets, and one more: the query is
+/// built by hand as a GraphQL document, so a renamed field shows up as every
+/// chatter silently having no badge.
+#[tokio::test]
+#[ignore = "hits the live 7TV GraphQL API"]
+async fn live_seventv_badges_resolve() {
+    let http = reqwest::Client::builder()
+        .user_agent("chatwow/0.1 livecheck")
+        .build()
+        .unwrap();
+
+    // xQc and NymN both wear one; sodapoppin has a 7TV account with no badge
+    // equipped, and 1 is nobody. All four are answers, and only two are badges.
+    let ids: Vec<String> =
+        ["71092938", "62300805", "26301881", "1"].iter().map(|id| id.to_string()).collect();
+
+    let badges = crate::emotes::seventv_badges::fetch(&http, &ids)
+        .await
+        .expect("the badge query should answer");
+
+    for (id, badge) in &badges {
+        println!("{id}: {} ({})", badge.title, badge.url);
+    }
+
+    assert!(badges.contains_key("71092938"), "xqc wears a badge");
+    assert!(!badges.contains_key("26301881"), "sodapoppin has none equipped");
+    assert!(!badges.contains_key("1"), "and nobody is nobody");
+
+    for (id, badge) in &badges {
+        assert!(badge.url.starts_with("https://"), "{id}: relative url {}", badge.url);
+        assert!(!badge.title.is_empty(), "{id}: a badge with no name");
+        assert!(badge.id.starts_with("7tv-"), "{id}: unnamespaced badge id {}", badge.id);
+    }
+}

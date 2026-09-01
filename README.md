@@ -20,8 +20,9 @@ npm run tauri dev
 ## Signing in
 
 Chat, emotes and name colors all work signed out. Two things need an account: sending messages,
-and badge art -- Twitch retired the old public badge endpoint, so without a sign-in badges show
-as small text chips instead of pictures.
+and Twitch's badge art -- Twitch retired the old public badge endpoint, so without a sign-in
+those badges show as small text chips instead of pictures. (7TV badges are unaffected: they come
+from 7TV, which doesn't ask who you are.)
 
 Signing in is one click: **Sign in** in the title bar, then approve the code in the browser tab
 it opens. No developer console, no setup beyond your normal Twitch login, and no password is
@@ -110,6 +111,13 @@ Right-clicking an emote in chat can hide it: hidden emotes draw as their underli
 of the picture (hover the name to see it anyway), and can be hidden from completion separately.
 Both lists are editable in Settings -> Emotes.
 
+## Badges
+
+Twitch's own badges -- subscriber, moderator, VIP and the rest -- sit before a chatter's name.
+Beside them goes the 7TV badge they've equipped, if they have one; those are looked up as people
+talk, so a badge can appear a moment after that person's first message. Settings -> Appearance
+turns them off, which also stops the app asking 7TV about anyone.
+
 ## Mentions and pings
 
 A message naming you -- `@yourname` or just your name -- is highlighted, and plays a short ping.
@@ -124,8 +132,8 @@ The gear in the title bar opens:
 
 - **General** — whether to load a channel's recent messages when you join it
 - **Account** — sign in and out, choose permissions, set a Client ID
-- **Appearance** — chat font size, timestamps, italic `/me` actions, and whether tabs scroll on
-  one row or wrap onto several
+- **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
+  tabs scroll on one row or wrap onto several
 - **Emotes** — which emote services to use, and the hidden-emote lists
 - **Notifications** — which mentions ping
 

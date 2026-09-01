@@ -35,7 +35,7 @@ pub enum Incoming {
     Welcome(String),
     /// Twitch is retiring this socket; connect to the url it handed over.
     Reconnect(String),
-    Whisper { id: String, from_login: String, from_name: String, text: String },
+    Whisper { id: String, from_id: String, from_login: String, from_name: String, text: String },
     /// Keepalives, revocations, and anything else we don't act on.
     Ignored,
 }
@@ -70,6 +70,9 @@ pub fn classify(raw: &str) -> Incoming {
             }
             Incoming::Whisper {
                 id: event["whisper_id"].as_str().unwrap_or_default().to_string(),
+                // Carried for the same reason a chat message carries one: it's
+                // what a 7TV badge is looked up by.
+                from_id: event["from_user_id"].as_str().unwrap_or_default().to_string(),
                 from_name: match event["from_user_name"].as_str() {
                     Some(name) if !name.is_empty() => name.to_string(),
                     _ => from_login.to_string(),
@@ -94,10 +97,17 @@ fn now_ms() -> i64 {
 
 /// Resolve a whisper against the global emote set. Whispers belong to no
 /// channel, so there's no channel set to shadow it with.
-fn build(state: &AppState, id: &str, login: &str, name: &str, text: &str) -> ChatMessage {
+fn build(
+    state: &AppState,
+    id: &str,
+    user_id: &str,
+    login: &str,
+    name: &str,
+    text: &str,
+) -> ChatMessage {
     let globals = state.global_emotes.read();
     let emotes = EmoteLookup { channel: None, global: &globals };
-    render::whisper(id, login, name, text, now_ms(), &emotes)
+    render::whisper(id, user_id, login, name, text, now_ms(), &emotes)
 }
 
 async fn subscribe(
@@ -162,8 +172,10 @@ async fn connect_once(
                             }
                         }
                         Incoming::Reconnect(next) => return Ok(Some(next)),
-                        Incoming::Whisper { id, from_login, from_name, text } => {
-                            let _ = sink.send(build(state, &id, &from_login, &from_name, &text));
+                        Incoming::Whisper { id, from_id, from_login, from_name, text } => {
+                            state.queue_badge_lookup(&from_id);
+                            let _ =
+                                sink.send(build(state, &id, &from_id, &from_login, &from_name, &text));
                         }
                         Incoming::Ignored => {}
                     },
@@ -246,6 +258,7 @@ mod tests {
             classify(raw),
             Incoming::Whisper {
                 id: "w-1".to_string(),
+                from_id: "1".to_string(),
                 from_login: "forsen".to_string(),
                 from_name: "Forsen".to_string(),
                 text: "hello there".to_string(),

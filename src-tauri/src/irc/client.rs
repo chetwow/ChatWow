@@ -99,6 +99,10 @@ fn render_and_queue(state: &AppState, sink: &MessageSink, channel: &str, msg: &I
         }
     };
 
+    // Every message names its sender; the state remembers who has already been
+    // asked about, so this is a set lookup for all but the first.
+    state.queue_badge_lookup(msg.tag("user-id").unwrap_or_default());
+
     let _ = sink.send(message);
 }
 

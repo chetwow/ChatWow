@@ -174,6 +174,7 @@ fn set_preferences(
 ) -> settings::Preferences {
     let before = emotes::Providers::from(&*state.preferences.read());
     let after = emotes::Providers::from(&preferences);
+    let badges_before = state.preferences.read().show_seventv_badges;
     *state.preferences.write() = preferences;
     persist(&app, &state);
 
@@ -184,6 +185,14 @@ fn set_preferences(
         let shared = Arc::clone(&state);
         let handle = app.clone();
         tauri::async_runtime::spawn(client::reload_emotes(handle, shared));
+    }
+
+    // Badges are resolved as people talk, and everyone already asked about is
+    // remembered -- so switching them back on has to forget that, or nobody
+    // would be looked up again. What the frontend already holds stays put, so
+    // familiar faces keep theirs immediately.
+    if !badges_before && state.preferences.read().show_seventv_badges {
+        state.seventv_badges_asked.write().clear();
     }
 
     state.preferences.read().clone()
@@ -751,6 +760,16 @@ pub fn run() {
 
             let (tx, rx) = mpsc::unbounded_channel::<IrcCommand>();
             *shared.commands.write() = Some(tx);
+
+            // 7TV answers "who has which badge" one user at a time, so chatters
+            // queue here and go out in batches.
+            let (badge_tx, badge_rx) = mpsc::unbounded_channel::<String>();
+            *shared.badge_lookups.write() = Some(badge_tx);
+            tauri::async_runtime::spawn(emotes::seventv_badges::run(
+                handle.clone(),
+                Arc::clone(&shared),
+                badge_rx,
+            ));
 
             let sink = client::spawn_emitter(handle.clone());
 

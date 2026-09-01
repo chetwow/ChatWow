@@ -38,6 +38,8 @@ export type ReplyInfo = {
 export type ChatMessage = {
   id: string;
   channel: string;
+  /** The sender's Twitch id -- what a 7TV badge is looked up by. */
+  userId: string;
   ts: number;
   login: string;
   displayName: string;
@@ -134,6 +136,8 @@ export type Preferences = {
   enableSeventv: boolean;
   enableBttv: boolean;
   enableFfz: boolean;
+  /** Show the 7TV badge a chatter has equipped, beside their Twitch ones. */
+  showSeventvBadges: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */

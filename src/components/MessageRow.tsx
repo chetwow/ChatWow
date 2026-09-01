@@ -95,6 +95,22 @@ function HiddenEmote({
   );
 }
 
+/**
+ * The 7TV badge its owner has equipped, if we know it yet.
+ *
+ * Subscribed here rather than read off the message: badges are resolved after
+ * the message that prompted the lookup arrives, and stored messages are
+ * immutable -- a row that already rendered would never get one. Reading the
+ * value (rather than the whole map) keeps this to one re-render, when *this*
+ * chatter's badge lands.
+ */
+function SevenTvBadge({ userId }: { userId: string }) {
+  const badge = useChat((state) =>
+    state.preferences.showSeventvBadges ? state.seventvBadges[userId] : undefined,
+  );
+  return badge ? <BadgeView badge={badge} /> : null;
+}
+
 function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }) {
   const show = useTooltip((s) => s.show);
   const hide = useTooltip((s) => s.hide);
@@ -347,6 +363,7 @@ function MessageRowInner({
             {message.badges.map((badge) => (
               <BadgeView key={badge.id} badge={badge} />
             ))}
+            {message.userId && <SevenTvBadge userId={message.userId} />}
             <span className="font-semibold" style={{ color: message.color }}>
               {message.displayName}
             </span>

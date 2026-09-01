@@ -73,6 +73,15 @@ to write `settings.json`.
   Don't merge those names into `ChannelData::emotes` or `global_emotes` to save a lookup — those
   maps are matched by name against message *text*, so any word matching an emote name would
   render as that emote even from someone who doesn't own it.
+- **7TV badges are resolved per chatter, and there's no bulk endpoint any more.** The v3
+  `/v3/cosmetics` route that served every badge and its owners now 404s; v4 answers one user at a
+  time through GraphQL, so [src-tauri/src/emotes/seventv_badges.rs](src-tauri/src/emotes/seventv_badges.rs)
+  aliases forty `userByConnection` lookups into one query and maps them back by position. Ids are
+  interpolated into that document as string literals, so `is_user_id` rejects anything non-numeric
+  -- don't relax it. `AppState::queue_badge_lookup` remembers everyone asked about, badge or not,
+  so nobody is looked up twice. The answers ride to the frontend as `chat://seventv-badges` and
+  live in the store, never on the message: they arrive *after* the message that prompted the
+  lookup, and a stored message is immutable, so a row that already rendered would never get one.
 - **Emote providers are merged by name, lowest priority first.** `emotes::merge`
   ([src-tauri/src/emotes/mod.rs](src-tauri/src/emotes/mod.rs)) folds FFZ, then BTTV, then 7TV into
   one name→`Emote` map, so 7TV wins a shared name -- it's the set channels actually curate. Change

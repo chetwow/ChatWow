@@ -118,6 +118,16 @@ pub struct AppState {
     /// Twitch's global emotes, same shape as `ChannelData::twitch_emotes`.
     pub twitch_global_emotes: RwLock<Vec<TwitchEmote>>,
     pub global_badges: RwLock<BadgeMap>,
+    /// 7TV badges by Twitch user id, for the chatters we've resolved so far.
+    /// Sent to the frontend as they land rather than baked into a message:
+    /// they arrive after the message that prompted the lookup, and the ones
+    /// already rendered are immutable.
+    pub seventv_badges: RwLock<HashMap<String, crate::twitch::badges::Badge>>,
+    /// Every chatter already asked about, whether or not they had a badge --
+    /// "no badge" is an answer, and 7TV shouldn't be asked it twice.
+    pub seventv_badges_asked: RwLock<HashSet<String>>,
+    /// Queue into the badge resolver. `None` until `setup` starts it.
+    pub badge_lookups: RwLock<Option<mpsc::UnboundedSender<String>>>,
     /// How often each emote name has been sent, across every channel, kept in
     /// the settings file so completion ranking survives a restart.
     pub emote_uses: RwLock<HashMap<String, u32>>,
@@ -153,12 +163,30 @@ impl AppState {
             global_emotes: RwLock::new(HashMap::new()),
             twitch_global_emotes: RwLock::new(Vec::new()),
             global_badges: RwLock::new(BadgeMap::new()),
+            seventv_badges: RwLock::new(HashMap::new()),
+            seventv_badges_asked: RwLock::new(HashSet::new()),
+            badge_lookups: RwLock::new(None),
             emote_uses: RwLock::new(HashMap::new()),
             preferences: RwLock::new(crate::settings::Preferences::default()),
             auth: RwLock::new(Auth::default()),
             live: RwLock::new(HashSet::new()),
             live_poll: tokio::sync::Notify::new(),
             eventsub_restart: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Ask 7TV about a chatter's badge, once. Called for every message that
+    /// arrives, so the cheap checks come first: the preference, then whether
+    /// this chatter has been asked about before.
+    pub fn queue_badge_lookup(&self, user_id: &str) {
+        if user_id.is_empty() || !self.preferences.read().show_seventv_badges {
+            return;
+        }
+        if !self.seventv_badges_asked.write().insert(user_id.to_string()) {
+            return;
+        }
+        if let Some(tx) = self.badge_lookups.read().as_ref() {
+            let _ = tx.send(user_id.to_string());
         }
     }
 

@@ -11,6 +11,7 @@ import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
 import type {
   AuthStatus,
+  Badge,
   ChannelRole,
   RoleEvent,
   EmoteRule,
@@ -43,6 +44,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   enableSeventv: true,
   enableBttv: true,
   enableFfz: true,
+  showSeventvBadges: true,
   italicActions: true,
   showTimestamps: true,
   singleRowTabs: true,
@@ -126,6 +128,12 @@ type ChatState = {
   emoteCounts: Record<string, number>;
   /** Completable emotes per channel, sorted case-insensitively by name. */
   emoteEntries: Record<string, EmoteEntry[]>;
+  /**
+   * 7TV badges by Twitch user id. Kept here rather than on the message
+   * because they land *after* the message that prompted the lookup, and a
+   * stored message is immutable -- `MessageRow` subscribes to this instead.
+   */
+  seventvBadges: Record<string, Badge>;
   /** Send count per emote name, shared across channels. */
   emoteUses: Record<string, number>;
   /**
@@ -227,6 +235,7 @@ export const useChat = create<ChatState>((set) => ({
   roles: {},
   emoteCounts: {},
   emoteEntries: {},
+  seventvBadges: {},
   emoteUses: {},
   sentHistory: {},
   connection: "connecting",
@@ -531,9 +540,8 @@ export const useChat = create<ChatState>((set) => ({
 
   bootstrap: async () => {
     if (!IS_TAURI) {
-      const { MOCK_CHANNELS, buildInitialMessages, mockAuthStatus } = await import(
-        "../dev/mockData"
-      );
+      const { MOCK_CHANNELS, buildInitialMessages, mockAuthStatus, mockSevenTvBadges } =
+        await import("../dev/mockData");
       set({
         channels: MOCK_CHANNELS,
         active: MOCK_CHANNELS[0],
@@ -552,6 +560,7 @@ export const useChat = create<ChatState>((set) => ({
         // state everywhere else) so the "replying to you" highlight has an
         // identity to match against during design iteration.
         auth: mockAuthStatus(),
+        seventvBadges: mockSevenTvBadges(),
         preferences: readMockPreferences(),
       });
       useChat.getState().ingest(buildInitialMessages());
@@ -614,6 +623,12 @@ export async function subscribeToBackend() {
         emoteCounts: { ...state.emoteCounts, [event.payload.channel]: event.payload.emoteCount },
       }));
       void useChat.getState().loadEmoteIndex(event.payload.channel);
+    }),
+
+    listen<Record<string, Badge>>("chat://seventv-badges", (event) => {
+      useChat.setState((state) => ({
+        seventvBadges: { ...state.seventvBadges, ...event.payload },
+      }));
     }),
 
     listen<{ globalEmotes: number }>("chat://assets", (event) => {

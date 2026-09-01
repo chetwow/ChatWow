@@ -508,6 +508,13 @@ export function SettingsDialog({
                     label="Display timestamps"
                   />
                 </Row>
+                <Row label="Display 7TV badges">
+                  <Toggle
+                    checked={preferences.showSeventvBadges}
+                    onChange={(showSeventvBadges) => updatePreferences({ showSeventvBadges })}
+                    label="Display 7TV badges"
+                  />
+                </Row>
               </Section>
               <Section title="Tabs">
                 <Row label="Keep tabs on one row">

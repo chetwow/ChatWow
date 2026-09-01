@@ -48,6 +48,9 @@ pub struct Preferences {
     pub enable_seventv: bool,
     pub enable_bttv: bool,
     pub enable_ffz: bool,
+    /// Show the 7TV badge a chatter has equipped, beside their Twitch ones.
+    /// Off means 7TV is never asked who anybody is.
+    pub show_seventv_badges: bool,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -79,6 +82,7 @@ impl Default for Preferences {
             enable_seventv: true,
             enable_bttv: true,
             enable_ffz: true,
+            show_seventv_badges: true,
             italic_actions: true,
             show_timestamps: true,
             single_row_tabs: true,

@@ -248,6 +248,9 @@ function toMessage(draft: Draft, channel: string, ts: number): ChatMessage {
   return {
     id: `mock-${nextId++}`,
     channel,
+    // Stable per chatter, the way a real user id is -- it's what the 7TV
+    // badges below are keyed by.
+    userId: `mock-${draft.login}`,
     ts,
     badges: [],
     isAction: false,
@@ -269,6 +272,7 @@ function mockWhisper(): ChatMessage {
   return {
     id: "whisper-1",
     channel: "",
+    userId: "mock-forsen",
     ts: Date.now(),
     login: "forsen",
     displayName: "Forsen",
@@ -340,6 +344,25 @@ const TWITCH_EMOTES: [string, string][] = [
 
 /** Seeded counts, so the ranking is visibly doing something in mock mode. */
 const EMOTE_USES: Record<string, number> = { PepegaAim: 9, KEKWait: 4, PogU: 2, Kappa: 6 };
+
+/**
+ * 7TV badges keyed by the mock user ids above. Real badge art, so the row
+ * looks like it does against the live API.
+ */
+export function mockSevenTvBadges(): Record<string, Badge> {
+  return {
+    "mock-luccid": {
+      id: "7tv-01JJJ74CRHZBRMCM8F4Y2WBN6R",
+      title: "Minecraft Event Winner",
+      url: "https://cdn.7tv.app/badge/01JJJ74CRHZBRMCM8F4Y2WBN6R/2x_static.webp",
+    },
+    "mock-faiblesse": {
+      id: "7tv-01JF2VMDBWMZDXZKF4D33VM2S8",
+      title: "NNYS Golden Gondola",
+      url: "https://cdn.7tv.app/badge/01JF2VMDBWMZDXZKF4D33VM2S8/2x.webp",
+    },
+  };
+}
 
 export function mockEmoteIndex(): EmoteIndex {
   const entries: EmoteEntry[] = SEVEN_TV_NAMES.map((name, index) => {

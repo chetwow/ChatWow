@@ -10,6 +10,7 @@ export function localNotice(channel: string, text: string): ChatMessage {
   return {
     id: "",
     channel,
+    userId: "",
     ts: 0,
     login: "",
     displayName: "",

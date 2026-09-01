@@ -60,6 +60,9 @@ pub struct ReplyInfo {
 pub struct ChatMessage {
     pub id: String,
     pub channel: String,
+    /// The sender's Twitch id, which is what 7TV badges are keyed by. Empty
+    /// for the messages the app writes itself (notices, system lines).
+    pub user_id: String,
     pub ts: i64,
     pub login: String,
     pub display_name: String,
@@ -338,6 +341,7 @@ pub fn build_chat_message(
     ChatMessage {
         id: msg.tag("id").unwrap_or_default().to_string(),
         channel: channel.to_string(),
+        user_id: msg.tag("user-id").unwrap_or_default().to_string(),
         ts: timestamp(msg),
         color: color::resolve(msg.tag("color"), &login),
         login,
@@ -368,6 +372,7 @@ pub fn build_usernotice(
     ChatMessage {
         id: msg.tag("id").unwrap_or_default().to_string(),
         channel: channel.to_string(),
+        user_id: msg.tag("user-id").unwrap_or_default().to_string(),
         ts: timestamp(msg),
         color: color::resolve(msg.tag("color"), &login),
         login,
@@ -393,6 +398,7 @@ pub fn build_usernotice(
 /// globals, links, mentions) comes through.
 pub fn whisper(
     id: &str,
+    user_id: &str,
     login: &str,
     display_name: &str,
     text: &str,
@@ -402,6 +408,7 @@ pub fn whisper(
     ChatMessage {
         id: id.to_string(),
         channel: String::new(),
+        user_id: user_id.to_string(),
         ts,
         color: color::resolve(None, login),
         login: login.to_string(),
@@ -422,6 +429,7 @@ pub fn notice(channel: &str, text: impl Into<String>) -> ChatMessage {
     ChatMessage {
         id: String::new(),
         channel: channel.to_string(),
+        user_id: String::new(),
         ts: 0,
         login: String::new(),
         display_name: String::new(),

@@ -235,6 +235,32 @@ fetched again, so `set_preferences` respawns `client::reload_emotes` whenever th
 changes; it re-fetches the globals and every joined channel, then emits `chat://assets`, which the
 frontend already treats as "rebuild every channel's completion index".
 
+## 7TV badges
+
+A chatter's equipped 7TV badge is resolved per user, because there's no longer any other way:
+the v3 cosmetics route that once served every badge and its owners in one response is gone (it
+404s), and v4 answers per user through GraphQL. One request per chatter would be absurd in a busy
+channel, so [seventv_badges.rs](src-tauri/src/emotes/seventv_badges.rs) aliases up to forty
+lookups into a single query -- `u0:userByConnection(...)`, `u1:...` -- and maps the answers back
+by position.
+
+Ids reach that query as string literals in a hand-built GraphQL document, so `is_user_id` drops
+anything that isn't a plain number. Twitch user ids are numeric; nothing else in the query comes
+from outside.
+
+Every incoming message offers its sender to `AppState::queue_badge_lookup`, which is a set lookup
+for all but the first message from that person -- "no badge" is an answer, remembered like any
+other. New ids go down a channel to a task that lets them pile up for 400ms (a join alone hands
+over a hundred chatters, between the backlog and the live messages) and then asks in one go.
+
+The results are pushed to the frontend as `chat://seventv-badges` and kept in the store, *not*
+folded into the messages: a badge lands after the message that prompted the lookup, and stored
+messages are immutable, so a row that already rendered would never get one. `MessageRow`
+subscribes to its own chatter's entry instead, which also makes the Appearance toggle apply to
+the backlog immediately. Switching it back on clears the "already asked" set, so people are
+resolved again as they talk -- the badges the frontend already holds stay put meanwhile, so
+familiar faces keep theirs.
+
 ## Emote completion and search
 
 Both entry points -- `Tab` and the `:` picker -- are fed by the same per-channel index (7TV
@@ -313,6 +339,7 @@ sits behind the info dot on its label, which keeps the list scannable.
 | `src-tauri/src/emotes/seventv.rs` | 7TV v3 global and channel emote sets |
 | `src-tauri/src/emotes/bttv.rs` | BetterTTV global, channel and shared emotes |
 | `src-tauri/src/emotes/ffz.rs` | FrankerFaceZ global and room sets |
+| `src-tauri/src/emotes/seventv_badges.rs` | 7TV badges, batched per chatter over GraphQL |
 | `src-tauri/src/emotes/cache.rs` | On-disk emote images, served over `emote://` |
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
@@ -341,7 +368,8 @@ fallbacks, the default color hash, emote-index ordering and use counting, comman
 parsing, the backlog's filtering, and the image cache's key validation, content-type sniffing and
 purge selection. `cargo test -- --ignored` additionally hits the real APIs: one check runs a
 message through the whole pipeline off the live Twitch socket and 7TV, another parses the
-BetterTTV and FrankerFaceZ sets for real channels. Those are the ones that catch a provider
+BetterTTV and FrankerFaceZ sets for real channels, and a third resolves 7TV badges for users
+who do and don't have one. Those are the ones that catch a provider
 changing its response shape -- the symptom is an empty map, which is indistinguishable from a
 channel that simply has no emotes there.
 
