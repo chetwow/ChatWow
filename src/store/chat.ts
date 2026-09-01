@@ -61,6 +61,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showSeventvBadges: true,
   italicActions: true,
   showTimestamps: true,
+  showComposerAvatar: true,
   previewImages: true,
   previewYoutube: true,
   previewTwitch: true,

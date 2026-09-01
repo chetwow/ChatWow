@@ -687,6 +687,18 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
+              <Section title="Message box">
+                {/* Off is for a single account, where the picture only repeats
+                    what the placeholder says. With two signed in it's the one
+                    thing still naming the sender once you've typed over it. */}
+                <Row label="Display your Twitch avatar">
+                  <Toggle
+                    checked={preferences.showComposerAvatar}
+                    onChange={(showComposerAvatar) => updatePreferences({ showComposerAvatar })}
+                    label="Display your Twitch avatar beside the message box"
+                  />
+                </Row>
+              </Section>
               <Section title="Tabs">
                 <Row label="Keep tabs on one row">
                   <Toggle

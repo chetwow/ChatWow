@@ -202,6 +202,8 @@ export type Preferences = {
   italicActions: boolean;
   /** Show the time beside each message. */
   showTimestamps: boolean;
+  /** Show the sending account's picture beside the message box. */
+  showComposerAvatar: boolean;
   /** Show the picture on hover when a link points straight at an image. */
   previewImages: boolean;
   /** Show a YouTube video's channel, duration, date and counts on hover. */

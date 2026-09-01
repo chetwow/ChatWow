@@ -119,7 +119,8 @@ comes back the way you left it next time you open the app.
 ## Talking
 
 Type and press Enter. You send as the account the tab is on -- the picture beside the message
-box says which -- and a tab with no account reads without sending until you give it one.
+box says which, and Settings -> Appearance -> *Display your Twitch avatar* takes it away if
+you only ever use one -- and a tab with no account reads without sending until you give it one.
 
 Twitch caps a message at 500 characters. Past that the box outlines in red and says how far
 over you are, and Enter won't send until it fits.
@@ -247,8 +248,9 @@ The gear in the title bar opens:
   blocked people
 - **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
   Client ID
-- **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
-  tabs scroll on one row or wrap onto several
+- **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, whether your
+  Twitch avatar shows beside the message box, and whether tabs scroll on one row or wrap onto
+  several
 - **Emotes** — which emote services to use, and the hidden-emote lists
 - **Notifications** — which mentions ping, and which to ignore entirely
 

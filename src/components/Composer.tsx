@@ -94,6 +94,7 @@ export function Composer({
   const emoteEntries = useChat((state) => state.emoteEntries[id]);
   const emoteUses = useChat((state) => state.emoteUses);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
+  const showAvatar = useChat((state) => state.preferences.showComposerAvatar);
   const sentHistory = useChat((state) => state.sentHistory[id]);
   const chatters = useChat((state) => state.chatters[id]);
   // Absent until this tab's USERSTATE lands, which is the safe default: the
@@ -605,35 +606,37 @@ export function Composer({
               that's still there while you type. Clicking it is the same menu
               the right-click opens; `onMouseDown` is swallowed so the caret and
               any selection stay where they were. */}
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              const box = event.currentTarget.getBoundingClientRect();
-              setAccountMenu({ x: box.left, y: box.bottom });
-            }}
-            title={login ? `Sending as ${login}` : "Reading anonymously"}
-            aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
-            className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
-          >
-            {avatar ? (
-              <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
-            ) : login ? (
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
-                {login.slice(0, 1)}
-              </span>
-            ) : (
-              // Anonymous keeps the circle rather than dropping it: the row
-              // would otherwise shift sideways whenever a tab changed account,
-              // and this is where you go to give it one.
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-surface text-ink-faint">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                  <circle cx="8" cy="5.5" r="2.75" />
-                  <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />
-                </svg>
-              </span>
-            )}
-          </button>
+          {showAvatar && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                setAccountMenu({ x: box.left, y: box.bottom });
+              }}
+              title={login ? `Sending as ${login}` : "Reading anonymously"}
+              aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
+              className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              {avatar ? (
+                <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
+              ) : login ? (
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
+                  {login.slice(0, 1)}
+                </span>
+              ) : (
+                // Anonymous keeps the circle rather than dropping it: the row
+                // would otherwise shift sideways whenever a tab changed
+                // account, and this is where you go to give it one.
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-surface text-ink-faint">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+                    <circle cx="8" cy="5.5" r="2.75" />
+                    <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />
+                  </svg>
+                </span>
+              )}
+            </button>
+          )}
           <input
             ref={input}
             value={value}
@@ -659,10 +662,13 @@ export function Composer({
             disabled={disabled}
             placeholder={
               // A disabled input takes no mouse events at all, so the
-              // right-click this used to name never reached it -- the avatar
-              // beside it is the one that works here.
+              // right-click this used to name never reached it. The avatar is
+              // the control that works here -- and with it switched off, the
+              // tab's own right-click is what's left.
               disabled
-                ? "Click the avatar to send as an account"
+                ? showAvatar
+                  ? "Click the avatar to send as an account"
+                  : "Right-click the tab to send as an account"
                 : login
                   ? `Message #${channel} as ${login}`
                   : `Message #${channel}`

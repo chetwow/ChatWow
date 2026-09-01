@@ -116,6 +116,10 @@ pub struct Preferences {
     pub italic_actions: bool,
     /// Show the time beside each message.
     pub show_timestamps: bool,
+    /// Show the sending account's picture beside the message box. On by
+    /// default -- with two accounts signed in it's the only thing that keeps
+    /// saying which one a tab speaks as once the placeholder is typed over.
+    pub show_composer_avatar: bool,
     /// Show the picture on hover when a link points straight at an image.
     /// On by default, but a setting because it's fetched from whatever host a
     /// chatter linked -- hovering tells that host you're here, which nothing
@@ -184,6 +188,7 @@ impl Default for Preferences {
             show_seventv_badges: true,
             italic_actions: true,
             show_timestamps: true,
+            show_composer_avatar: true,
             preview_images: true,
             preview_youtube: true,
             preview_twitch: true,
