@@ -8,6 +8,7 @@ import type {
   Overlay,
   ReplyInfo,
   Segment,
+  UserCard,
 } from "../types";
 
 /**
@@ -17,6 +18,12 @@ import type {
  */
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
+
+/** Real Twitch profile images, so the user card's avatar is a real avatar. */
+const FORSEN_AVATAR =
+  "https://static-cdn.jtvnw.net/jtv_user_pictures/forsen-profile_image-48b43e1e4f54b5c8-600x600.png";
+const NYMN_AVATAR =
+  "https://static-cdn.jtvnw.net/jtv_user_pictures/aa24a66f-6cb9-48da-8bcc-80cbf725f99e-profile_image-600x600.png";
 
 const MOD: Badge = {
   id: "moderator/1",
@@ -362,6 +369,63 @@ export function mockSevenTvBadges(): Record<string, Badge> {
       url: "https://cdn.7tv.app/badge/01JF2VMDBWMZDXZKF4D33VM2S8/2x.webp",
     },
   };
+}
+
+/**
+ * User cards, one per shape the real thing can take: subscribed, lapsed,
+ * neither, hidden, and the third-party half not answering at all. Keyed by
+ * login so clicking around mock chat walks through all five, and so a given
+ * name always says the same thing.
+ */
+const USER_CARDS: Record<string, UserCard> = {
+  luccid: {
+    avatarUrl: FORSEN_AVATAR,
+    createdAt: "2011-05-19T00:28:28Z",
+    history: {
+      followedAt: "2015-07-03T10:28:10Z",
+      subMonths: 148,
+      subTier: "3",
+      subscribed: true,
+      subHidden: false,
+    },
+  },
+  faiblesse: {
+    avatarUrl: NYMN_AVATAR,
+    createdAt: "2014-05-08T15:19:18Z",
+    history: {
+      followedAt: "2019-11-22T09:02:00Z",
+      subMonths: 124,
+      subTier: "",
+      subscribed: false,
+      subHidden: false,
+    },
+  },
+  quietone: {
+    // No avatar, so the monogram fallback gets exercised too.
+    avatarUrl: "",
+    createdAt: "2024-02-29T12:00:00Z",
+    history: { followedAt: "", subMonths: 0, subTier: "", subscribed: false, subHidden: false },
+  },
+  nightbot: {
+    avatarUrl: "",
+    createdAt: "2013-01-14T08:30:00Z",
+    history: { followedAt: "2021-06-01T00:00:00Z", subMonths: 0, subTier: "", subscribed: false, subHidden: true },
+  },
+  provider_check: {
+    avatarUrl: NYMN_AVATAR,
+    createdAt: "2018-08-08T18:08:08Z",
+    // ivr.fi didn't answer: the card has to say so rather than claim nothing.
+    history: null,
+  },
+};
+
+/** Anyone without a card of their own gets one of the five, stably. */
+export function mockUserCard(login: string): UserCard {
+  const known = USER_CARDS[login];
+  if (known) return known;
+  const shapes = Object.values(USER_CARDS);
+  const hash = [...login].reduce((total, char) => total + char.charCodeAt(0), 0);
+  return shapes[hash % shapes.length];
 }
 
 export function mockEmoteIndex(): EmoteIndex {

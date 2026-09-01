@@ -82,6 +82,17 @@ to write `settings.json`.
   so nobody is looked up twice. The answers ride to the frontend as `chat://seventv-badges` and
   live in the store, never on the message: they arrive *after* the message that prompted the
   lookup, and a stored message is immutable, so a row that already rendered would never get one.
+- **Follow age and cumulative sub months aren't in the Twitch API for anyone but you.** `Get Users
+  Follows` was removed in 2023 and both replacements are scoped to the caller: `/channels/followed`
+  needs your own id in the token, `/channels/followers?user_id=` needs `moderator:read:followers`
+  and for you to be broadcaster or mod there. The user card gets that half from api.ivr.fi
+  ([src-tauri/src/usercard.rs](src-tauri/src/usercard.rs)), one person's service with no SLA -- so
+  it lands in its own nullable `history` field rather than beside the avatar and account age.
+  `None` there means "didn't answer", *not* "doesn't follow, never subscribed", and the card draws
+  those rows as unavailable; only when both halves fail is there an error instead of a card. Don't
+  flatten it into the rest of the payload, and don't reach for `badge-info` as a substitute -- that
+  carries months only for a current subscriber who has already spoken in that channel. Logins go
+  into a URL path, so `is_login` rejects anything outside `[A-Za-z0-9_]{1,25}`.
 - **Emote providers are merged by name, lowest priority first.** `emotes::merge`
   ([src-tauri/src/emotes/mod.rs](src-tauri/src/emotes/mod.rs)) folds FFZ, then BTTV, then 7TV into
   one name→`Emote` map, so 7TV wins a shared name -- it's the set channels actually curate. Change

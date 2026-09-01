@@ -222,6 +222,37 @@ export type RoleEvent = {
   broadcaster: boolean;
 };
 
+/**
+ * What this chatter is to this channel, hand-mirrored from `usercard::History`.
+ *
+ * Absent from a `UserCard` entirely when the third-party service behind it
+ * didn't answer -- which the card has to say, because it isn't the same claim
+ * as "doesn't follow, never subscribed".
+ */
+export type UserHistory = {
+  /** ISO 8601, empty when they don't follow the channel. */
+  followedAt: string;
+  /** Cumulative months subscribed, counting past subscriptions. 0 if never. */
+  subMonths: number;
+  /** "1", "2" or "3". Empty unless they're subscribed right now. */
+  subTier: string;
+  subscribed: boolean;
+  /** They've hidden it, so the three fields above say nothing about subs. */
+  subHidden: boolean;
+};
+
+/**
+ * The card behind a clicked username, hand-mirrored from `usercard::UserCard`.
+ * No display name or color: the message that was clicked already carries both.
+ */
+export type UserCard = {
+  /** Empty when neither source had one; the card draws initials instead. */
+  avatarUrl: string;
+  /** Account creation, ISO 8601. Empty when neither source answered. */
+  createdAt: string;
+  history: UserHistory | null;
+};
+
 export type ChannelReadyEvent = {
   channel: string;
   emoteCount: number;

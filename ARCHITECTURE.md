@@ -261,6 +261,54 @@ the backlog immediately. Switching it back on clears the "already asked" set, so
 resolved again as they talk -- the badges the frontend already holds stay put meanwhile, so
 familiar faces keep theirs.
 
+## User cards
+
+Clicking a name opens [UserCard.tsx](src/components/UserCard.tsx). Its top half is fetched, its
+bottom half is free -- the messages that chatter has already sent in this channel, filtered out of
+the store. That log is one channel only: the same name in two tabs is two conversations.
+
+The fetched half needs two services, because Twitch only answers one of it.
+
+*Who they are* -- avatar and account age -- is Helix `GET /users`, which needs a token but no
+scope. Signed out there is no token at all (a public client with no secret can't mint an app
+token either), so the same two fields come from ivr.fi instead; the same fallback catches an
+expired token, since something else can answer the question.
+
+*Follow age and cumulative sub months* aren't in Helix at all. `Get Users Follows` was removed in
+2023, and both replacements are scoped to you: `/channels/followed` needs the user id in the token
+to match the one you're asking about, and `/channels/followers?user_id=` needs
+`moderator:read:followers` and for you to be broadcaster or moderator there. Nothing public
+answers "how long has X followed Y", and nothing at all answers someone else's cumulative months.
+So that half comes from [api.ivr.fi](https://api.ivr.fi) -- the same third party Chatterino's user
+card uses, and by the shape of its responses a proxy in front of Twitch's own private GraphQL API.
+
+(A PRIVMSG's `badge-info` tag does carry sub months for free, but only for someone currently
+subscribed who has already spoken in this channel -- too narrow to build the row on.)
+
+Because ivr.fi is one person's service with no SLA, it lands in its own `history` field
+([usercard.rs](src-tauri/src/usercard.rs)) rather than alongside the rest. `None` there is not
+"doesn't follow, never subscribed" -- the card says *Unavailable*, and the avatar and account age
+survive it. Only when *both* halves fail is there no card and an error instead. Logins are
+pasted into a URL path, so `is_login` rejects anything that isn't `[A-Za-z0-9_]{1,25}` -- the same
+shape of guard as the ids in the 7TV badge query.
+
+The subscription line distinguishes four states, and `cumulative` is why: it outlives the
+subscription, so months alone would claim a subscriber who left years ago. `meta` being non-null
+is what says the sub is still running; `statusHidden` is someone who has hidden it, which is a
+third thing again.
+
+Answers are cached per channel-and-name for the session in
+[lib/userCard.ts](src/lib/userCard.ts) -- none of it changes minute to minute -- and the card is
+keyed on the login it's about, so clicking a second name remounts rather than reusing the first
+person's state.
+
+The card sizes itself from the window in both directions: a share of the width between bounds, and
+a share of the height for the message log. The window's own minimum is 420x320, narrower than the
+card's floor and shorter than its natural height, so the width clamps to what's available and the
+log is the section that gives -- it has a scrollbar already, so shrinking it loses nothing. Its
+position is measured after layout and clamped into the window: the name it hangs off is a row
+inside a scroller and can sit partly, or entirely, outside the visible area.
+
 ## Emote completion and search
 
 Both entry points -- `Tab` and the `:` picker -- are fed by the same per-channel index (7TV

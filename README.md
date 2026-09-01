@@ -9,6 +9,7 @@ overlays included), user badges, and everyone's real name color.
 - Mention highlighting, per-channel unread counts, and an optional ping
 - Twitch's slash commands from a `/` picker that only offers what you can run
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
+- A card behind every name: account age, follow age, sub months, and what they've said
 
 ## Running it
 
@@ -118,6 +119,17 @@ Beside them goes the 7TV badge they've equipped, if they have one; those are loo
 talk, so a badge can appear a moment after that person's first message. Settings -> Appearance
 turns them off, which also stops the app asking 7TV about anyone.
 
+## Chatters
+
+Clicking someone's name opens a card about them: their avatar, when their account was made, how
+long they've followed this channel and how many months they've subscribed for -- and under that,
+a scrollable log of everything they've said in this channel since the app started. Escape or a
+click elsewhere closes it.
+
+Twitch will only answer the first of those, so the follow and subscription lines come from
+[ivr.fi](https://api.ivr.fi). When it can't be reached those two rows read *Unavailable* rather
+than guessing, and the rest of the card carries on. None of it needs you to be signed in.
+
 ## Mentions and pings
 
 A message naming you -- `@yourname` or just your name -- is highlighted, and plays a short ping.
@@ -139,10 +151,12 @@ The gear in the title bar opens:
 
 Every setting explains itself behind the info dot on its label.
 
-Joining a channel asks a third-party service, [recent-messages.robotty.de](https://recent-messages.robotty.de),
-for its recent history -- Twitch offers none to apps like this one. That tells them which
-channels you read, and it's the only thing this app does that Twitch and 7TV don't see. Turning
-off *Show recent message history on join* in General stops it.
+Two things here reach a service that isn't Twitch or an emote provider. Joining a channel asks
+[recent-messages.robotty.de](https://recent-messages.robotty.de) for its recent history -- Twitch
+offers none to apps like this one -- which tells them which channels you read; turning off *Show
+recent message history on join* in General stops it. Opening a chatter's card asks
+[ivr.fi](https://api.ivr.fi) for the follow and subscription lines, which tells them the name you
+clicked and the channel you clicked it in; that one only happens when you open a card.
 
 ## Shortcuts
 

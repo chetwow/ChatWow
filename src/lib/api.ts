@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AuthStatus, ChannelHit, DeviceCode, EmoteIndex, Preferences } from "../types";
+import type {
+  AuthStatus,
+  ChannelHit,
+  DeviceCode,
+  EmoteIndex,
+  Preferences,
+  UserCard,
+} from "../types";
 
 export const api = {
   authStatus: () => invoke<AuthStatus>("auth_status"),
@@ -28,6 +35,8 @@ export const api = {
   emoteIndex: (channel: string) => invoke<EmoteIndex>("emote_index", { channel }),
   /** Empty when signed out -- Helix has no unauthenticated channel search. */
   searchChannels: (query: string) => invoke<ChannelHit[]>("search_channels", { query }),
+  /** Everything the card behind a clicked username shows. Works signed out. */
+  userCard: (login: string, channel: string) => invoke<UserCard>("user_card", { login, channel }),
   recordEmoteUses: (channel: string, names: string[]) =>
     invoke<void>("record_emote_uses", { channel, names }),
   preferences: () => invoke<Preferences>("preferences"),

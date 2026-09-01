@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEv
 import { MessageRow, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
+import { UserCard, type UserCardTarget } from "./UserCard";
 import { useChat, type BlacklistKind } from "../store/chat";
 import { messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
@@ -24,6 +25,7 @@ export function ChatView({ channel }: { channel: string }) {
   const addEmoteRule = useChat((state) => state.addEmoteRule);
   const removeEmoteRule = useChat((state) => state.removeEmoteRule);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
+  const [card, setCard] = useState<UserCardTarget | null>(null);
 
   // Re-pin when switching channels.
   useEffect(() => setPinned(true), [channel]);
@@ -32,6 +34,7 @@ export function ChatView({ channel }: { channel: string }) {
   useEffect(() => {
     setMenu(null);
     setReplyTo(null);
+    setCard(null);
   }, [channel]);
 
   useLayoutEffect(() => {
@@ -100,6 +103,19 @@ export function ChatView({ channel }: { channel: string }) {
     // re-render every time this callback's identity changed.
     setMenu({ x: event.clientX, y: event.clientY, message, emote: emoteAt(event.target) });
   }, []);
+
+  // Stable for the same reason `openMenu` is. The card hangs off the name's own
+  // box rather than the pointer, so it lines up with what was clicked however
+  // the row happens to wrap.
+  const openCard = useCallback((event: MouseEvent, message: StoredMessage) => {
+    setCard({
+      login: message.login,
+      displayName: message.displayName,
+      color: message.color,
+      anchor: event.currentTarget.getBoundingClientRect(),
+    });
+  }, []);
+  const closeCard = useCallback(() => setCard(null), []);
 
   /**
    * The blacklist half of the menu, appended below Copy/Reply so an emote-heavy
@@ -186,7 +202,12 @@ export function ChatView({ channel }: { channel: string }) {
 
           <div ref={content}>
             {messages?.map((message) => (
-              <MessageRow key={message.key} message={message} onContextMenu={openMenu} />
+              <MessageRow
+                key={message.key}
+                message={message}
+                onContextMenu={openMenu}
+                onNameClick={openCard}
+              />
             ))}
           </div>
         </div>
@@ -202,6 +223,17 @@ export function ChatView({ channel }: { channel: string }) {
 
         {menu && (
           <ContextMenu x={menu.x} y={menu.y} options={menuOptions} onClose={() => setMenu(null)} />
+        )}
+
+        {/* Keyed by who it's about: clicking a second name reuses this slot, and
+            without a key the card would keep the first person's fetched data. */}
+        {card && (
+          <UserCard
+            key={`${channel}|${card.login}`}
+            target={card}
+            channel={channel}
+            onClose={closeCard}
+          />
         )}
       </div>
 

@@ -8,6 +8,7 @@ mod render;
 mod settings;
 mod state;
 mod twitch;
+mod usercard;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -392,6 +393,26 @@ async fn search_channels(
     twitch::search::search_channels(&state.http, &client_id, &token, &trimmed)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Everything the card behind a clicked username shows. Signed out this still
+/// answers -- the follow and sub half never needed a token, and the avatar and
+/// account age fall back to a source that doesn't either.
+#[tauri::command]
+async fn user_card(
+    state: State<'_, Shared>,
+    login: String,
+    channel: String,
+) -> Result<usercard::UserCard, String> {
+    let credentials = { state.auth.read().credentials() };
+    usercard::fetch(
+        &state.http,
+        credentials,
+        &login.to_ascii_lowercase(),
+        &channel.to_ascii_lowercase(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -797,6 +818,7 @@ pub fn run() {
             set_permission_groups,
             run_chat_command,
             search_channels,
+            user_card,
             start_device_auth,
             poll_device_auth,
             logout,

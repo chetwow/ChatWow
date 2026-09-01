@@ -302,3 +302,33 @@ async fn live_seventv_badges_resolve() {
         assert!(badge.id.starts_with("7tv-"), "{id}: unnamespaced badge id {}", badge.id);
     }
 }
+
+#[tokio::test]
+#[ignore = "hits the live ivr.fi API"]
+async fn live_user_card_history_resolves() {
+    let http = reqwest::Client::builder()
+        .user_agent("chatwow/0.1 livecheck")
+        .build()
+        .unwrap();
+
+    // Signed out, which is the path that has to keep working without a token:
+    // the avatar and account age come from ivr.fi rather than Helix, and the
+    // follow/sub half never had another source to begin with.
+    let card = crate::usercard::fetch(&http, None, "nymn", "forsen")
+        .await
+        .expect("the card should load");
+
+    println!("{card:?}");
+    assert!(card.avatar_url.starts_with("https://"), "avatar: {}", card.avatar_url);
+    assert!(card.created_at.starts_with("20"), "created: {}", card.created_at);
+
+    let history = card.history.expect("ivr.fi should have answered");
+    // NymN has followed forsen since 2015 and subscribed for years, so any
+    // shape where those come back empty means the parse has drifted.
+    assert!(history.followed_at.starts_with("2015"), "followed: {}", history.followed_at);
+    assert!(history.sub_months > 100, "sub months: {}", history.sub_months);
+
+    // Nobody is nobody, in either half -- so there's no card at all.
+    let missing = crate::usercard::fetch(&http, None, "thisuserdoesnotexist99123", "forsen").await;
+    assert!(missing.is_err(), "a name Twitch doesn't know should be an error");
+}

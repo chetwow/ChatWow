@@ -246,6 +246,21 @@ function ReplyQuote({ replyTo, highlighted }: { replyTo: ReplyInfo; highlighted:
   );
 }
 
+/**
+ * Just the text of a message, with its emotes and links. Split out so the user
+ * card's log of someone's messages renders them exactly as chat does, rather
+ * than flattening a `PagChomp` back into six letters.
+ */
+export function MessageBody({ message }: { message: StoredMessage }) {
+  return (
+    <span className={message.deleted ? "line-through" : undefined}>
+      {message.segments.map((segment, index) => (
+        <SegmentView key={index} segment={segment} />
+      ))}
+    </span>
+  );
+}
+
 function SegmentView({ segment }: { segment: Segment }) {
   switch (segment.kind) {
     case "text":
@@ -273,9 +288,11 @@ function SegmentView({ segment }: { segment: Segment }) {
 function MessageRowInner({
   message,
   onContextMenu,
+  onNameClick,
 }: {
   message: StoredMessage;
   onContextMenu?: (event: MouseEvent, message: StoredMessage) => void;
+  onNameClick?: (event: MouseEvent, message: StoredMessage) => void;
 }) {
   const time = timeOf(message.ts);
   const myLogin = useChat((state) => state.auth.login);
@@ -315,13 +332,7 @@ function MessageRowInner({
     );
   }
 
-  const body = (
-    <span className={message.deleted ? "line-through" : undefined}>
-      {message.segments.map((segment, index) => (
-        <SegmentView key={index} segment={segment} />
-      ))}
-    </span>
-  );
+  const body = <MessageBody message={message} />;
 
   return (
     <div
@@ -364,9 +375,22 @@ function MessageRowInner({
               <BadgeView key={badge.id} badge={badge} />
             ))}
             {message.userId && <SevenTvBadge userId={message.userId} />}
-            <span className="font-semibold" style={{ color: message.color }}>
-              {message.displayName}
-            </span>
+            {onNameClick ? (
+              // A button rather than the span it replaces, matching the link
+              // segment: both are things inside selectable text that you click.
+              <button
+                type="button"
+                onClick={(event) => onNameClick(event, message)}
+                className="cursor-pointer font-semibold hover:underline"
+                style={{ color: message.color }}
+              >
+                {message.displayName}
+              </button>
+            ) : (
+              <span className="font-semibold" style={{ color: message.color }}>
+                {message.displayName}
+              </span>
+            )}
             {message.isAction ? (
               // Still the sender's color and still without the colon -- that's
               // what makes it an action. Only the slant is optional.
