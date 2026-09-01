@@ -14,11 +14,19 @@ export function ContextMenu({
   x,
   y,
   options,
+  closeOnScroll = true,
   onClose,
 }: {
   x: number;
   y: number;
   options: ContextMenuOption[];
+  /**
+   * Whether a scroll anywhere closes the menu. True for a menu opened *on*
+   * something, which slides out from under it. False for one belonging to a
+   * fixed control: chat scrolls on its own every time a message lands, and a
+   * menu that closed on that would be unopenable in a busy channel.
+   */
+  closeOnScroll?: boolean;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -45,14 +53,14 @@ export function ContextMenu({
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", onClose);
-    window.addEventListener("scroll", onClose, true);
+    if (closeOnScroll) window.addEventListener("scroll", onClose, true);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", onClose);
       window.removeEventListener("scroll", onClose, true);
     };
-  }, [onClose]);
+  }, [onClose, closeOnScroll]);
 
   return (
     <div

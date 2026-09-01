@@ -20,7 +20,18 @@ import type { EmoteRule, StoredMessage } from "../types";
 /** How close to the bottom still counts as "pinned". */
 const PIN_THRESHOLD = 40;
 
-export function ChatView({ channel }: { channel: string }) {
+export function ChatView({
+  channel,
+  capturesTyping = true,
+}: {
+  channel: string;
+  /**
+   * Whether this view's composer answers to typing anywhere in the window.
+   * False in the pane you aren't working in: two composers both reclaiming
+   * focus on every keystroke would take it in turns to steal your text.
+   */
+  capturesTyping?: boolean;
+}) {
   // The one tab with no channel behind it reads from the cross-channel log
   // instead. Everything below -- scroll pinning, the context menu, user cards
   // -- is the same view either way; only the source and the composer differ.
@@ -334,7 +345,12 @@ export function ChatView({ channel }: { channel: string }) {
       {/* Nothing to send to: the mentions tab spans every channel, so there's
           no one room a message typed here would belong to. */}
       {!isMentions && (
-        <Composer channel={channel} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        <Composer
+          channel={channel}
+          capturesTyping={capturesTyping}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
       )}
     </div>
   );

@@ -271,6 +271,53 @@ channels have mentions rather than on the mentions map, which is a fresh object 
 ([`macos_menu`](src-tauri/src/lib.rs)): Tauri's default menu binds `Cmd+W` to Close Window, and
 a menu key equivalent is matched before the keystroke ever reaches the webview.
 
+## Split view
+
+The window holds one pane or two, never a tree of them: `splitLayout` is `none`, `row` or
+`column`, and `splitRatio` is the first pane's share of that axis. Both live in `Preferences`
+with everything else the user can set, so a split window comes back split.
+
+Which pane a channel is in is **one number**, `splitIndex`: how many of the leading `channels`
+belong to the first pane. `channels` stays the single record of what's joined and in what order
+-- it's the backend's list, written by `reorder_channels` -- so dragging a tab across the
+divider is an ordinary move within it, and no channel can end up in both panes or in neither.
+A second list of names per pane would have to be reconciled against that one on every join,
+part and reorder; a boundary can't drift out of agreement with itself. The mentions tab is the
+exception that proves it: there's only one of it and it isn't in `channels`, so it needs
+`mentionsPane` alongside its index to say which row it sits in.
+
+`paneChannels`, `paneTabs` and `paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive
+everything from those pieces, and `commitTabs` writes a rearranged pair of tab lists back to
+them -- channel order to the backend, boundary and mentions placement to the preferences, each
+only if it actually changed. Every rearrangement (a drag across, a part, an unsplit) then runs
+`settleActive`, which corrects each pane's open tab against the tabs it actually holds rather
+than patching `active` by hand at each call site.
+
+`active` is therefore a pair, one tab per pane, and both are "what you're reading": a message
+that lands in either is one you can see, so neither counts as unread. `focusedPane` -- the pane
+you last clicked in, tracked by a capture-phase pointer handler on the pane wrapper -- is the
+narrower question of where a whisper is filed, what `Ctrl/Cmd+W` closes, and which half a newly
+joined channel drops into. A channel joined from the first pane arrives at the end of
+`channels`, which is the *second* pane, so `placeJoined` moves it back across.
+
+Two panes mean two composers, and a composer reclaims focus on any keystroke anywhere in the
+window, so chat feels always-focused. Exactly one of them can be doing that,
+or they take turns stealing the caret from each other -- hence `capturesTyping`, which is the
+focused pane, or the other one when the focused pane has nothing open. It gates the mount-time
+focus as well: a composer mounting in the half you *aren't* working in (its pane fell back to
+another tab when you dragged one out) would otherwise take the caret and, through the focus
+handler, the pane focus with it.
+
+Dragging a tab between panes is HTML5 drag and drop, and the payload can't be read until the
+drop -- so the tab being dragged lives in a small store of its own
+([src/store/tabDrag.ts](src/store/tabDrag.ts)) that both bars and both panes can see. A pane
+accepts a drop anywhere in its body, not just on its tab bar: an empty one has no tab to aim at.
+
+The split menu hangs off a title-bar button, which is why `ContextMenu` grew `closeOnScroll`.
+A menu opened *on* a message has to close when chat scrolls out from under it; a menu belonging
+to a fixed control must not, or it would be unopenable in a busy channel -- chat scrolls itself
+every time a message lands.
+
 ## Message history
 
 `↑` in the composer walks back through what you've sent in the current channel, `↓` comes
@@ -560,7 +607,9 @@ caps were being inherited into whole sentences.
 | `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/settings.rs` | `settings.json`: tokens, channels, emote counts, preferences |
-| `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer |
+| `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer, pane layout |
+| `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
+| `src/components/Panes.tsx` | One pane or two, the divider, and the empty-pane screen |
 | `src/lib/commands.ts` | The command catalog the `/` picker reads |
 | `src/lib/emoteComplete.ts` | Completion cycling, picker search and ranking |
 | `src/lib/chatterComplete.ts` | Chatters seen this session, matched for `@` and Tab |

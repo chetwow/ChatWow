@@ -1,6 +1,8 @@
+import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useChat } from "../store/chat";
 import { IS_TAURI } from "../lib/tauri";
+import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
 
 const DOT: Record<string, string> = {
@@ -72,6 +74,76 @@ function MuteButton() {
   );
 }
 
+/**
+ * Divide the window, or put it back. The four directions say where the new
+ * pane goes, which is only a question while there isn't one -- once the
+ * window is split there are two panes to arrange rather than one to add, so
+ * the menu turns into the three things you can do with them.
+ */
+function SplitButton() {
+  const layout = useChat((state) => state.preferences.splitLayout);
+  const split = useChat((state) => state.split);
+  const setSplitLayout = useChat((state) => state.setSplitLayout);
+  const swapPanes = useChat((state) => state.swapPanes);
+  const removeSplit = useChat((state) => state.removeSplit);
+  const button = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const options: ContextMenuOption[] =
+    layout === "none"
+      ? [
+          { label: "Split left", onSelect: () => split("row", true) },
+          { label: "Split right", onSelect: () => split("row", false) },
+          { label: "Split up", onSelect: () => split("column", true) },
+          { label: "Split down", onSelect: () => split("column", false) },
+        ]
+      : [
+          { label: "Side by side", onSelect: () => setSplitLayout("row") },
+          { label: "Stacked", onSelect: () => setSplitLayout("column") },
+          { label: "Swap panes", onSelect: swapPanes },
+          { separator: true },
+          { label: "Remove split", onSelect: removeSplit },
+        ];
+
+  return (
+    <>
+      <button
+        ref={button}
+        onClick={() => {
+          // Opened under the button rather than at the pointer: it's a menu
+          // belonging to a control, not a context menu for what was clicked.
+          const box = button.current?.getBoundingClientRect();
+          setMenu(menu ? null : { x: box ? box.left : 0, y: box ? box.bottom + 4 : 0 });
+        }}
+        aria-label="Split view"
+        aria-haspopup="menu"
+        aria-expanded={menu !== null}
+        title="Split view"
+        className={`mr-1 grid h-6 w-6 place-items-center rounded transition-colors hover:bg-surface-hover ${
+          layout === "none" ? "text-ink-dim hover:text-ink" : "text-accent hover:text-accent"
+        }`}
+      >
+        {/* A pane with a divider through it, turned the way the window is
+            actually divided -- upright while there's no split, since that's
+            what picking one would give you. */}
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="1.7" y="2.7" width="12.6" height="10.6" rx="1.6" />
+          {layout === "column" ? <path d="M1.7 8h12.6" /> : <path d="M8 2.7v10.6" />}
+        </svg>
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          options={options}
+          closeOnScroll={false}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
+  );
+}
+
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const connection = useChat((state) => state.connection);
   const auth = useChat((state) => state.auth);
@@ -99,6 +171,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
       <div data-tauri-drag-region className="flex-1" />
 
       <MuteButton />
+      <SplitButton />
 
       <button
         onClick={() => onOpenSettings("general")}

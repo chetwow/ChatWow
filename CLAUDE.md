@@ -268,6 +268,30 @@ to write `settings.json`.
   all (`MessageRow` returns null). Blocking implies ignoring: a row that isn't drawn must not
   still be ringing a bell. Both are local; Twitch's own block needs a scope this app doesn't ask
   for and still delivers the messages over IRC, so it would need this half regardless.
+- **Which pane a channel is in is a boundary in `channels`, not a second list.** `splitIndex`
+  ([src-tauri/src/settings.rs](src-tauri/src/settings.rs)) counts the leading channels belonging
+  to the first pane, so `channels` stays the one record of what's joined and in what order and a
+  cross-pane drag is a move within it -- nothing can land in both panes or neither. Derive with
+  `paneChannels`/`paneTabs`/`paneOf` and write back through `commitTabs`
+  ([src/store/chat.ts](src/store/chat.ts)); don't add a per-pane name list that then has to be
+  reconciled against `channels` on every join, part and reorder. The mentions tab needs
+  `mentionsPane` beside its index only because it isn't in `channels` and there's just one of it.
+  `active` is a pair, one tab per pane, and *both* count as "what you're reading" for unread and
+  pings; `focusedPane` is the narrower question of where a whisper lands, what Ctrl+W closes, and
+  which half a join drops into.
+- **Only one composer may listen for typing.** `Composer` reclaims focus on any keystroke in the
+  window so chat feels always-focused, so in a split window two of them would take turns stealing
+  the caret. `capturesTyping` ([src/components/Composer.tsx](src/components/Composer.tsx)) is
+  that switch -- the focused pane, or the other one when the focused pane has nothing open -- and
+  it gates the mount-time focus too: a composer mounting in the pane you *aren't* working in
+  would otherwise pull the caret across and, through `Pane`'s focus handler, the pane focus with
+  it. That was a real bug: dragging a tab into the other pane focused it, then bounced straight
+  back.
+- **A menu belonging to a fixed control must not close on scroll.** `ContextMenu` closes on any
+  scroll by default, which is right for a menu opened on a message -- but chat scrolls itself
+  every time a message lands, so the title bar's split menu was shut before it could be read.
+  Hence `closeOnScroll` ([src/components/ContextMenu.tsx](src/components/ContextMenu.tsx)); pass
+  it `false` for anything anchored to a control rather than to content.
 - **A tab's rendered width must never change on hover** ([src/components/TabBar.tsx](src/components/TabBar.tsx)).
   The tab bar computes its own row-wrap breaks in JS (measuring each tab, reserving room for the
   add-channel button) and re-runs that via a `ResizeObserver` on real size changes. If hovering a

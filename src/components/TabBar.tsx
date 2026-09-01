@@ -1,44 +1,64 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
-import { MENTIONS_TAB, useChat } from "../store/chat";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
+import { MENTIONS_TAB, paneTabs, useChat } from "../store/chat";
+import { useTabDrag } from "../store/tabDrag";
+import type { PaneIndex } from "../types";
 
 /** Matches the row's gap-x-1. */
 const TAB_GAP = 4;
 /** Safety margin for offsetWidth's whole-pixel rounding vs. real fractional layout. */
 const ROUNDING_SLOP = 2;
 
-export function TabBar({ onAdd }: { onAdd: () => void }) {
+/**
+ * One pane's row of tabs. Everything here is about this pane's own tabs --
+ * which of them wrap onto which row, which is being dragged, which has a
+ * mention past the edge of a scrolled row -- so a split window runs two of
+ * these, measuring independently against their own widths.
+ */
+export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) {
   const channels = useChat((state) => state.channels);
-  const active = useChat((state) => state.active);
+  const preferences = useChat((state) => state.preferences);
+  const active = useChat((state) => state.active[pane]);
   const unread = useChat((state) => state.unread);
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
   const live = useChat((state) => state.live);
   const setActive = useChat((state) => state.setActive);
   const part = useChat((state) => state.part);
-  const reorderChannels = useChat((state) => state.reorderChannels);
+  const moveTab = useChat((state) => state.moveTab);
   // One scrolling row, or as many wrapped rows as the tabs need.
-  const singleRow = useChat((state) => state.preferences.singleRowTabs);
-  const mentionsTab = useChat((state) => state.preferences.mentionsTab);
-  const mentionsTabIndex = useChat((state) => state.preferences.mentionsTabIndex);
-  const updatePreferences = useChat((state) => state.updatePreferences);
+  const singleRow = preferences.singleRowTabs;
 
   /**
-   * Every tab, in bar order: the channels with the mentions tab dropped in
-   * wherever it was last left. Everything below -- measuring, wrapping,
-   * dragging, the scrolled-off-edge check -- runs over this rather than
-   * `channels`, so the extra tab is an ordinary tab in every respect.
+   * This pane's tabs, in bar order: its channels with the mentions tab
+   * dropped in if this is where it lives. Everything below -- measuring,
+   * wrapping, dragging, the scrolled-off-edge check -- runs over this rather
+   * than `channels`, so the extra tab is an ordinary tab in every respect and
+   * the other pane's tabs are simply not here.
    *
-   * An index past the end lands it last, which is what a parted channel or a
-   * hand-edited settings file leaves behind.
+   * Memoized against the two things it's derived from: both are stable
+   * references until something really changes, where a fresh array on every
+   * store update would re-measure the row on every incoming message.
    */
-  const tabList = (() => {
-    if (!mentionsTab) return channels;
-    const next = channels.slice();
-    next.splice(Math.min(mentionsTabIndex, channels.length), 0, MENTIONS_TAB);
-    return next;
-  })();
+  const tabList = useMemo(
+    () => paneTabs({ channels, preferences }, pane),
+    [channels, preferences, pane],
+  );
+  /** Cheap dependency for effects that only care that the tabs changed. */
+  const tabKey = tabList.join(" ");
 
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Shared with the other pane's bar: a tab dragged across the divider is
+  // lifted in one of these components and dropped in the other.
+  const drag = useTabDrag((state) => state.drag);
+  const startDrag = useTabDrag((state) => state.start);
+  const endDrag = useTabDrag((state) => state.end);
 
   const rowRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -132,7 +152,8 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Recompute whenever the channel list itself changes shape (join, part,
   // drag-reorder) -- this can change bucketing even when no individual tab's
   // rendered width changed.
-  useLayoutEffect(recompute, [channels, mentionsTab, mentionsTabIndex, singleRow]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(recompute, [tabKey, singleRow]);
 
   // Recompute whenever a tab (or the row, or the add button) actually
   // changes size -- an unread count gaining a digit, a window resize. (The
@@ -216,7 +237,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   useLayoutEffect(() => {
     checkRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mentionKey, channels, mentionsTab, mentionsTabIndex, singleRow]);
+  }, [mentionKey, tabKey, singleRow]);
 
   // The row scrolling isn't the only way a badge crosses an edge: resizing the
   // window moves the right one under the tabs.
@@ -242,35 +263,26 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // strays a pixel above into the title bar or below into the chat view, so
   // accept the drop everywhere while a tab drag is in progress.
   useEffect(() => {
-    if (dragIndex === null) return;
+    if (!drag) return;
     window.addEventListener("dragenter", allowDrop);
     window.addEventListener("dragover", allowDrop);
     return () => {
       window.removeEventListener("dragenter", allowDrop);
       window.removeEventListener("dragover", allowDrop);
     };
-  }, [dragIndex]);
+  }, [drag]);
 
   /**
-   * Both indices are into `tabList`, so a drag doesn't care which kind of tab
-   * it moved. Writing back splits them again: the channel order belongs to the
-   * backend, the mentions tab's place is a preference, and only the one that
-   * actually changed is written.
+   * Take the drop: the store works out what moving this tab here means for
+   * the channel order, the split boundary and the mentions tab's place. An
+   * index of `tabList.length` is the drop on the bar's own background, which
+   * is how a tab is dragged into a pane with no tabs to aim at.
    */
-  const moveTab = (from: number, to: number) => {
-    if (from === to) return;
-    const next = tabList.slice();
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-
-    const nextChannels = next.filter((tab) => tab !== MENTIONS_TAB);
-    if (nextChannels.some((name, index) => name !== channels[index])) {
-      reorderChannels(nextChannels);
-    }
-    const at = next.indexOf(MENTIONS_TAB);
-    if (at >= 0 && at !== Math.min(mentionsTabIndex, channels.length)) {
-      updatePreferences({ mentionsTabIndex: at });
-    }
+  const dropAt = (event: { preventDefault(): void; stopPropagation(): void }, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (drag) moveTab(drag.tab, pane, index);
+    endDrag();
   };
 
   // Which wrapped row each tab lands on, purely so tabs past the first row
@@ -309,25 +321,21 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
           }}
           draggable
           onDragStart={(event) => {
-            setDragIndex(index);
+            startDrag({ tab: channel, pane });
             event.dataTransfer.effectAllowed = "move";
           }}
           onDragEnter={allowDrop}
           onDragOver={allowDrop}
-          onDrop={(event) => {
-            // Reordering here (rather than live, on dragover) avoids
-            // shuffling the DOM under the cursor while the drag is still
-            // in progress -- the actual move happens once, on release.
-            event.preventDefault();
-            if (dragIndex !== null) moveTab(dragIndex, index);
-            setDragIndex(null);
-          }}
-          onDragEnd={() => setDragIndex(null)}
-          onClick={() => setActive(channel)}
+          // Reordering here (rather than live, on dragover) avoids shuffling
+          // the DOM under the cursor while the drag is still in progress --
+          // the actual move happens once, on release.
+          onDrop={(event) => dropAt(event, index)}
+          onDragEnd={endDrag}
+          onClick={() => setActive(channel, pane)}
           className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
             isActive ? "bg-surface text-ink" : "text-ink-dim hover:bg-surface-hover hover:text-ink"
           } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
-            dragIndex === index ? "opacity-50" : ""
+            drag?.tab === channel ? "opacity-50" : ""
           }`}
         >
           {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
@@ -398,11 +406,14 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // themselves otherwise accept a drop.
   const dragHandlers = {
     onDragEnter: (event: DragEvent<HTMLDivElement>) => {
-      if (dragIndex !== null) allowDrop(event);
+      if (drag) allowDrop(event);
     },
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (dragIndex !== null) allowDrop(event);
+      if (drag) allowDrop(event);
     },
+    // Anywhere in the bar that isn't a tab means the end of the row -- which
+    // is the only target an empty pane's bar has.
+    onDrop: (event: DragEvent<HTMLDivElement>) => dropAt(event, tabList.length),
   };
 
   const addButton = (

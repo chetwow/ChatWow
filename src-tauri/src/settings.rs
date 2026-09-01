@@ -84,10 +84,28 @@ pub struct Preferences {
     /// find yourself with. Nothing else here changes with it -- the log is
     /// kept either way, so opening the tab isn't opening an empty one.
     pub mentions_tab: bool,
-    /// Where that tab sits among the channel tabs. It's an ordinary tab, so
-    /// it can be dragged anywhere in the row; an index past the end lands it
-    /// last rather than being an error.
+    /// Where that tab sits among the channel tabs of the pane holding it.
+    /// It's an ordinary tab, so it can be dragged anywhere in the row (and
+    /// into the other pane); an index past the end lands it last rather than
+    /// being an error.
     pub mentions_tab_index: usize,
+    /// Which pane the mentions tab is in, `0` or `1`. There is only one of
+    /// it, so unlike a channel it needs saying which side it landed on.
+    /// Meaningless while `split_layout` is `none`, and kept anyway so
+    /// splitting again puts it back where it was.
+    pub mentions_pane: usize,
+    /// Whether the window is split, and along which axis: `none`, `row`
+    /// (panes side by side) or `column` (stacked). A value this app doesn't
+    /// know falls back to `none` in the frontend, like `chat_font_size`.
+    pub split_layout: String,
+    /// How much of the split axis the first pane gets, as a fraction. The
+    /// frontend clamps it so neither pane can be dragged away to nothing.
+    pub split_ratio: f64,
+    /// How many of the leading `channels` belong to the first pane; the rest
+    /// belong to the second. One number rather than two lists, so `channels`
+    /// stays the single record of which channels exist and in what order --
+    /// dragging a tab across the divider is a move within that one list.
+    pub split_index: usize,
     /// Mentions to say nothing about, each entry either `@login` or
     /// `#channel`. One list rather than two: they're the same instruction
     /// ("don't tell me about this") and the prefix is what it applies to.
@@ -128,6 +146,10 @@ impl Default for Preferences {
             single_row_tabs: true,
             mentions_tab: false,
             mentions_tab_index: 0,
+            mentions_pane: 0,
+            split_layout: "none".to_string(),
+            split_ratio: 0.5,
+            split_index: 0,
             mention_ignores: Vec::new(),
             blocked_users: Vec::new(),
             muted: false,

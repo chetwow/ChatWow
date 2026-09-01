@@ -121,6 +121,18 @@ export type EmoteRule = {
   value: string;
 };
 
+/**
+ * Which of the two panes something is in. There are exactly two: one split,
+ * not a tree of them, so this is an index rather than a path.
+ */
+export type PaneIndex = 0 | 1;
+
+/**
+ * How the window is divided: not at all, into two panes side by side, or into
+ * two stacked one above the other.
+ */
+export type SplitLayout = "none" | "row" | "column";
+
 /** Hand-mirrored from `settings::Preferences`; kept in `settings.json`. */
 export type Preferences = {
   chatFontSize: ChatFontSize;
@@ -154,8 +166,16 @@ export type Preferences = {
   singleRowTabs: boolean;
   /** Keep a tab collecting every mention, reply and whisper, from all channels. */
   mentionsTab: boolean;
-  /** Where that tab sits among the channel tabs. Past the end means last. */
+  /** Where that tab sits among its pane's channel tabs. Past the end means last. */
   mentionsTabIndex: number;
+  /** Which pane holds the mentions tab. There's only one of it, so it needs saying. */
+  mentionsPane: PaneIndex;
+  /** Whether the window is split, and along which axis. */
+  splitLayout: SplitLayout;
+  /** The first pane's share of the split axis, as a fraction. */
+  splitRatio: number;
+  /** How many leading channels belong to the first pane; the rest to the second. */
+  splitIndex: number;
   /** Mentions to stay quiet about: `@login` or `#channel`, in one list. */
   mentionIgnores: string[];
   /** Logins whose messages aren't drawn at all. */

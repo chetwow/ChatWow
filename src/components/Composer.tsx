@@ -63,10 +63,13 @@ function ReplyBar({ message, onCancel }: { message: StoredMessage; onCancel: () 
 
 export function Composer({
   channel,
+  capturesTyping = true,
   replyTo,
   onCancelReply,
 }: {
   channel: string;
+  /** Whether typing anywhere in the window lands here -- see the effect below. */
+  capturesTyping?: boolean;
   replyTo?: StoredMessage | null;
   onCancelReply?: () => void;
 }) {
@@ -132,8 +135,17 @@ export function Composer({
   // so it would otherwise be impossible to exercise the composer's design.
   const disabled = IS_TAURI && !auth.loggedIn;
 
+  // Ready to type in as soon as it appears -- but only in the pane you're
+  // working in. A composer mounting in the *other* half of a split window
+  // (its pane fell back to another tab when you dragged one out, say) would
+  // otherwise take the caret with it, and the focus handler that watches for
+  // that would hand it the pane focus too, undoing the click you just made.
+  // Read through a ref so becoming the working pane mid-drag doesn't pull
+  // focus out of a selection you're making in it.
+  const capturesRef = useRef(capturesTyping);
+  capturesRef.current = capturesTyping;
   useEffect(() => {
-    if (!disabled) input.current?.focus();
+    if (!disabled && capturesRef.current) input.current?.focus();
   }, [disabled]);
 
   // Emotes are only completable once the channel's sets have landed. The
@@ -310,9 +322,13 @@ export function Composer({
   // Chat should feel always-focused, like a game's chat box: clicking
   // somewhere else in the app shouldn't lose your typed text or make Enter
   // stop working. A dialog (add-channel, account settings) is the one real
-  // exception -- while one's open, it owns focus and keyboard input.
+  // exception -- while one's open, it owns focus and keyboard input. The
+  // other is a split window: only the pane you're working in listens, or the
+  // two composers would each grab every keystroke from the other. Clicking
+  // this one still focuses it in the ordinary way, and focusing a pane is
+  // what makes it the one that listens.
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || !capturesTyping) return;
 
     const isForeignTextField = (el: Element | null) =>
       el !== input.current &&
@@ -348,7 +364,7 @@ export function Composer({
 
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, [disabled]);
+  }, [disabled, capturesTyping]);
 
   /**
    * Replace the half-typed command word with the picked one, leaving whatever

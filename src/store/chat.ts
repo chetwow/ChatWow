@@ -29,7 +29,9 @@ import type {
   ChatMessage,
   ClearEvent,
   ConnectionState,
+  PaneIndex,
   ReplyInfo,
+  SplitLayout,
   StatusEvent,
   StoredMessage,
 } from "../types";
@@ -74,6 +76,10 @@ export const DEFAULT_PREFERENCES: Preferences = {
   singleRowTabs: true,
   mentionsTab: false,
   mentionsTabIndex: 0,
+  mentionsPane: 0,
+  splitLayout: "none",
+  splitRatio: 0.5,
+  splitIndex: 0,
   mentionIgnores: [],
   blockedUsers: [],
   muted: false,
@@ -85,6 +91,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export type BlacklistKind = "emoteBlacklist" | "emoteCompleteBlacklist";
 
 const FONT_SIZES = new Set<Preferences["chatFontSize"]>(["small", "medium", "large", "larger"]);
+const SPLIT_LAYOUTS = new Set<SplitLayout>(["none", "row", "column"]);
 
 /**
  * Coerce whatever the backend hands over into a usable set. `settings.json` is
@@ -102,7 +109,27 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!Number.isInteger(merged.mentionsTabIndex) || merged.mentionsTabIndex < 0) {
     merged.mentionsTabIndex = DEFAULT_PREFERENCES.mentionsTabIndex;
   }
+  if (merged.mentionsPane !== 0 && merged.mentionsPane !== 1) {
+    merged.mentionsPane = DEFAULT_PREFERENCES.mentionsPane;
+  }
+  if (!SPLIT_LAYOUTS.has(merged.splitLayout)) merged.splitLayout = DEFAULT_PREFERENCES.splitLayout;
+  if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
+  merged.splitRatio = clampRatio(merged.splitRatio);
+  if (!Number.isInteger(merged.splitIndex) || merged.splitIndex < 0) {
+    merged.splitIndex = DEFAULT_PREFERENCES.splitIndex;
+  }
   return merged;
+}
+
+/**
+ * The narrowest either pane can be dragged, as a fraction of the split axis.
+ * A pane below this is one you can't read but can still lose tabs into, which
+ * is worse than simply refusing to go there.
+ */
+const MIN_RATIO = 0.15;
+
+export function clampRatio(ratio: number): number {
+  return Math.min(1 - MIN_RATIO, Math.max(MIN_RATIO, ratio));
 }
 
 /**
@@ -129,9 +156,77 @@ function writeMockPreferences(preferences: Preferences) {
 
 let nextKey = 1;
 
+/** Both panes, for iterating -- there are exactly two, never a tree of them. */
+export const PANES: readonly PaneIndex[] = [0, 1];
+
+/** The pieces the pane layout is derived from, and all it needs to be derived. */
+type Layout = { channels: string[]; preferences: Preferences };
+
+/**
+ * The channels in one pane, in bar order. `splitIndex` is the boundary in the
+ * one `channels` list rather than a second list of its own: that list is the
+ * backend's record of what's joined and in what order, and keeping the split
+ * as a position in it means dragging a tab across the divider is an ordinary
+ * move within it -- nothing can end up in both panes, or in neither.
+ *
+ * Unsplit, everything is in the first pane and the second is empty.
+ */
+export function paneChannels(layout: Layout, pane: PaneIndex): string[] {
+  if (layout.preferences.splitLayout === "none") return pane === 0 ? layout.channels : [];
+  const at = Math.min(layout.preferences.splitIndex, layout.channels.length);
+  return pane === 0 ? layout.channels.slice(0, at) : layout.channels.slice(at);
+}
+
+/**
+ * Every tab in one pane: its channels, with the mentions tab dropped in
+ * wherever it was left if this is the pane holding it. An index past the end
+ * lands it last, which is what a parted channel or a hand-edited settings file
+ * leaves behind.
+ */
+export function paneTabs(layout: Layout, pane: PaneIndex): string[] {
+  const list = paneChannels(layout, pane);
+  const { mentionsTab, mentionsTabIndex, mentionsPane, splitLayout } = layout.preferences;
+  // Unsplit there's only one pane to be in, whatever the preference last said.
+  const home = splitLayout === "none" ? 0 : mentionsPane;
+  if (!mentionsTab || home !== pane) return list;
+  const next = list.slice();
+  next.splice(Math.min(mentionsTabIndex, list.length), 0, MENTIONS_TAB);
+  return next;
+}
+
+/** Which pane a tab is in, or `null` for one that isn't open anywhere. */
+export function paneOf(layout: Layout, tab: string): PaneIndex | null {
+  for (const pane of PANES) if (paneTabs(layout, pane).includes(tab)) return pane;
+  return null;
+}
+
+/**
+ * Each pane's active tab, corrected against the tabs it actually holds. Every
+ * rearrangement runs through here rather than fixing `active` by hand: a tab
+ * dragged across the divider, parted, or swept up by an unsplit leaves the
+ * pane it was in pointing at something that isn't there any more.
+ */
+function settleActive(layout: Layout, preferred: (string | null)[]): [string | null, string | null] {
+  const next: (string | null)[] = [preferred[0] ?? null, preferred[1] ?? null];
+  for (const pane of PANES) {
+    const tabs = paneTabs(layout, pane);
+    if (next[pane] && tabs.includes(next[pane]!)) continue;
+    next[pane] = tabs[0] ?? null;
+  }
+  return next as [string | null, string | null];
+}
+
 type ChatState = {
   channels: string[];
-  active: string | null;
+  /**
+   * The tab each pane is showing, indexed by `PaneIndex`. Both are "what
+   * you're reading" -- a message arriving in either is one you can see, so
+   * neither counts as unread -- but only `focusedPane` decides where a
+   * whisper is filed and what Ctrl+W closes.
+   */
+  active: [string | null, string | null];
+  /** The pane you last clicked in. Always `0` while unsplit. */
+  focusedPane: PaneIndex;
   messages: Record<string, StoredMessage[]>;
   unread: Record<string, number>;
   /** Of those unread messages, how many name you -- what reddens the badge. */
@@ -192,7 +287,30 @@ type ChatState = {
   auth: AuthStatus;
   globalEmotes: number;
 
-  setActive: (channel: string) => void;
+  /**
+   * Show a tab, in the pane that holds it -- and focus that pane, since
+   * that's the one you just asked to read. An unopened channel (a name
+   * clicked in the mentions tab) opens in the focused pane.
+   */
+  setActive: (channel: string, pane?: PaneIndex) => void;
+  /** Remember which pane you're working in. Clicking anywhere inside one does it. */
+  focusPane: (pane: PaneIndex) => void;
+  /**
+   * Move a tab to `index` within `pane`'s tab list, across the divider or
+   * within one bar. The index is read after the tab is lifted out, which is
+   * what a drop onto a given tab means.
+   */
+  moveTab: (tab: string, pane: PaneIndex, index: number) => void;
+  /** Divide the window, putting the new empty pane first (left/top) or second. */
+  split: (layout: Exclude<SplitLayout, "none">, newPaneFirst: boolean) => void;
+  /** Turn an existing split from side-by-side to stacked, or back. */
+  setSplitLayout: (layout: Exclude<SplitLayout, "none">) => void;
+  /** Exchange the two panes, contents and sizes together. */
+  swapPanes: () => void;
+  /** Undo the split, gathering every tab back into one pane. */
+  removeSplit: () => void;
+  /** Where the divider sits, as the first pane's share of the split axis. */
+  setSplitRatio: (ratio: number) => void;
   join: (channel: string) => Promise<void>;
   part: (channel: string) => Promise<void>;
   reorderChannels: (channels: string[]) => void;
@@ -273,9 +391,61 @@ function trimChatters(chatters: Chatters): Chatters {
   return trimmed;
 }
 
+/**
+ * Write a rearranged pair of tab lists back to the three places they came
+ * from: the channel order (the backend's), the boundary between the panes,
+ * and the mentions tab's home and index. Only what actually changed is
+ * written, so an in-pane drag doesn't touch the split and a drag across it
+ * doesn't rewrite an order that hasn't moved.
+ */
+function commitTabs(lists: [string[], string[]]) {
+  const state = useChat.getState();
+  const split = state.preferences.splitLayout !== "none";
+  const channelLists = lists.map((list) => list.filter((tab) => tab !== MENTIONS_TAB));
+  const channels = split ? channelLists[0].concat(channelLists[1]) : channelLists[0];
+  if (
+    channels.length !== state.channels.length ||
+    channels.some((name, index) => name !== state.channels[index])
+  ) {
+    state.reorderChannels(channels);
+  }
+
+  const patch: Partial<Preferences> = {};
+  if (split && channelLists[0].length !== state.preferences.splitIndex) {
+    patch.splitIndex = channelLists[0].length;
+  }
+  const home: PaneIndex = lists[1].includes(MENTIONS_TAB) ? 1 : 0;
+  const at = lists[home].indexOf(MENTIONS_TAB);
+  if (at >= 0) {
+    if (split && home !== state.preferences.mentionsPane) patch.mentionsPane = home;
+    if (at !== state.preferences.mentionsTabIndex) patch.mentionsTabIndex = at;
+  }
+  if (Object.keys(patch).length > 0) state.updatePreferences(patch);
+}
+
+/**
+ * Put a freshly joined channel in the pane you were working in. The backend
+ * appends it to `channels`, which is the *second* pane's end, so joining from
+ * the first one is a move back across the divider. Either way the panes are
+ * settled afterwards: a pane that was empty is now showing its first tab.
+ */
+function placeJoined(name: string, before: string[]) {
+  const state = useChat.getState();
+  if (!name || before.includes(name)) return;
+  if (state.preferences.splitLayout !== "none" && state.focusedPane === 0) {
+    const lists: [string[], string[]] = [paneTabs(state, 0), paneTabs(state, 1)];
+    lists[1].splice(lists[1].indexOf(name), 1);
+    lists[0].push(name);
+    commitTabs(lists);
+  }
+  const settled = useChat.getState();
+  useChat.setState({ active: settleActive(settled, settled.active) });
+}
+
 export const useChat = create<ChatState>((set) => ({
   channels: [],
-  active: null,
+  active: [null, null],
+  focusedPane: 0,
   messages: {},
   unread: {},
   mentions: {},
@@ -303,37 +473,132 @@ export const useChat = create<ChatState>((set) => ({
   },
   globalEmotes: 0,
 
-  setActive: (channel) =>
-    set((state) => ({
-      active: channel,
-      unread: { ...state.unread, [channel]: 0 },
-      mentions: { ...state.mentions, [channel]: 0 },
-    })),
+  setActive: (channel, pane) =>
+    set((state) => {
+      const target = pane ?? paneOf(state, channel) ?? state.focusedPane;
+      const active = state.active.slice() as [string | null, string | null];
+      active[target] = channel;
+      return {
+        active,
+        focusedPane: target,
+        unread: { ...state.unread, [channel]: 0 },
+        mentions: { ...state.mentions, [channel]: 0 },
+      };
+    }),
+
+  focusPane: (pane) =>
+    set((state) => {
+      if (state.focusedPane === pane || state.preferences.splitLayout === "none") return {};
+      // Reading a pane clears what you hadn't looked at in it, the same way
+      // clicking its tab does -- the messages are in front of you either way.
+      const channel = state.active[pane];
+      if (!channel) return { focusedPane: pane };
+      return {
+        focusedPane: pane,
+        unread: { ...state.unread, [channel]: 0 },
+        mentions: { ...state.mentions, [channel]: 0 },
+      };
+    }),
+
+  moveTab: (tab, pane, index) => {
+    const state = useChat.getState();
+    const lists: [string[], string[]] = [paneTabs(state, 0), paneTabs(state, 1)];
+    const from = PANES.find((candidate) => lists[candidate].includes(tab));
+    if (from === undefined) return;
+    lists[from].splice(lists[from].indexOf(tab), 1);
+    // The index is into the list with the tab already lifted out, which is
+    // what dropping *onto* a tab means: it takes that tab's place.
+    lists[pane].splice(Math.max(0, Math.min(index, lists[pane].length)), 0, tab);
+    commitTabs(lists);
+
+    const settled = useChat.getState();
+    if (from === pane) return;
+    // Dragging a tab into the other pane is asking to read it there, so it
+    // arrives shown and focused; the pane it left falls back to a neighbour.
+    const preferred = settled.active.slice();
+    preferred[pane] = tab;
+    preferred[from] = settled.active[from] === tab ? null : settled.active[from];
+    set({ active: settleActive(settled, preferred), focusedPane: pane });
+  },
+
+  split: (layout, newPaneFirst) => {
+    const state = useChat.getState();
+    state.updatePreferences({
+      splitLayout: layout,
+      // Everything joined stays together in the pane that isn't the new one.
+      splitIndex: newPaneFirst ? 0 : state.channels.length,
+      mentionsPane: newPaneFirst ? 1 : 0,
+    });
+    const pane: PaneIndex = newPaneFirst ? 0 : 1;
+    const preferred: (string | null)[] = [null, null];
+    // Whatever was on screen is still on screen, in the other pane.
+    preferred[pane === 0 ? 1 : 0] = state.active[state.focusedPane];
+    const settled = useChat.getState();
+    // The empty pane takes the focus: splitting is how you make room for
+    // something, so Ctrl+K and the add button should fill the new half.
+    set({ active: settleActive(settled, preferred), focusedPane: pane });
+  },
+
+  setSplitLayout: (layout) => useChat.getState().updatePreferences({ splitLayout: layout }),
+
+  swapPanes: () => {
+    const state = useChat.getState();
+    if (state.preferences.splitLayout === "none") return;
+    const lists: [string[], string[]] = [paneTabs(state, 1), paneTabs(state, 0)];
+    commitTabs(lists);
+    // The divider moves with the contents: a pane that was wide stays wide
+    // around the tabs it was made wide for.
+    useChat.getState().updatePreferences({ splitRatio: clampRatio(1 - state.preferences.splitRatio) });
+    const settled = useChat.getState();
+    set({
+      active: settleActive(settled, [state.active[1], state.active[0]]),
+      focusedPane: state.focusedPane === 0 ? 1 : 0,
+    });
+  },
+
+  removeSplit: () => {
+    const state = useChat.getState();
+    if (state.preferences.splitLayout === "none") return;
+    // The merged bar is the two in order, so the mentions tab keeps its place
+    // relative to the tabs around it rather than jumping back to where it sat
+    // before the window was ever split.
+    const merged = paneTabs(state, 0).concat(paneTabs(state, 1));
+    const at = merged.indexOf(MENTIONS_TAB);
+    state.updatePreferences({
+      splitLayout: "none",
+      mentionsPane: 0,
+      ...(at >= 0 ? { mentionsTabIndex: at } : {}),
+    });
+    const settled = useChat.getState();
+    set({
+      // You keep reading what you were reading; the other pane's tab is still
+      // in the bar, one click away.
+      active: settleActive(settled, [state.active[state.focusedPane], null]),
+      focusedPane: 0,
+    });
+  },
+
+  setSplitRatio: (ratio) => useChat.getState().updatePreferences({ splitRatio: clampRatio(ratio) }),
 
   join: async (channel) => {
+    const before = useChat.getState().channels;
     if (!IS_TAURI) {
       const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
       if (!/^[a-z0-9_]{3,25}$/.test(name)) {
         throw new Error(`"${channel}" is not a valid Twitch channel name`);
       }
-      set((state) =>
-        state.channels.includes(name)
-          ? {}
-          : {
-              channels: [...state.channels, name],
-              active: state.active ?? name,
-              ready: { ...state.ready, [name]: true },
-            },
-      );
+      if (before.includes(name)) return;
+      set((state) => ({
+        channels: [...state.channels, name],
+        ready: { ...state.ready, [name]: true },
+      }));
+      placeJoined(name, before);
       return;
     }
 
     const channels = await api.joinChannel(channel);
-    const name = channels[channels.length - 1];
-    set((state) => ({
-      channels,
-      active: channels.includes(state.active ?? "") ? state.active : name,
-    }));
+    set({ channels });
+    placeJoined(channels[channels.length - 1], before);
   },
 
   part: async (channel) => {
@@ -342,56 +607,41 @@ export const useChat = create<ChatState>((set) => ({
     // reach it the same way they reach a real tab.
     if (channel === MENTIONS_TAB) {
       useChat.getState().updatePreferences({ mentionsTab: false });
-      set((state) =>
-        state.active === MENTIONS_TAB ? { active: state.channels[0] ?? null } : {},
-      );
+      const settled = useChat.getState();
+      set({ active: settleActive(settled, settled.active) });
       return;
     }
 
-    if (!IS_TAURI) {
-      const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
-      set((state) => {
-        const channels = state.channels.filter((c) => c !== name);
-        const messages = { ...state.messages };
-        const sentHistory = { ...state.sentHistory };
-        const mentions = { ...state.mentions };
-        const chatters = { ...state.chatters };
-        delete messages[name];
-        delete sentHistory[name];
-        delete mentions[name];
-        delete chatters[name];
-        return {
-          channels,
-          messages,
-          sentHistory,
-          mentions,
-          chatters,
-          active: state.active === name ? (channels[0] ?? null) : state.active,
-        };
-      });
-      return;
-    }
+    const name = IS_TAURI ? channel : channel.trim().replace(/^[#@]/, "").toLowerCase();
+    // Before the channel goes: which side of the divider it was on decides
+    // whether the boundary has to come back by one to stay pointing between
+    // the same two tabs.
+    const leaving = paneOf(useChat.getState(), name);
 
-    const channels = await api.partChannel(channel);
+    const channels = IS_TAURI
+      ? await api.partChannel(channel)
+      : useChat.getState().channels.filter((c) => c !== name);
+
     set((state) => {
       const messages = { ...state.messages };
       const sentHistory = { ...state.sentHistory };
       const mentions = { ...state.mentions };
       const chatters = { ...state.chatters };
-      delete messages[channel];
-      delete sentHistory[channel];
-      delete mentions[channel];
-      delete chatters[channel];
-      return {
-        channels,
-        messages,
-        sentHistory,
-        mentions,
-        chatters,
-        active:
-          state.active === channel ? (channels.length ? channels[0] : null) : state.active,
-      };
+      delete messages[name];
+      delete sentHistory[name];
+      delete mentions[name];
+      delete chatters[name];
+      return { channels, messages, sentHistory, mentions, chatters };
     });
+
+    const { preferences } = useChat.getState();
+    if (leaving === 0 && preferences.splitLayout !== "none") {
+      useChat.getState().updatePreferences({
+        splitIndex: Math.max(0, Math.min(preferences.splitIndex - 1, channels.length)),
+      });
+    }
+    const settled = useChat.getState();
+    set({ active: settleActive(settled, settled.active) });
   },
 
   // Applied optimistically (the tab bar is already showing the dragged
@@ -503,15 +753,22 @@ export const useChat = create<ChatState>((set) => ({
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
 
   openMentionsTab: () => {
-    const { preferences, channels } = useChat.getState();
+    const state = useChat.getState();
     useChat.getState().updatePreferences({
       mentionsTab: true,
-      // Where joining a channel would have put it. Only on the way in: a tab
-      // reopened after being dragged somewhere should come back where it was,
-      // but the first time it has no remembered place.
-      ...(preferences.mentionsTab ? {} : { mentionsTabIndex: channels.length }),
+      // Where joining a channel would have put it, in the pane you're working
+      // in. Only on the way in: a tab reopened after being dragged somewhere
+      // should come back where it was, but the first time it has no
+      // remembered place.
+      ...(state.preferences.mentionsTab
+        ? {}
+        : {
+            mentionsPane: state.focusedPane,
+            mentionsTabIndex: paneChannels(state, state.focusedPane).length,
+          }),
     });
-    useChat.getState().setActive(MENTIONS_TAB);
+    const { mentionsPane, splitLayout } = useChat.getState().preferences;
+    useChat.getState().setActive(MENTIONS_TAB, splitLayout === "none" ? 0 : mentionsPane);
   },
 
   ingest: (batch) => {
@@ -529,7 +786,8 @@ export const useChat = create<ChatState>((set) => ({
       // to put it in, and it's dropped rather than filed under "".
       const routed = batch.flatMap((message) => {
         if (message.kind !== "whisper") return [message];
-        return state.active ? [{ ...message, channel: state.active }] : [];
+        const reading = state.active[state.focusedPane] ?? state.active.find(Boolean);
+        return reading ? [{ ...message, channel: reading }] : [];
       });
 
       // Keyed once, up front: a message that lands in both its channel and the
@@ -598,7 +856,10 @@ export const useChat = create<ChatState>((set) => ({
         }
         // The channel you're looking at stays silent unless you ask for it:
         // you can already see the mention land.
-        const audible = !muted && (channel !== state.active || notifyActiveTab);
+        // Either pane counts as looking at it: a message you can see land
+        // isn't news, whichever half of the window it landed in.
+        const watching = state.active.includes(channel);
+        const audible = !muted && (!watching || notifyActiveTab);
         const naming = fresh.filter((message) => {
           if (!heard(message)) return false;
           const kind = mentionKind(message, state.auth.login);
@@ -611,7 +872,7 @@ export const useChat = create<ChatState>((set) => ({
 
         // Counted like unread is, and for the same reason: it's a tally of
         // what you haven't looked at, so the channel you're reading has none.
-        if (channel !== state.active && fresh.length > 0) {
+        if (!watching && fresh.length > 0) {
           unread[channel] = (unread[channel] ?? 0) + fresh.length;
           if (naming.length > 0) {
             mentions[channel] = (mentions[channel] ?? 0) + naming.length;
@@ -638,7 +899,7 @@ export const useChat = create<ChatState>((set) => ({
         // Counted the way a channel's tab is: a tally of what you haven't
         // looked at. Everything in here names you, so its badge is always the
         // rose one -- both counters move together.
-        if (state.active !== MENTIONS_TAB) {
+        if (!state.active.includes(MENTIONS_TAB)) {
           unread[MENTIONS_TAB] = (unread[MENTIONS_TAB] ?? 0) + addressed.length;
           mentions[MENTIONS_TAB] = (mentions[MENTIONS_TAB] ?? 0) + addressed.length;
         }
@@ -678,9 +939,10 @@ export const useChat = create<ChatState>((set) => ({
     if (!IS_TAURI) {
       const { MOCK_CHANNELS, buildInitialMessages, mockAuthStatus, mockSevenTvBadges } =
         await import("../dev/mockData");
+      const preferences = readMockPreferences();
       set({
         channels: MOCK_CHANNELS,
-        active: MOCK_CHANNELS[0],
+        active: settleActive({ channels: MOCK_CHANNELS, preferences }, [null, null]),
         ready: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, true])),
         emoteCounts: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, 886])),
         live: { [MOCK_CHANNELS[0]]: true, [MOCK_CHANNELS[2]]: true },
@@ -697,7 +959,7 @@ export const useChat = create<ChatState>((set) => ({
         // identity to match against during design iteration.
         auth: mockAuthStatus(),
         seventvBadges: mockSevenTvBadges(),
-        preferences: readMockPreferences(),
+        preferences,
       });
       useChat.getState().ingest(buildInitialMessages());
       return;
@@ -713,9 +975,10 @@ export const useChat = create<ChatState>((set) => ({
       channels,
       auth,
       preferences: settings,
-      // With no channels but a mentions tab, that tab is the whole app -- it
-      // should open on it rather than on the join-a-channel screen behind it.
-      active: state.active ?? channels[0] ?? (settings.mentionsTab ? MENTIONS_TAB : null),
+      // Each pane opens on its own first tab -- which, with no channels but a
+      // mentions tab, is that tab: it's the whole app then, and it should open
+      // on it rather than on the join-a-channel screen behind it.
+      active: settleActive({ channels, preferences: settings }, state.active),
     }));
   },
 }));

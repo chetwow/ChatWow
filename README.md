@@ -74,6 +74,25 @@ shows a rose bar until you scroll back or read it. Turn off Settings -> Appearan
 on one row* and they wrap onto as many rows as they need instead, so everything you've joined is
 on screen at once.
 
+## Two channels at once
+
+The split button in the title bar -- the pane with a line through it -- divides the window in
+two: **Split left**, **Split right**, **Split up** or **Split down**, depending on which side
+you want the new half. It starts empty, with its own row of tabs and its own join button, and
+you fill it by dragging a tab over from the other side or by joining a channel while it's the
+half you're working in.
+
+Both halves are live at once: two channels on screen, each with its own composer, each scrolling
+on its own. Neither counts as unread while you can see it. Typing anywhere goes to the half you
+last clicked in, which is also the one `Ctrl/Cmd+W` closes a tab in and the one a newly joined
+channel lands in.
+
+Drag the border between them to give one half more room. The same menu turns a split window
+**Side by side** or **Stacked**, swaps the two halves, or puts them back together with **Remove
+split** -- which keeps every tab, in the order the two rows were in. A half with no tabs left is
+fine and stays open, offering the join button; the split only goes away when you say so, and it
+comes back the way you left it next time you open the app.
+
 ## Talking
 
 Type and press Enter. Right-click a message for Copy and Reply; a reply shows what it's
@@ -213,7 +232,8 @@ each kind of preview has its own switch.
 ## Shortcuts
 
 - `Ctrl/Cmd+T` — join a channel (`Ctrl+K` does the same)
-- `Ctrl/Cmd+W` — leave the channel you're reading, or close the mentions tab
+- `Ctrl/Cmd+W` — leave the channel you're reading, or close the mentions tab (in a split
+  window, in the half you last clicked in)
 - `Tab` — complete the word you're typing to an emote or a chatter; again to cycle, `Shift+Tab`
   to go back
 - `@` + `Tab` — complete a chatter's name only, inserted as `@name, `

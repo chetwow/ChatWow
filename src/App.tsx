@@ -1,43 +1,12 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { TitleBar } from "./components/TitleBar";
-import { TabBar } from "./components/TabBar";
-import { ChatView } from "./components/ChatView";
+import { Panes } from "./components/Panes";
 import { AddChannelDialog } from "./components/AddChannelDialog";
 import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
 import { HoverPreview } from "./components/HoverPreview";
 import { subscribeToBackend, useChat } from "./store/chat";
 
-/**
- * Nothing joined: the ways in, and nothing else. Signing in is offered
- * alongside because the title bar's own button is easy to miss on a screen
- * that's otherwise empty -- but it stays secondary, since reading a channel
- * doesn't need an account.
- */
-function EmptyState({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => void }) {
-  const loggedIn = useChat((state) => state.auth.loggedIn);
-  return (
-    <div className="flex flex-1 items-center justify-center gap-2">
-      <button
-        onClick={onAdd}
-        className="rounded-md bg-accent px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-accent-dim"
-      >
-        Join a channel
-      </button>
-      {!loggedIn && (
-        <button
-          onClick={onSignIn}
-          className="rounded-md border border-line px-4 py-2 text-[12px] font-semibold text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
-        >
-          Sign in
-        </button>
-      )}
-    </div>
-  );
-}
-
 export default function App() {
-  const active = useChat((state) => state.active);
-  const channels = useChat((state) => state.channels);
   const bootstrap = useChat((state) => state.bootstrap);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -75,7 +44,10 @@ export default function App() {
         setShowAdd(true);
       } else if (key === "w") {
         event.preventDefault();
-        const { active: channel, part } = useChat.getState();
+        // The pane you were last in owns the shortcut -- closing the tab
+        // you can see in the other one isn't what Ctrl+W means here.
+        const { active, focusedPane, part } = useChat.getState();
+        const channel = active[focusedPane];
         if (channel) void part(channel);
       }
     };
@@ -91,15 +63,7 @@ export default function App() {
       onContextMenu={(event) => event.preventDefault()}
     >
       <TitleBar onOpenSettings={setSettingsTab} />
-      <TabBar onAdd={() => setShowAdd(true)} />
-
-      {active ? (
-        <ChatView key={active} channel={active} />
-      ) : (
-        channels.length === 0 && (
-          <EmptyState onAdd={() => setShowAdd(true)} onSignIn={() => setSettingsTab("account")} />
-        )
-      )}
+      <Panes onAdd={() => setShowAdd(true)} onSignIn={() => setSettingsTab("account")} />
 
       {showAdd && <AddChannelDialog onClose={() => setShowAdd(false)} />}
       {settingsTab && (
