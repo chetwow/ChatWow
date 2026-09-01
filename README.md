@@ -11,6 +11,7 @@ overlays included), user badges, and everyone's real name color.
 - Twitch's slash commands from a `/` picker that only offers what you can run
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
 - A card behind every name: account age, follow age, sub months, and what they've said
+- Link previews on hover, with Twitch clips and YouTube videos read in full
 
 ## Running it
 

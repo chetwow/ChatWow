@@ -27,7 +27,13 @@ cd src-tauri && cargo test          # Rust unit tests
 cd src-tauri && cargo test -- --ignored --nocapture   # + livecheck.rs, hits real Twitch/7TV APIs
 TWITCH_CLIENT_ID=xxx npm run tauri build    # build against a different Twitch app
 python3 scripts/generate-emoji.py   # regenerate src/lib/emoji.json (don't hand-edit it)
+git tag v0.3.0 && git push origin v0.3.0    # build installers (see .github/workflows/release.yml)
 ```
+
+The version lives in four files that have to agree: `package.json`, `package-lock.json`,
+`src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. The tag push is what builds the Windows,
+macOS and Linux installers -- on their own runners, since a `.msi` can only be made on Windows --
+and they land on a *draft* release, published by hand.
 
 Launch the desktop app only through `npm run tauri dev`. Running the built debug binary
 directly (`src-tauri/target/debug/chatwow`) opens a window that never loads the frontend --

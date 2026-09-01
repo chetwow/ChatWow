@@ -531,8 +531,11 @@ The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the
 window rather than the content, so switching tabs doesn't resize it. The settings that need
-explaining carry an info dot on the label -- history, the two blacklists, the notification
-toggles -- and the ones whose label is the whole story don't, which keeps the list scannable.
+explaining carry an info dot on the label -- history, the four link-preview switches, the blocked
+and ignored lists, the two emote blacklists, the notification toggles -- and the ones whose label
+is the whole story don't, which keeps the list scannable. A hint resets case, weight and tracking
+rather than inheriting them: it hangs inside the label it explains, and a section heading's small
+caps were being inherited into whole sentences.
 
 ## Layout
 
@@ -553,6 +556,8 @@ toggles -- and the ones whose label is the whole story don't, which keeps the li
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
 | `src-tauri/src/twitch/eventsub.rs` | The whisper socket |
 | `src-tauri/src/usercard.rs` | The card behind a name: Helix profile, ivr.fi follow and subs |
+| `src-tauri/src/linkinfo.rs` | Link previews: the fetch, the meta scan, the YouTube fields |
+| `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/settings.rs` | `settings.json`: tokens, channels, emote counts, preferences |
 | `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer |
@@ -562,6 +567,8 @@ toggles -- and the ones whose label is the whole story don't, which keeps the li
 | `src/lib/mentions.ts` | Whether (and how) a message names the signed-in user |
 | `src/lib/ignores.ts` | The mention-ignore and blocked-user lists, and what they match |
 | `src/lib/userCard.ts` | User-card session cache and the "14 years ago" phrasing |
+| `src/lib/links.ts` | What kind of link this is, and which preview switch it answers to |
+| `src/lib/linkPreviews.ts` | Link-preview session cache, and the shelf life Rust sets |
 | `src/lib/notify.ts` | The synthesized mention ping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |
 | `src/components/` | Title bar, tabs, chat view, composer, pickers, user card, settings |
@@ -575,13 +582,19 @@ cd src-tauri && cargo test
 
 Covers tag unescaping, code-point emote ranges, zero-width overlay folding, badge lookup
 fallbacks, the default color hash, emote-index ordering and use counting, command argument
-parsing, the backlog's filtering, and the image cache's key validation, content-type sniffing and
-purge selection. `cargo test -- --ignored` additionally hits the real APIs: one check runs a
-message through the whole pipeline off the live Twitch socket and 7TV, another parses the
-BetterTTV and FrankerFaceZ sets for real channels, a third resolves 7TV badges for users who do
-and don't have one, and a fourth loads a user card unauthenticated -- the path with no Helix
-token, where ivr.fi answers both halves. Those are the ones that catch a provider changing its
-response shape -- the symptom is an empty map, which is indistinguishable from a channel that
-simply has no emotes there.
+parsing, the backlog's filtering, the image cache's key validation, content-type sniffing and
+purge selection, and -- for link previews -- the meta-tag scan, the entity decoding, YouTube and
+Twitch url recognition, the count and duration formatting, and the refusal to fetch this
+machine's own network.
+
+`cargo test -- --ignored` additionally hits the real APIs: one check runs a message through the
+whole pipeline off the live Twitch socket and 7TV, another parses the BetterTTV and FrankerFaceZ
+sets for real channels, a third resolves 7TV badges for users who do and don't have one, a fourth
+loads a user card unauthenticated -- the path with no Helix token, where ivr.fi answers both
+halves -- and a fifth reads real pages for previews, including the YouTube card whose every row
+comes from a different part of the page. A sixth covers Twitch's own links and needs a token, so
+it skips unless `TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are set. Those are the ones that
+catch a provider changing its response shape -- the symptom is an empty map, which is
+indistinguishable from a channel that simply has no emotes there.
 
 The frontend has no test suite; `npm run build` type-checks it.
