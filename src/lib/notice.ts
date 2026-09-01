@@ -19,6 +19,7 @@ export function localNotice(channel: string, text: string): ChatMessage {
     isAction: false,
     isFirstMessage: false,
     kind: "notice",
+    historical: false,
     systemMessage: text,
     replyTo: null,
   };

@@ -79,6 +79,17 @@ to write `settings.json`.
   Every command is a Helix call with its own scope
   ([src-tauri/src/twitch/commands.rs](src-tauri/src/twitch/commands.rs)). Don't "simplify" any of
   this back into the send path. `/me` genuinely is a message (a CTCP ACTION) and stays there.
+- **The backlog on join comes from a third party, as raw IRC lines.** Twitch has no chat history
+  for third-party clients, so [src-tauri/src/irc/history.rs](src-tauri/src/irc/history.rs) asks
+  recent-messages.robotty.de, which answers with IRC lines tagged `historical=1` -- they go
+  through the same parser and renderer as the live socket, which is the whole reason this is
+  ~60 lines. Three things there are load-bearing: the fetch runs *before* `ready` is set (so live
+  messages keep buffering and the backlog lands above them, not below); the reply is filtered to
+  PRIVMSG and USERNOTICE (a historical ROOMSTATE fed back through `handle_line` would re-trigger
+  the asset load that asked for the history); and the overlap with `pending` is dropped by
+  message id, since the history runs up to now and the buffer starts partway through it. The
+  `historical` flag rides all the way to the frontend, where it keeps a backlog from pinging or
+  counting as unread.
 - **Whispers don't come over IRC.** Twitch delivers them through EventSub only, so
   [src-tauri/src/twitch/eventsub.rs](src-tauri/src/twitch/eventsub.rs) runs a second WebSocket
   subscribed to `user.whisper.message`. Don't go looking for a `WHISPER` IRC command to handle --

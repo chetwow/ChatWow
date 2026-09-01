@@ -70,6 +70,10 @@ pub struct ChatMessage {
     pub is_first_message: bool,
     /// "chat" | "system" | "notice" | "whisper"
     pub kind: String,
+    /// Replayed from the history service on join rather than received live.
+    /// The frontend uses it to keep a backlog from pinging or counting as
+    /// unread -- it isn't news, however recently it was said.
+    pub historical: bool,
     pub system_message: Option<String>,
     pub reply_to: Option<ReplyInfo>,
 }
@@ -343,6 +347,7 @@ pub fn build_chat_message(
         is_action,
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
+        historical: msg.tag("historical") == Some("1"),
         system_message: None,
         reply_to,
     }
@@ -372,6 +377,7 @@ pub fn build_usernotice(
         is_action: false,
         is_first_message: false,
         kind: "system".to_string(),
+        historical: msg.tag("historical") == Some("1"),
         system_message: msg.tag("system-msg").map(|s| s.to_string()),
         reply_to: None,
     }
@@ -405,6 +411,7 @@ pub fn whisper(
         is_action: false,
         is_first_message: false,
         kind: "whisper".to_string(),
+        historical: false,
         system_message: None,
         reply_to: None,
     }
@@ -424,6 +431,7 @@ pub fn notice(channel: &str, text: impl Into<String>) -> ChatMessage {
         is_action: false,
         is_first_message: false,
         kind: "notice".to_string(),
+        historical: false,
         system_message: Some(text.into()),
         reply_to: None,
     }

@@ -202,13 +202,13 @@ function toMessage(draft: Draft, channel: string, ts: number): ChatMessage {
     isAction: false,
     isFirstMessage: false,
     kind: "chat",
+    historical: false,
     systemMessage: null,
     replyTo: null,
     ...draft,
   };
 }
 
-/** The initial backlog shown as soon as mock mode starts. */
 /**
  * A whisper, shaped the way `render::whisper` sends one: no channel of its own
  * (the store files it under whichever you're reading), no badges, and text
@@ -227,11 +227,13 @@ function mockWhisper(): ChatMessage {
     isAction: false,
     isFirstMessage: false,
     kind: "whisper",
+    historical: false,
     systemMessage: null,
     replyTo: null,
   };
 }
 
+/** The initial backlog shown as soon as mock mode starts. */
 export function buildInitialMessages(): ChatMessage[] {
   const now = Date.now();
   return [

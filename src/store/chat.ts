@@ -39,6 +39,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notifyOnTag: true,
   notifyOnName: true,
   notifyActiveTab: false,
+  showMessageHistory: true,
   muted: false,
   emoteBlacklist: [],
   emoteCompleteBlacklist: [],
@@ -464,15 +465,20 @@ export const useChat = create<ChatState>((set) => ({
         }
         messages[channel] = next;
 
+        // A backlog replayed on join isn't news. It renders, and its chatters
+        // count for `@` completion, but nothing about it is an event: no ping,
+        // no unread, no reddened tab.
+        const fresh = incoming.filter((message) => !message.historical);
+
         const { notifyOnTag, notifyOnName, notifyActiveTab, muted } = state.preferences;
         // A whisper always pings, unlike a mention in the channel you're
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
-        if (!muted && incoming.some((message) => message.kind === "whisper")) mentioned = true;
+        if (!muted && fresh.some((message) => message.kind === "whisper")) mentioned = true;
         // The channel you're looking at stays silent unless you ask for it:
         // you can already see the mention land.
         const audible = !muted && (channel !== state.active || notifyActiveTab);
-        const naming = incoming.filter((message) => {
+        const naming = fresh.filter((message) => {
           const kind = mentionKind(message, state.auth.login);
           if (!kind) return false;
           // The badge and the highlight count every mention; only the sound
@@ -483,8 +489,8 @@ export const useChat = create<ChatState>((set) => ({
 
         // Counted like unread is, and for the same reason: it's a tally of
         // what you haven't looked at, so the channel you're reading has none.
-        if (channel !== state.active) {
-          unread[channel] = (unread[channel] ?? 0) + incoming.length;
+        if (channel !== state.active && fresh.length > 0) {
+          unread[channel] = (unread[channel] ?? 0) + fresh.length;
           if (naming.length > 0) {
             mentions[channel] = (mentions[channel] ?? 0) + naming.length;
           }

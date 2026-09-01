@@ -4,7 +4,7 @@ A desktop Twitch chat client built with Tauri 2 and React. Multiple channels in 
 interface, rendered the way Twitch renders them: native Twitch emotes, 7TV global and channel
 emotes (including zero-width overlays), user badges, and correct name colors. Signed-in users
 can send messages, including `/me` actions, run Twitch's slash commands from a `/` picker, and
-get Tab completion for emotes and chatter names, a `:` emote/emoji search, message history in the
+get a backlog of recent messages on join, Tab completion for emotes and chatter names, a `:` emote/emoji search, message history in the
 composer, and mention highlighting with an optional ping.
 
 ## Running it
@@ -88,6 +88,31 @@ Rust rather than the webview:
 
 Messages are batched every 80ms before crossing the IPC bridge, which is what keeps a
 high-traffic channel from swamping the UI.
+
+### Chat backlog on join
+
+Joining a channel shows the last 150 messages rather than an empty pane. Twitch has no chat
+history for third-party clients -- their own site reads it from an internal endpoint -- so this
+comes from [recent-messages.robotty.de](https://recent-messages.robotty.de), the open-source
+service Chatterino uses: it runs a bot that joins the channels its users ask about and keeps the
+last few hundred lines.
+
+It answers with *raw IRC lines*, tagged `historical=1`, which is what makes it cheap here --
+[`src-tauri/src/irc/history.rs`](src-tauri/src/irc/history.rs) hands them to the same parser,
+emote resolution and renderer as the live socket, so a replayed message is indistinguishable from
+one that just arrived except for the flag. That flag matters: a backlog isn't news, so it never
+pings, reddens a tab or counts as unread, however recently it was said.
+
+Two details it's easy to get wrong. The fetch happens *before* the channel is marked ready, so
+live messages keep buffering and the backlog can be placed above them rather than under them.
+And the history runs up to now while the buffer starts partway through it, so the two overlap by
+however long the fetches took -- Twitch's message ids settle that exactly.
+
+Worth knowing: it's one volunteer's server, so a failure is a non-event (no backlog, not a broken
+join), and asking it about a channel tells it you joined that channel -- the one thing this app
+does that Twitch and 7TV don't see. Users can opt out of being recorded at
+<https://www.twitch.tv/recent_messages>, and Settings -> General -> *Show recent message history
+on join* turns it off here, after which the app only ever talks to Twitch and 7TV.
 
 ### Sending messages
 
@@ -265,9 +290,9 @@ key validation, content-type sniffing and purge selection.
 
 ## Settings
 
-The gear in the title bar opens a tabbed dialog -- Account (Twitch sign-in, the permissions to
-ask for, and the Client ID),
-Appearance (chat font size) and Notifications (the mention toggles above; the title bar keeps the
+The gear in the title bar opens a tabbed dialog -- General (the chat-history backlog), Account
+(Twitch sign-in, the permissions to ask for, and the Client ID), Appearance (chat font size),
+Emotes (the two blacklists) and Notifications (the mention toggles above; the title bar keeps the
 mute). The account button in the title bar opens the same dialog on its Account tab, which is the
 only sign-in surface. It's sized for the window's 420px minimum: the panel is `min(560px, 100%)`,
 setting rows wrap their control under the label when they have to, and the tab row scrolls

@@ -99,7 +99,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
       <MuteButton />
 
       <button
-        onClick={() => onOpenSettings("appearance")}
+        onClick={() => onOpenSettings("general")}
         aria-label="Settings"
         title="Settings"
         className="mr-1 grid h-6 w-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"

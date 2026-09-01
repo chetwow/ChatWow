@@ -14,6 +14,7 @@ use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::emotes::{cache, seventv};
+use crate::irc::history;
 use crate::irc::parse::{self, ChannelRole, IrcMessage};
 use crate::render::{self, BadgeLookup, ChatMessage, EmoteLookup};
 use crate::state::{AppState, IrcCommand, MAX_PENDING};
@@ -24,6 +25,10 @@ const GATEWAY: &str = "wss://irc-ws.chat.twitch.tv:443";
 const FLUSH_INTERVAL: Duration = Duration::from_millis(80);
 const FLUSH_MAX_BATCH: usize = 200;
 const ASSET_TIMEOUT: Duration = Duration::from_secs(8);
+/// Tighter than the asset timeout: a channel can't render until its backlog
+/// has been placed (it belongs above the live messages waiting behind it), so
+/// a slow history server would otherwise hold up the whole join.
+const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
 
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
 
@@ -181,6 +186,21 @@ async fn load_channel_assets(
         None => Default::default(),
     };
 
+    // Fetched before the channel is marked ready, so live messages keep
+    // buffering into `pending` meanwhile and the backlog can be queued ahead of
+    // them. A failure here is a non-event: no backlog, not a broken join.
+    //
+    // Read into a bool first -- the guard can't be held across the await.
+    let wants_history = state.preferences.read().show_message_history;
+    let backlog = match wants_history {
+        true => timeout(HISTORY_TIMEOUT, history::fetch(&state.http, &channel))
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .unwrap_or_default(),
+        false => Vec::new(),
+    };
+
     let emote_count = emotes.len();
     let pending = {
         let mut data = state.data.write();
@@ -191,6 +211,19 @@ async fn load_channel_assets(
         entry.ready = true;
         std::mem::take(&mut entry.pending)
     };
+
+    // The history runs up to now and `pending` starts partway through it, so
+    // the two overlap by however long the fetches took. Twitch's message ids
+    // settle it exactly.
+    let live: std::collections::HashSet<&str> =
+        pending.iter().filter_map(|message| message.tag("id")).collect();
+
+    for message in &backlog {
+        if message.tag("id").is_some_and(|id| live.contains(id)) {
+            continue;
+        }
+        render_and_queue(&state, &sink, &channel, message);
+    }
 
     for message in &pending {
         render_and_queue(&state, &sink, &channel, message);

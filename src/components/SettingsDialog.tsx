@@ -6,9 +6,10 @@ import { Hinted } from "./Hinted";
 import { imageKey, ruleKey } from "../lib/emoteBlacklist";
 import type { ChatFontSize, EmoteEntry, EmoteRule } from "../types";
 
-export type SettingsTab = "account" | "appearance" | "notifications" | "emotes";
+export type SettingsTab = "general" | "account" | "appearance" | "notifications" | "emotes";
 
 const TABS: { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "General" },
   { id: "account", label: "Account" },
   { id: "appearance", label: "Appearance" },
   { id: "emotes", label: "Emotes" },
@@ -457,6 +458,21 @@ export function SettingsDialog({
         </div>
 
         <div className="scroller min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {tab === "general" && (
+            <Section title="Chat history">
+              <Row
+                label="Show recent message history on join"
+                hint="Loads a channel's last 150 messages when you join it, so the pane isn't empty."
+              >
+                <Toggle
+                  checked={preferences.showMessageHistory}
+                  onChange={(showMessageHistory) => updatePreferences({ showMessageHistory })}
+                  label="Show recent message history on join"
+                />
+              </Row>
+            </Section>
+          )}
+
           {tab === "account" && <AccountPanel onDone={onClose} />}
 
           {tab === "appearance" && (

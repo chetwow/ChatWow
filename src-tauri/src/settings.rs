@@ -37,6 +37,11 @@ pub struct Preferences {
     /// Ping for mentions in the channel you're currently reading. Off by
     /// default -- you can see that tab, so the sound is just noise.
     pub notify_active_tab: bool,
+    /// Load a channel's recent messages when you join it. On by default: an
+    /// empty pane tells you nothing about a channel you've just opened. It's
+    /// the one thing that talks to a third party, which is why it's a setting
+    /// -- see `irc::history`.
+    pub show_message_history: bool,
     /// The title bar's quick mute. Silences the ping without touching the two
     /// toggles above, so unmuting restores exactly what you had.
     pub muted: bool,
@@ -55,6 +60,7 @@ impl Default for Preferences {
             notify_on_tag: true,
             notify_on_name: true,
             notify_active_tab: false,
+            show_message_history: true,
             muted: false,
             emote_blacklist: Vec::new(),
             emote_complete_blacklist: Vec::new(),

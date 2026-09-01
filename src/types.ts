@@ -52,6 +52,12 @@ export type ChatMessage = {
    * reading. See `render::whisper` in Rust.
    */
   kind: "chat" | "system" | "notice" | "whisper";
+  /**
+   * Replayed from the history service on join rather than received live. Not
+   * news, however recently it was said: it must never ping, redden a tab or
+   * count as unread.
+   */
+  historical: boolean;
   systemMessage: string | null;
   replyTo: ReplyInfo | null;
 };
@@ -122,6 +128,8 @@ export type Preferences = {
   notifyOnName: boolean;
   /** Ping for mentions in the channel you're currently reading. */
   notifyActiveTab: boolean;
+  /** Load a channel's recent messages when you join it. */
+  showMessageHistory: boolean;
   /** The title bar's quick mute, which leaves the two toggles above alone. */
   muted: boolean;
   /** Emotes drawn as their underlined name instead of their image. */
