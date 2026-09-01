@@ -118,9 +118,11 @@ comes back the way you left it next time you open the app.
 
 ## Talking
 
-Type and press Enter. You send as the account the tab is on -- the message box says which, once
-you have more than one signed in -- and a tab with no account reads without sending until you
-give it one.
+Type and press Enter. You send as the account the tab is on -- the picture beside the message
+box says which -- and a tab with no account reads without sending until you give it one.
+
+Twitch caps a message at 500 characters. Past that the box outlines in red and says how far
+over you are, and Enter won't send until it fits.
 
 Right-click a message for Copy and Reply; a reply shows what it's answering above the composer,
 and Escape cancels it. `/me` sends a message in your name color instead of after your name,

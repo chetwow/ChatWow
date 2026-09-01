@@ -38,6 +38,13 @@ import {
 } from "../lib/commands";
 import { ANONYMOUS, type StoredMessage } from "../types";
 
+/**
+ * The longest chat message Twitch takes. Counted in code points rather than
+ * `String.length`, which counts an emoji as the two UTF-16 units it's stored
+ * as -- the same distinction the emote ranges are indexed by.
+ */
+const MAX_MESSAGE_CHARS = 500;
+
 function ReplyBar({ message, onCancel }: { message: StoredMessage; onCancel: () => void }) {
   return (
     <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
@@ -191,6 +198,14 @@ export function Composer({
   const typed = useMemo(() => splitCommand(value), [value]);
   const hinted = typed && !commandOpen ? findCommand(typed.name) : null;
 
+  // How far past Twitch's limit this line is, measured on what would actually
+  // be sent. A command isn't a chat message and isn't held to it -- `/me` is
+  // one, which is why it goes out through the send path in the first place.
+  const overBy = useMemo(() => {
+    if (typed && typed.name !== "me") return 0;
+    return [...value.trim()].length - MAX_MESSAGE_CHARS;
+  }, [value, typed]);
+
   // A fresh word to match means a fresh selection, and re-arms a picker that
   // was dismissed on a line you've since retyped.
   useEffect(() => {
@@ -303,6 +318,11 @@ export function Composer({
       }
       return;
     }
+
+    // Twitch would refuse this, and the composer is already saying why.
+    // Stopping here keeps that notice up instead of replacing it with
+    // Twitch's version of the same sentence a round trip later.
+    if ([...text].length > MAX_MESSAGE_CHARS) return;
 
     const replyInfo = replyTo
       ? { login: replyTo.login, displayName: replyTo.displayName, body: messageText(replyTo) }
@@ -568,7 +588,16 @@ export function Composer({
       {hinted && typed && <CommandHint command={hinted} name={typed.name} />}
       {replyTo && <ReplyBar message={replyTo} onCancel={() => onCancelReply?.()} />}
       <div className="px-2 py-1.5">
-        {error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>}
+        {/* One slot, and the length wins it: a failed send from a moment ago
+            is stale next to the reason the next one won't go either. */}
+        {overBy > 0 ? (
+          <div className="mb-1 text-[11px] text-rose-400">
+            {overBy} character{overBy === 1 ? "" : "s"} over Twitch's {MAX_MESSAGE_CHARS}-character
+            limit
+          </div>
+        ) : (
+          error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>
+        )}
         <div className="flex items-center gap-2">
           {/* Who this line will be sent as. The placeholder says it too, but
               that's gone the moment you start typing, and with two accounts on
@@ -640,7 +669,13 @@ export function Composer({
             }
             spellCheck={false}
             autoComplete="off"
-            className="chat-text selectable min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors focus:border-accent/60 placeholder:text-ink-faint disabled:cursor-not-allowed"
+            // Over the limit the border goes rose and stays rose through
+            // focus, the same shade the settings dialog marks a rejected line
+            // with -- the accent focus ring would otherwise paint over the one
+            // state the box is trying to report.
+            className={`chat-text selectable min-w-0 flex-1 rounded-lg border bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors placeholder:text-ink-faint disabled:cursor-not-allowed ${
+              overBy > 0 ? "border-rose-500/60" : "border-line focus:border-accent/60"
+            }`}
           />
         </div>
       </div>
