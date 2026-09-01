@@ -263,11 +263,17 @@ function MessageRowInner({
       }
     : undefined;
 
+  // Without the timestamp column the text would otherwise start hard against
+  // the window edge -- and a row with a highlight stripe would have only its
+  // 2px border between the two. Both row kinds take the same inset, so they
+  // still share a left edge.
+  const leftPad = showTimestamps ? "pl-1.5" : "pl-3";
+
   if (message.kind === "notice") {
     return (
       <div
         onContextMenu={handleContextMenu}
-        className="msg-row px-1.5 py-[3px] text-ink-faint italic"
+        className={`msg-row ${leftPad} pr-1.5 py-[3px] text-ink-faint italic`}
       >
         {message.systemMessage}
       </div>
@@ -286,7 +292,7 @@ function MessageRowInner({
     <div
       onContextMenu={handleContextMenu}
       className={[
-        "msg-row rise group relative flex gap-1.5 px-1.5 py-[3px] leading-[1.45] hover:bg-surface-hover",
+        `msg-row rise group relative flex gap-1.5 ${leftPad} pr-1.5 py-[3px] leading-[1.45] hover:bg-surface-hover`,
         message.deleted ? "opacity-40" : "",
         message.kind === "system" ? "border-l-2 border-accent bg-accent/[0.07]" : "",
         message.kind === "whisper" ? "border-l-2 border-fuchsia-400/70 bg-fuchsia-400/[0.06]" : "",

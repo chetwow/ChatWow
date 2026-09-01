@@ -26,7 +26,9 @@ function ControlButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`grid h-8 w-11 place-items-center text-ink-dim transition-colors hover:text-ink ${
+      // Full bar height, so the hover fill reads as part of the title bar --
+      // it's the width that carries the padding around the 10px glyph.
+      className={`grid h-8 w-9 place-items-center text-ink-dim transition-colors hover:text-ink ${
         danger ? "hover:bg-rose-600 hover:text-white" : "hover:bg-surface-hover"
       }`}
     >
