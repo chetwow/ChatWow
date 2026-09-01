@@ -12,6 +12,7 @@ import {
 import { useChat } from "../store/chat";
 import { matchChatters } from "../lib/chatterComplete";
 import { EmotePicker } from "./EmotePicker";
+import { CommandHint, CommandPicker } from "./CommandPicker";
 import { IS_TAURI } from "../lib/tauri";
 import { messageText } from "../lib/messageText";
 import { loadEmoji, searchEmoji, type Emoji } from "../lib/emoji";
@@ -26,6 +27,14 @@ import {
   type PickerItem,
 } from "../lib/emoteComplete";
 import { filterBlacklisted } from "../lib/emoteBlacklist";
+import {
+  commandProblem,
+  commandQuery,
+  findCommand,
+  matchCommands,
+  splitCommand,
+  type CommandMatch,
+} from "../lib/commands";
 import type { StoredMessage } from "../types";
 
 function ReplyBar({ message, onCancel }: { message: StoredMessage; onCancel: () => void }) {
@@ -62,6 +71,7 @@ export function Composer({
   onCancelReply?: () => void;
 }) {
   const sendMessage = useChat((state) => state.sendMessage);
+  const runCommand = useChat((state) => state.runCommand);
   const auth = useChat((state) => state.auth);
   const ready = useChat((state) => state.ready[channel]);
   const emoteEntries = useChat((state) => state.emoteEntries[channel]);
@@ -69,6 +79,9 @@ export function Composer({
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const sentHistory = useChat((state) => state.sentHistory[channel]);
   const chatters = useChat((state) => state.chatters[channel]);
+  // Absent until this channel's USERSTATE lands, which is the safe default:
+  // the picker offers fewer commands rather than ones Twitch would refuse.
+  const role = useChat((state) => state.roles[channel] ?? "viewer");
   const loadEmoteIndex = useChat((state) => state.loadEmoteIndex);
   const [value, setValue] = useState("");
   /** Mirrors the input's caret, so the `:` search knows which word it's in. */
@@ -76,6 +89,9 @@ export function Composer({
   const [selected, setSelected] = useState(0);
   /** Where a picker Escape'd out of started, so it stays shut for that word. */
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  const [commandSelected, setCommandSelected] = useState(0);
+  /** Whether the command picker was Escape'd out of for the line being typed. */
+  const [commandDismissed, setCommandDismissed] = useState(false);
   const [emoji, setEmoji] = useState<Emoji[]>([]);
   /**
    * How far back through this channel's sent messages the arrows have walked:
@@ -137,6 +153,31 @@ export function Composer({
     input.current?.setSelectionRange(pending, pending);
   }, [value]);
 
+  // The command word being typed, if any -- the `/` picker's whole trigger. It
+  // can only be the first word of the line, so it and the `:` picker below can
+  // never both be open.
+  const commandTrigger = useMemo(() => commandQuery(value, caret), [value, caret]);
+  const commandMatches = useMemo(
+    () => (commandTrigger ? matchCommands(commandTrigger.query, role) : []),
+    [commandTrigger, role],
+  );
+  const commandOpen = commandTrigger !== null && !commandDismissed && commandMatches.length > 0;
+  const commandHighlighted = Math.min(commandSelected, commandMatches.length - 1);
+
+  // The command you've finished typing the name of, so its arguments stay in
+  // front of you while you fill them in.
+  const typed = useMemo(() => splitCommand(value), [value]);
+  const hinted = typed && !commandOpen ? findCommand(typed.name) : null;
+
+  // A fresh word to match means a fresh selection, and re-arms a picker that
+  // was dismissed on a line you've since retyped.
+  useEffect(() => {
+    setCommandSelected(0);
+  }, [commandTrigger?.query]);
+  useEffect(() => {
+    if (commandTrigger === null) setCommandDismissed(false);
+  }, [commandTrigger]);
+
   // The `:` token being typed, if any -- this is the picker's whole trigger.
   const trigger = useMemo(() => pickerQuery(value, caret), [value, caret]);
   const query = trigger?.query ?? "";
@@ -196,9 +237,50 @@ export function Composer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [replyTo, onCancelReply]);
 
+  /** Clear the composer the way a successful send or command does. */
+  const reset = () => {
+    applyText("", 0);
+    completion.current = null;
+    draft.current = "";
+    setHistoryIndex(null);
+  };
+
   const submit = async () => {
     const text = value.trim();
     if (!text || busy.current) return;
+
+    // `/me` is a message rather than a command -- it goes out through the send
+    // path like any other text, and Twitch renders it as an action. Everything
+    // else starting with a slash is a Helix call; Twitch stopped accepting
+    // commands over IRC, so sending one as text would just post it.
+    const parsed = splitCommand(text);
+    if (parsed && parsed.name !== "me") {
+      const command = findCommand(parsed.name);
+      if (!command) {
+        setError(`Unknown command: /${parsed.name}. Type /help for the list.`);
+        return;
+      }
+      // Checked here as well as in the picker: a command can be typed straight
+      // out, and a refusal that names the missing permission beats Twitch's.
+      const problem = IS_TAURI ? commandProblem(command, auth) : null;
+      if (problem) {
+        setError(problem);
+        return;
+      }
+
+      busy.current = true;
+      setError(null);
+      try {
+        await runCommand(channel, text);
+        reset();
+      } catch (cause) {
+        // The text stays put: the usual cause is an argument to fix.
+        setError(String(cause));
+      } finally {
+        busy.current = false;
+      }
+      return;
+    }
 
     const replyInfo = replyTo
       ? { login: replyTo.login, displayName: replyTo.displayName, body: messageText(replyTo) }
@@ -208,10 +290,7 @@ export function Composer({
     setError(null);
     try {
       await sendMessage(channel, text, replyTo?.id, replyInfo);
-      applyText("", 0);
-      completion.current = null;
-      draft.current = "";
-      setHistoryIndex(null);
+      reset();
       onCancelReply?.();
     } catch (cause) {
       setError(String(cause));
@@ -271,6 +350,22 @@ export function Composer({
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [disabled]);
 
+  /**
+   * Replace the half-typed command word with the picked one, leaving whatever
+   * arguments are already on the line alone. The trailing space is what the
+   * caret lands after, so you carry straight on into the first argument.
+   */
+  const pickCommand = (name: string) => {
+    const end = value.search(/\s/);
+    const tail = end === -1 ? " " : value.slice(end);
+    const next = `/${name}${tail}`;
+    const nextCaret = name.length + 2;
+    completion.current = null;
+    pendingCaret.current = nextCaret;
+    applyText(next, nextCaret);
+    input.current?.focus();
+  };
+
   /** Swap the `:query` token for what the picked row inserts. */
   const pick = (item: PickerItem) => {
     if (!trigger) return;
@@ -298,6 +393,33 @@ export function Composer({
    */
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    // The command picker takes these keys first when it's open. It only ever
+    // is while the caret is in the first word, so it can't be competing with
+    // the emote picker below.
+    if (commandOpen && commandTrigger) {
+      const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      if (step !== 0) {
+        event.preventDefault();
+        setCommandSelected((commandHighlighted + step + commandMatches.length) % commandMatches.length);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setCommandDismissed(true);
+        return;
+      }
+      const picked = commandMatches[commandHighlighted].name;
+      // Enter completes what you'd otherwise have to finish typing -- but a
+      // name already typed in full has nothing to complete, so `/clear` and
+      // Enter runs it rather than making you press Enter twice.
+      const completes = picked !== commandTrigger.query.toLowerCase();
+      if (event.key === "Tab" || (event.key === "Enter" && completes)) {
+        event.preventDefault();
+        pickCommand(picked);
+        return;
+      }
+    }
 
     if (pickerOpen) {
       const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
@@ -404,9 +526,19 @@ export function Composer({
 
   return (
     <div className="relative shrink-0 border-t border-line bg-surface-raised">
+      {commandOpen && (
+        <CommandPicker
+          matches={commandMatches}
+          auth={auth}
+          selected={commandHighlighted}
+          onSelect={setCommandSelected}
+          onPick={(match: CommandMatch) => pickCommand(match.name)}
+        />
+      )}
       {pickerOpen && (
         <EmotePicker items={items} selected={highlighted} onSelect={setSelected} onPick={pick} />
       )}
+      {hinted && typed && <CommandHint command={hinted} name={typed.name} />}
       {replyTo && <ReplyBar message={replyTo} onCancel={() => onCancelReply?.()} />}
       <div className="px-2 py-1.5">
         {error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>}

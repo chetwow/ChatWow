@@ -36,6 +36,31 @@ impl IrcMessage {
     }
 }
 
+/// What our own USERSTATE says we are in a channel.
+///
+/// Twitch sends one on join and after each message we send, and it's the only
+/// place a plain chat client learns whether it can moderate here -- there's no
+/// Helix endpoint that answers "am I a mod in someone else's channel". The
+/// broadcaster's own USERSTATE has `mod=0`, so the badge is what tells us.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ChannelRole {
+    pub moderator: bool,
+    pub broadcaster: bool,
+}
+
+impl ChannelRole {
+    pub fn of(msg: &IrcMessage) -> Self {
+        let badges = msg.tag("badges").unwrap_or_default();
+        let broadcaster = badges.split(',').any(|badge| badge.starts_with("broadcaster/"));
+        Self {
+            // The broadcaster can do everything a moderator can, and Twitch
+            // doesn't bother saying so on their own USERSTATE.
+            moderator: broadcaster || msg.tag("mod") == Some("1"),
+            broadcaster,
+        }
+    }
+}
+
 /// Undo IRCv3 tag value escaping. A trailing lone backslash is dropped, per spec.
 fn unescape_tag(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -128,6 +153,44 @@ pub fn strip_action(text: &str) -> (bool, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_moderators_userstate_reads_as_a_moderator() {
+        let line = "@badges=moderator/1;display-name=Someone;mod=1 :tmi.twitch.tv USERSTATE #forsen";
+        let role = ChannelRole::of(&parse(line).unwrap());
+        assert!(role.moderator);
+        assert!(!role.broadcaster);
+    }
+
+    #[test]
+    fn a_broadcaster_counts_as_a_moderator_in_their_own_channel() {
+        // Twitch sends the broadcaster mod=0 -- the badge is the only signal.
+        let line = "@badges=broadcaster/1,subscriber/12;mod=0 :tmi.twitch.tv USERSTATE #forsen";
+        let role = ChannelRole::of(&parse(line).unwrap());
+        assert!(role.broadcaster);
+        assert!(role.moderator, "the broadcaster can run everything a mod can");
+    }
+
+    #[test]
+    fn an_ordinary_viewer_is_neither() {
+        let line = "@badges=subscriber/12,premium/1;mod=0 :tmi.twitch.tv USERSTATE #forsen";
+        let role = ChannelRole::of(&parse(line).unwrap());
+        assert!(!role.moderator);
+        assert!(!role.broadcaster);
+    }
+
+    #[test]
+    fn a_userstate_with_no_badges_at_all_is_not_an_error() {
+        let role = ChannelRole::of(&parse(":tmi.twitch.tv USERSTATE #forsen").unwrap());
+        assert_eq!(role, ChannelRole::default());
+    }
+
+    #[test]
+    fn a_badge_that_merely_starts_the_same_way_is_not_the_broadcaster() {
+        // Guards the prefix match: only "broadcaster/<version>" counts.
+        let line = "@badges=broadcaster-elect/1;mod=0 :tmi.twitch.tv USERSTATE #forsen";
+        assert!(!ChannelRole::of(&parse(line).unwrap()).broadcaster);
+    }
 
     #[test]
     fn parses_a_real_privmsg() {

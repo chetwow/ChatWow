@@ -57,6 +57,20 @@ export type StoredMessage = ChatMessage & {
   deleted?: boolean;
 };
 
+/**
+ * One block of Twitch scopes the sign-in screen offers as a single choice,
+ * hand-mirrored from `auth::PermissionGroup`.
+ */
+export type PermissionGroup = {
+  id: string;
+  label: string;
+  /** Why you'd want it -- the checkbox's tooltip. */
+  detail: string;
+  scopes: string[];
+  /** Asked for on every sign-in; shown, but not yours to clear. */
+  required: boolean;
+};
+
 export type AuthStatus = {
   hasClientId: boolean;
   /**
@@ -66,6 +80,16 @@ export type AuthStatus = {
   clientIdOverride: string | null;
   loggedIn: boolean;
   login: string | null;
+  /**
+   * What the current token actually allows, as Twitch reports it -- not what
+   * was asked for. Empty when signed out. This is what decides whether a
+   * command can run.
+   */
+  scopes: string[];
+  /** Optional permission group ids the next sign-in will ask for. */
+  permissionGroups: string[];
+  /** Every group there is, for drawing the account panel's checkboxes. */
+  permissionCatalog: PermissionGroup[];
 };
 
 /** Chat text size presets, smallest first. Mirrors `chat_font_size` in Rust. */
@@ -153,6 +177,19 @@ export type ChannelHit = {
   gameName: string;
   /** Profile image, empty if Twitch gave us none. */
   thumbnailUrl: string;
+};
+
+/**
+ * What you are in a channel, from your own USERSTATE. `viewer` is also what an
+ * unanswered channel reads as, which is the safe way round: the picker offers
+ * less rather than offering a command Twitch will refuse.
+ */
+export type ChannelRole = "broadcaster" | "moderator" | "viewer";
+
+export type RoleEvent = {
+  channel: string;
+  moderator: boolean;
+  broadcaster: boolean;
 };
 
 export type ChannelReadyEvent = {

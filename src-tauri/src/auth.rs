@@ -10,11 +10,105 @@ const DEVICE_URL: &str = "https://id.twitch.tv/oauth2/device";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
 const VALIDATE_URL: &str = "https://id.twitch.tv/oauth2/validate";
 
-/// `user:write:chat` is what lets us send through Helix's chat-messages
-/// endpoint instead of raw IRC PRIVMSG -- the only way to learn the real id
-/// Twitch assigns an outgoing message (IRC never echoes it back to us), which
-/// in turn is what makes replying to your own messages work.
-pub const SCOPES: &str = "chat:read chat:edit user:write:chat";
+/// One block of scopes the sign-in screen offers as a single choice.
+///
+/// Twitch's consent screen lists every scope individually and asks once, at
+/// sign-in, for all of them -- there's no way to escalate later without going
+/// back through the whole flow. So the choice is offered up front and grouped
+/// by what it buys you, rather than as fifteen checkboxes named after API
+/// scopes. Only the chat group is required; everything else is off until
+/// someone wants the commands behind it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionGroup {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Why you'd want it -- shown as the checkbox's tooltip.
+    pub detail: &'static str,
+    pub scopes: &'static [&'static str],
+    /// Asked for on every sign-in. The UI shows it but won't let you clear it.
+    pub required: bool,
+}
+
+/// Every group, in the order the sign-in screen lists them.
+pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
+    // `user:write:chat` is what lets us send through Helix's chat-messages
+    // endpoint instead of raw IRC PRIVMSG -- the only way to learn the real id
+    // Twitch assigns an outgoing message (IRC never echoes it back to us),
+    // which in turn is what makes replying to your own messages work.
+    PermissionGroup {
+        id: "chat",
+        label: "Read and send chat",
+        detail: "Reading chat and sending messages. Always requested -- it's what \
+                 signing in is for.",
+        scopes: &["chat:read", "chat:edit", "user:write:chat"],
+        required: true,
+    },
+    PermissionGroup {
+        id: "account",
+        label: "Your own account",
+        detail: "Needed for the commands that act on your account rather than a channel: \
+                 /color, /block, /unblock and /w.",
+        scopes: &[
+            "user:manage:chat_color",
+            "user:manage:blocked_users",
+            "user:manage:whispers",
+        ],
+        // Not optional, deliberately. These act on your own account and can't
+        // reach a channel, so there's nothing to weigh up -- and someone who
+        // turned them off would find out by sending a whisper that silently
+        // couldn't go anywhere.
+        required: true,
+    },
+    PermissionGroup {
+        id: "moderation",
+        label: "Moderator commands",
+        detail: "Needed to run the moderator commands -- /ban, /timeout, /clear, /slow, \
+                 /announce and the rest.",
+        scopes: &[
+            "moderator:manage:banned_users",
+            "moderator:manage:chat_messages",
+            "moderator:manage:chat_settings",
+            "moderator:manage:announcements",
+            "moderator:manage:shoutouts",
+            "moderator:manage:warnings",
+        ],
+        required: false,
+    },
+    PermissionGroup {
+        id: "channel",
+        label: "Broadcaster commands",
+        detail: "Needed to run the broadcaster commands -- /mod, /vip, /raid, /commercial \
+                 and /marker.",
+        scopes: &[
+            "channel:manage:moderators",
+            "channel:manage:vips",
+            "channel:manage:raids",
+            "channel:edit:commercial",
+            "channel:manage:broadcast",
+        ],
+        required: false,
+    },
+];
+
+/// The space-separated scope string to ask Twitch for: every required group,
+/// plus the ones chosen by id. An id we don't recognize is ignored rather than
+/// rejected -- the settings file is hand-editable, and a stale group name
+/// shouldn't stop anyone signing in.
+pub fn scope_string(groups: &[String]) -> String {
+    let mut scopes: Vec<&str> = Vec::new();
+    for group in PERMISSION_GROUPS {
+        if !group.required && !groups.iter().any(|id| id == group.id) {
+            continue;
+        }
+        for scope in group.scopes {
+            if !scopes.contains(scope) {
+                scopes.push(scope);
+            }
+        }
+    }
+    scopes.join(" ")
+}
 
 /// The Client ID baked in at build time:
 ///
@@ -54,6 +148,12 @@ pub struct Tokens {
 pub struct Validation {
     pub login: String,
     pub user_id: String,
+    /// What the token actually carries, which is the only trustworthy answer
+    /// to "can I run this command" -- a token predates any later change to
+    /// which groups are ticked, and Twitch grants what the user approved
+    /// rather than what we asked for.
+    #[serde(default)]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -63,10 +163,14 @@ pub enum PollOutcome {
     Failed(String),
 }
 
-pub async fn start_device(client: &reqwest::Client, client_id: &str) -> Result<DeviceCode> {
+pub async fn start_device(
+    client: &reqwest::Client,
+    client_id: &str,
+    scopes: &str,
+) -> Result<DeviceCode> {
     let response = client
         .post(DEVICE_URL)
-        .form(&[("client_id", client_id), ("scopes", SCOPES)])
+        .form(&[("client_id", client_id), ("scopes", scopes)])
         .send()
         .await?;
 
@@ -82,13 +186,14 @@ pub async fn start_device(client: &reqwest::Client, client_id: &str) -> Result<D
 pub async fn poll_device(
     client: &reqwest::Client,
     client_id: &str,
+    scopes: &str,
     device_code: &str,
 ) -> Result<PollOutcome> {
     let response = client
         .post(TOKEN_URL)
         .form(&[
             ("client_id", client_id),
-            ("scopes", SCOPES),
+            ("scopes", scopes),
             ("device_code", device_code),
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ])
@@ -141,4 +246,53 @@ pub async fn validate(client: &reqwest::Client, token: &str) -> Result<Validatio
         .await?
         .error_for_status()?;
     Ok(response.json().await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn owned(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn the_chat_scopes_are_requested_whatever_else_is_ticked() {
+        let scopes = scope_string(&[]);
+        for required in ["chat:read", "chat:edit", "user:write:chat"] {
+            assert!(scopes.split(' ').any(|s| s == required), "{required} missing from {scopes}");
+        }
+    }
+
+    #[test]
+    fn a_ticked_group_adds_its_scopes() {
+        let scopes = scope_string(&owned(&["moderation"]));
+        assert!(scopes.contains("moderator:manage:banned_users"));
+        // ...and nothing from the optional groups that weren't ticked.
+        assert!(!scopes.contains("channel:manage:raids"));
+    }
+
+    #[test]
+    fn an_unknown_group_is_ignored_rather_than_rejected() {
+        // settings.json is hand-editable, and a stale group name from an older
+        // build must not be able to stop someone signing in.
+        assert_eq!(scope_string(&owned(&["nonsense"])), scope_string(&[]));
+    }
+
+    #[test]
+    fn the_account_scopes_are_requested_whatever_else_is_ticked() {
+        // Required rather than a ticked default: nothing here can reach a
+        // channel, and a whisper that silently can't be sent is a bad way to
+        // discover a box was unticked.
+        assert!(scope_string(&[]).contains("user:manage:whispers"));
+    }
+
+    #[test]
+    fn every_group_id_is_distinct() {
+        let mut ids: Vec<&str> = PERMISSION_GROUPS.iter().map(|g| g.id).collect();
+        ids.sort_unstable();
+        let count = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), count);
+    }
 }

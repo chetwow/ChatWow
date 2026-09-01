@@ -1,4 +1,5 @@
 import type {
+  AuthStatus,
   Badge,
   ChannelHit,
   ChatMessage,
@@ -317,4 +318,86 @@ export function mockSearchChannels(query: string): ChannelHit[] {
   const hits = MOCK_SEARCH.filter((hit) => hit.login.includes(needle));
   // Live first, matching what the backend sorts.
   return [...hits].sort((a, b) => Number(b.isLive) - Number(a.isLive));
+}
+
+/**
+ * The permission groups, mirrored from `auth::PERMISSION_GROUPS` so the
+ * account panel's checkboxes and their tooltips can be designed without a
+ * backend. Rust is the source; a drift here only affects this harness.
+ */
+const MOCK_PERMISSION_GROUPS = [
+  {
+    id: "chat",
+    label: "Read and send chat",
+    detail:
+      "Reading chat and sending messages. Always requested -- it's what signing in is for.",
+    scopes: ["chat:read", "chat:edit", "user:write:chat"],
+    required: true,
+  },
+  {
+    id: "account",
+    label: "Your own account",
+    detail:
+      "Needed for the commands that act on your account rather than a channel: /color, /block, /unblock and /w.",
+    scopes: ["user:manage:chat_color", "user:manage:blocked_users", "user:manage:whispers"],
+    required: true,
+  },
+  {
+    id: "moderation",
+    label: "Moderator commands",
+    detail:
+      "Needed to run the moderator commands -- /ban, /timeout, /clear, /slow, /announce and the rest.",
+    scopes: [
+      "moderator:manage:banned_users",
+      "moderator:manage:chat_messages",
+      "moderator:manage:chat_settings",
+      "moderator:manage:announcements",
+      "moderator:manage:shoutouts",
+      "moderator:manage:warnings",
+    ],
+    required: false,
+  },
+  {
+    id: "channel",
+    label: "Broadcaster commands",
+    detail:
+      "Needed to run the broadcaster commands -- /mod, /vip, /raid, /commercial and /marker.",
+    scopes: [
+      "channel:manage:moderators",
+      "channel:manage:vips",
+      "channel:manage:raids",
+      "channel:edit:commercial",
+      "channel:manage:broadcast",
+    ],
+    required: false,
+  },
+];
+
+/**
+ * `login` is set despite `loggedIn: false` -- matching real signed-out state
+ * everywhere else -- so the "replying to you" highlight has an identity to
+ * match against.
+ *
+ * The moderator scopes are granted, on the other hand, because the command
+ * picker draws its locks from the scopes rather than the sign-in state: with
+ * none of them the whole list would render locked and there'd be no unlocked
+ * row to design against.
+ */
+export function mockAuthStatus(): AuthStatus {
+  return {
+    hasClientId: true,
+    clientIdOverride: null,
+    loggedIn: false,
+    login: "you",
+    scopes: MOCK_PERMISSION_GROUPS.filter((group) => group.id !== "channel").flatMap(
+      (group) => group.scopes,
+    ),
+    permissionGroups: ["moderation"],
+    permissionCatalog: MOCK_PERMISSION_GROUPS,
+  };
+}
+
+/** What a slash command "reports" with no Helix to call. */
+export function mockCommandResult(input: string): string {
+  return `Mock mode: "${input.trim()}" wasn't sent anywhere.`;
 }

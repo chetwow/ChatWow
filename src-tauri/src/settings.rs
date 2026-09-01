@@ -71,6 +71,14 @@ pub struct Settings {
     pub refresh_token: Option<String>,
     pub login: Option<String>,
     pub user_id: Option<String>,
+    /// The scopes the stored token actually carries, as `/oauth2/validate`
+    /// last reported them. Kept so the command picker knows what you can run
+    /// from the first frame, rather than after that call comes back.
+    pub scopes: Vec<String>,
+    /// Which optional `auth::PermissionGroup`s the next sign-in asks for, on
+    /// top of the required ones. Empty by default: the moderator and
+    /// broadcaster commands are off until someone asks for them.
+    pub permission_groups: Vec<String>,
     pub channels: Vec<String>,
     /// How often each emote name has been sent, used to rank completions.
     pub emote_uses: HashMap<String, u32>,

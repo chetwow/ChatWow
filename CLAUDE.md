@@ -74,6 +74,29 @@ to write `settings.json`.
   [src-tauri/src/lib.rs](src-tauri/src/lib.rs); the frontend falls back to the CDN url when
   that 404s. Purging stale entries has to wait until *every* joined channel's set has loaded --
   purging on a partial picture evicts images the other channels are about to ask for.
+- **Twitch chat commands don't work over IRC any more.** Sending `/ban someone` as a PRIVMSG
+  posts those eleven characters as a message -- Twitch retired the IRC command handler in 2023.
+  Every command is a Helix call with its own scope
+  ([src-tauri/src/twitch/commands.rs](src-tauri/src/twitch/commands.rs)). Don't "simplify" any of
+  this back into the send path. `/me` genuinely is a message (a CTCP ACTION) and stays there.
+- **Whether you can moderate a channel is only knowable from your own `USERSTATE`.** There's no
+  Helix endpoint for "am I a mod in someone else's channel", so `ChannelRole`
+  ([src-tauri/src/irc/parse.rs](src-tauri/src/irc/parse.rs)) reads the `mod` tag and the badges
+  off the USERSTATE Twitch sends on join, and `chat://role` carries it to the command picker.
+  The broadcaster's own USERSTATE says `mod=0` -- the `broadcaster/1` badge is the only signal,
+  which is why the role isn't just that tag. Twitch repeats USERSTATE after every message you
+  send, so only a real change is emitted.
+- **`/mods` and `/vips` can't work outside your own channel, however they behave in Twitch's own
+  chat.** Helix's Get Moderators and Get VIPs both require `broadcaster_id` to match the user in
+  the token, and no public endpoint lists anyone else's. Twitch's web client uses an internal
+  API. The gate in `twitch::commands::require_broadcaster` is that limit, not caution -- don't
+  "fix" it by dropping the check, which just moves the failure to a cryptic Twitch error.
+- **Scopes are granted once, at sign-in, and can't be escalated afterwards.** Ticking a
+  permission group only changes what the *next* sign-in asks for, so
+  `AuthStatus.permission_groups` (what we'll ask for) and `AuthStatus.scopes` (what the token
+  carries, from `/oauth2/validate`) are deliberately separate, and only the latter decides
+  whether a command can run. A UI that reads the ticked boxes as capability will claim commands
+  work that Twitch will refuse.
 - **Client ID precedence: an explicit override beats compiled-in, and there is always a
   compiled-in one.** [src-tauri/build.rs](src-tauri/build.rs) emits `TWITCH_CLIENT_ID` from a
   committed default whenever the env var is unset, so `option_env!` in
@@ -155,6 +178,14 @@ to write `settings.json`.
   would only affect messages that arrive afterwards. `EmoteView` subscribes to the list through
   the store rather than taking a prop, because `MessageRow` is memoized on message identity and a
   prop would never reach a row that's already rendered.
+- **The chat-command catalog lives in the frontend, the execution in Rust** --
+  [src/lib/commands.ts](src/lib/commands.ts) and
+  [src-tauri/src/twitch/commands.rs](src-tauri/src/twitch/commands.rs). Same reasoning as the
+  emote blacklists: usage, description and required scope are read on every keystroke by the `/`
+  picker, and what they're used for (can I run this?) depends on the granted scopes, which change
+  on sign-in without anything being rebuilt. Rust deliberately keeps no scope table -- it calls
+  Helix and surfaces Twitch's own refusal -- so the two can only disagree in the safe direction.
+  Adding a command means both files, plus a line in the README's command section.
 - The bundle identifier is `io.github.chetwow.chatwow`. Leave it alone unless the move is
   deliberate -- changing it relocates the app config dir and orphans the stored tokens,
   channels and preferences, for every install rather than just yours.
@@ -183,5 +214,5 @@ to write `settings.json`.
 
 ## Out of scope
 
-BTTV/FFZ emotes, whispers, moderation actions, searching chat history — see
+BTTV/FFZ emotes, *receiving* whispers (`/w` sends), searching chat history — see
 [README.md](README.md#not-supported-yet) for current status before adding these.

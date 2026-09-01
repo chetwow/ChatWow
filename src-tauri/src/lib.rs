@@ -73,6 +73,8 @@ fn persist(app: &AppHandle, state: &AppState) {
         refresh_token: auth.refresh_token.clone(),
         login: auth.login.clone(),
         user_id: auth.user_id.clone(),
+        scopes: auth.scopes.clone(),
+        permission_groups: auth.permission_groups.clone(),
         channels: state.channels.read().clone(),
         emote_uses: state.emote_uses.read().clone(),
         preferences: state.preferences.read().clone(),
@@ -99,9 +101,16 @@ async fn restore_session(app: AppHandle, state: Shared) {
     if let (Some(client_id), Some(token)) = (client_id, access_token) {
         match auth::validate(&state.http, &token).await {
             Ok(validation) => {
-                let mut auth_state = state.auth.write();
-                auth_state.login = Some(validation.login);
-                auth_state.user_id = Some(validation.user_id);
+                {
+                    let mut auth_state = state.auth.write();
+                    auth_state.login = Some(validation.login);
+                    auth_state.user_id = Some(validation.user_id);
+                    // Twitch is the authority on what the token allows, and
+                    // what it allows decides which commands the picker offers.
+                    auth_state.scopes = validation.scopes;
+                }
+                persist(&app, &state);
+                let _ = app.emit("chat://auth", state.auth_status());
             }
             Err(_) => {
                 let refreshed = match refresh_token {
@@ -119,6 +128,8 @@ async fn restore_session(app: AppHandle, state: Shared) {
                             auth_state.refresh_token = Some(tokens.refresh_token);
                         }
                         auth_state.login = validation.as_ref().map(|v| v.login.clone());
+                        auth_state.scopes =
+                            validation.as_ref().map(|v| v.scopes.clone()).unwrap_or_default();
                         auth_state.user_id = validation.map(|v| v.user_id);
                     }
                     None => {
@@ -127,6 +138,7 @@ async fn restore_session(app: AppHandle, state: Shared) {
                         auth_state.refresh_token = None;
                         auth_state.login = None;
                         auth_state.user_id = None;
+                        auth_state.scopes.clear();
                     }
                 }
 
@@ -174,6 +186,7 @@ fn clear_session(state: &AppState) {
         auth_state.refresh_token = None;
         auth_state.login = None;
         auth_state.user_id = None;
+        auth_state.scopes.clear();
     }
     state.global_badges.write().clear();
     for data in state.data.write().values_mut() {
@@ -205,6 +218,80 @@ fn set_client_id_override(
     persist(&app, &state);
     state.send(IrcCommand::Reconnect);
     state.auth_status()
+}
+
+/// Choose which optional permission groups the next sign-in asks Twitch for.
+///
+/// Deliberately *not* a sign-out, unlike changing the Client ID: the token in
+/// hand is still perfectly good for everything it already covers. Scopes can
+/// only be added by going through the consent screen again, so the account
+/// panel says so and offers the button -- turning a group on here and never
+/// signing in again simply leaves those commands unavailable, which is what
+/// the granted scopes will keep reporting.
+#[tauri::command]
+fn set_permission_groups(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    groups: Vec<String>,
+) -> AuthStatus {
+    // Ids we don't know are dropped rather than stored: they'd do nothing at
+    // sign-in and would sit in the settings file looking meaningful.
+    let known: Vec<String> = groups
+        .into_iter()
+        .filter(|id| auth::PERMISSION_GROUPS.iter().any(|group| group.id == id && !group.required))
+        .collect();
+
+    state.auth.write().permission_groups = known;
+    persist(&app, &state);
+    state.auth_status()
+}
+
+/// Run a slash command in a channel.
+///
+/// Twitch stopped accepting these over IRC in 2023, so each one is a Helix
+/// call -- see `twitch::commands`. The `Ok` string is the line the frontend
+/// prints into the channel; an `Err` reaches the composer with your text still
+/// in it, since the usual cause is an argument to fix rather than a message to
+/// retype.
+#[tauri::command]
+async fn run_chat_command(
+    state: State<'_, Shared>,
+    channel: String,
+    input: String,
+) -> Result<String, String> {
+    let name = normalize_channel(&channel)?;
+    let Some((command, args)) = twitch::commands::split_command(&input) else {
+        return Err("That isn't a command".to_string());
+    };
+
+    let (client_id, token, user_id) = {
+        let auth = state.auth.read();
+        let Some((client_id, token)) = auth.credentials() else {
+            return Err(format!("Sign in to use /{command}"));
+        };
+        let Some(user_id) = auth.user_id.clone() else {
+            return Err("Sign in again to refresh permissions".to_string());
+        };
+        (client_id, token, user_id)
+    };
+
+    // Every command is scoped to a channel, and the broadcaster id is what
+    // Helix identifies one by -- it arrives with ROOMSTATE, so a channel still
+    // connecting has none yet.
+    let broadcaster_id = state.data.read().get(&name).and_then(|c| c.room_id.clone());
+    let Some(broadcaster_id) = broadcaster_id else {
+        return Err("Channel isn't ready yet".to_string());
+    };
+
+    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token: &token };
+    let context = twitch::commands::Context {
+        helix: &helix,
+        channel: &name,
+        broadcaster_id: &broadcaster_id,
+        user_id: &user_id,
+    };
+
+    twitch::commands::run(&context, &command, args).await.map_err(|e| e.to_string())
 }
 
 /// How often to re-ask Twitch who's live. Cheap -- one request covers every
@@ -286,13 +373,16 @@ async fn search_channels(
 
 #[tauri::command]
 async fn start_device_auth(state: State<'_, Shared>) -> Result<auth::DeviceCode, String> {
-    let client_id = {
+    let (client_id, scopes) = {
         let auth_state = state.auth.read();
-        auth_state.client_id().map(str::to_string)
-    }
-    .ok_or("Set a Twitch Client ID first")?;
+        (
+            auth_state.client_id().map(str::to_string),
+            auth::scope_string(&auth_state.permission_groups),
+        )
+    };
+    let client_id = client_id.ok_or("Set a Twitch Client ID first")?;
 
-    auth::start_device(&state.http, &client_id)
+    auth::start_device(&state.http, &client_id, &scopes)
         .await
         .map_err(|e| e.to_string())
 }
@@ -303,13 +393,16 @@ async fn poll_device_auth(
     state: State<'_, Shared>,
     device_code: String,
 ) -> Result<Value, String> {
-    let client_id = {
+    let (client_id, scopes) = {
         let auth_state = state.auth.read();
-        auth_state.client_id().map(str::to_string)
-    }
-    .ok_or("Set a Twitch Client ID first")?;
+        (
+            auth_state.client_id().map(str::to_string),
+            auth::scope_string(&auth_state.permission_groups),
+        )
+    };
+    let client_id = client_id.ok_or("Set a Twitch Client ID first")?;
 
-    let outcome = auth::poll_device(&state.http, &client_id, &device_code)
+    let outcome = auth::poll_device(&state.http, &client_id, &scopes, &device_code)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -327,6 +420,9 @@ async fn poll_device_auth(
                 auth_state.refresh_token = Some(tokens.refresh_token);
                 auth_state.login = Some(validation.login.clone());
                 auth_state.user_id = Some(validation.user_id.clone());
+                // What was actually granted, which can be less than we asked
+                // for: the consent screen lets scopes be declined.
+                auth_state.scopes = validation.scopes.clone();
             }
             persist(&app, &state);
 
@@ -542,6 +638,8 @@ pub fn run() {
                 auth_state.refresh_token = saved.refresh_token;
                 auth_state.login = saved.login;
                 auth_state.user_id = saved.user_id;
+                auth_state.scopes = saved.scopes;
+                auth_state.permission_groups = saved.permission_groups;
             }
             *shared.emote_uses.write() = saved.emote_uses;
             *shared.preferences.write() = saved.preferences;
@@ -574,6 +672,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             auth_status,
             set_client_id_override,
+            set_permission_groups,
+            run_chat_command,
             search_channels,
             start_device_auth,
             poll_device_auth,

@@ -6,9 +6,13 @@ import { emotesIn } from "../lib/emoteComplete";
 import type { Chatters } from "../lib/chatterComplete";
 import { mentionKind } from "../lib/mentions";
 import { normalizeRules, withRule, withoutRule } from "../lib/emoteBlacklist";
+import { helpLines, splitCommand } from "../lib/commands";
+import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
 import type {
   AuthStatus,
+  ChannelRole,
+  RoleEvent,
   EmoteRule,
   Preferences,
   EmoteEntry,
@@ -106,6 +110,12 @@ type ChatState = {
    * never a confident "offline".
    */
   live: Record<string, boolean>;
+  /**
+   * What you are in each channel, for the command picker. Absent means viewer
+   * -- either you are one, or the channel's USERSTATE hasn't arrived yet, and
+   * offering too few commands beats offering ones Twitch will refuse.
+   */
+  roles: Record<string, ChannelRole>;
   emoteCounts: Record<string, number>;
   /** Completable emotes per channel, sorted case-insensitively by name. */
   emoteEntries: Record<string, EmoteEntry[]>;
@@ -127,6 +137,11 @@ type ChatState = {
   part: (channel: string) => Promise<void>;
   reorderChannels: (channels: string[]) => void;
   sendMessage: (channel: string, text: string, replyToId?: string, replyTo?: ReplyInfo) => Promise<void>;
+  /**
+   * Run a slash command and print what it reported into the channel. Throws
+   * on failure, so the composer can keep your text and show why.
+   */
+  runCommand: (channel: string, input: string) => Promise<void>;
   loadEmoteIndex: (channel: string) => Promise<void>;
   refreshAuth: () => Promise<void>;
   setAuth: (auth: AuthStatus) => void;
@@ -202,13 +217,22 @@ export const useChat = create<ChatState>((set) => ({
   preferences: DEFAULT_PREFERENCES,
   ready: {},
   live: {},
+  roles: {},
   emoteCounts: {},
   emoteEntries: {},
   emoteUses: {},
   sentHistory: {},
   connection: "connecting",
   connectionDetail: null,
-  auth: { hasClientId: false, clientIdOverride: null, loggedIn: false, login: null },
+  auth: {
+    hasClientId: false,
+    clientIdOverride: null,
+    loggedIn: false,
+    login: null,
+    scopes: [],
+    permissionGroups: [],
+    permissionCatalog: [],
+  },
   globalEmotes: 0,
 
   setActive: (channel) =>
@@ -315,6 +339,33 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   /**
+   * Twitch stopped taking chat commands over IRC in 2023, so each one is a
+   * Helix call the backend makes -- except `/help`, which is answered from the
+   * catalog the picker already has and never leaves the app.
+   */
+  runCommand: async (channel, input) => {
+    const parsed = splitCommand(input);
+    if (!parsed) throw new Error("That isn't a command");
+
+    const state = useChat.getState();
+    let lines: string[];
+    if (parsed.name === "help") {
+      lines = helpLines(parsed.args, state.auth);
+    } else if (IS_TAURI) {
+      lines = [await api.runChatCommand(channel, input)];
+    } else {
+      const mock = await import("../dev/mockData");
+      lines = [mock.mockCommandResult(input)];
+    }
+
+    state.ingest(lines.map((line) => localNotice(channel, line)));
+    // Only once it worked, and for the same reason a sent message is: a
+    // command that was refused stays in the composer to be fixed, and
+    // shouldn't also be sitting one up-arrow away.
+    noteSent(channel, input);
+  },
+
+  /**
    * Pull the channel's completable emotes. Cheap to repeat -- it's re-run when
    * a channel finishes loading, which also covers signing in, since Twitch's
    * own emotes only become fetchable once there's a token.
@@ -331,7 +382,9 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   refreshAuth: async () => set({ auth: await api.authStatus() }),
-  setAuth: (auth) => set({ auth }),
+  // Roles belong to the signed-in user, so signing out drops them rather than
+  // leaving the last account's moderator commands on offer.
+  setAuth: (auth) => set(auth.loggedIn ? { auth } : { auth, roles: {} }),
 
   updatePreferences: (patch) => {
     const preferences = normalize({ ...useChat.getState().preferences, ...patch });
@@ -452,19 +505,27 @@ export const useChat = create<ChatState>((set) => ({
 
   bootstrap: async () => {
     if (!IS_TAURI) {
-      const { MOCK_CHANNELS, buildInitialMessages } = await import("../dev/mockData");
+      const { MOCK_CHANNELS, buildInitialMessages, mockAuthStatus } = await import(
+        "../dev/mockData"
+      );
       set({
         channels: MOCK_CHANNELS,
         active: MOCK_CHANNELS[0],
         ready: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, true])),
         emoteCounts: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, 886])),
         live: { [MOCK_CHANNELS[0]]: true, [MOCK_CHANNELS[2]]: true },
+        // One channel of each, so the picker's filtering is visible in mock.
+        roles: {
+          [MOCK_CHANNELS[0]]: "moderator",
+          [MOCK_CHANNELS[1]]: "broadcaster",
+          [MOCK_CHANNELS[2]]: "viewer",
+        },
         connection: "connected",
         globalEmotes: 45,
         // `login` is set (despite `loggedIn: false`, matching real signed-out
         // state everywhere else) so the "replying to you" highlight has an
         // identity to match against during design iteration.
-        auth: { hasClientId: true, clientIdOverride: null, loggedIn: false, login: "you" },
+        auth: mockAuthStatus(),
         preferences: readMockPreferences(),
       });
       useChat.getState().ingest(buildInitialMessages());
@@ -537,6 +598,17 @@ export async function subscribeToBackend() {
       for (const channel of Object.keys(state.emoteEntries)) {
         void state.loadEmoteIndex(channel);
       }
+    }),
+
+    // Sent on join and whenever it changes -- see `ChannelRole` in the parser.
+    listen<RoleEvent>("chat://role", (event) => {
+      const { channel, moderator, broadcaster } = event.payload;
+      useChat.setState((state) => ({
+        roles: {
+          ...state.roles,
+          [channel]: broadcaster ? "broadcaster" : moderator ? "moderator" : "viewer",
+        },
+      }));
     }),
 
     listen<AuthStatus>("chat://auth", (event) => {

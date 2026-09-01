@@ -3,9 +3,9 @@
 A desktop Twitch chat client built with Tauri 2 and React. Multiple channels in a tabbed
 interface, rendered the way Twitch renders them: native Twitch emotes, 7TV global and channel
 emotes (including zero-width overlays), user badges, and correct name colors. Signed-in users
-can send messages, including `/me` actions, with Tab completion for emotes and chatter names, a
-`:` emote/emoji search, message history in the composer, and mention highlighting with an
-optional ping.
+can send messages, including `/me` actions, run Twitch's slash commands from a `/` picker, and
+get Tab completion for emotes and chatter names, a `:` emote/emoji search, message history in the
+composer, and mention highlighting with an optional ping.
 
 ## Running it
 
@@ -23,6 +23,21 @@ authenticated Helix API. Without a sign-in, badges render as small text chips in
 For users, that's one click: **Sign in** in the title bar, approve the device code in the
 browser, done. No dev console, no account setup beyond their normal Twitch login. Signing in
 is also required to send messages -- the composer is read-only text otherwise.
+
+### Permissions
+
+Twitch grants scopes once, on the consent screen, and there's no way to escalate later without
+going through the whole flow again -- so what to ask for is a choice made *before* signing in, in
+Settings -> Account. Reading and sending chat is always requested, and so is **Your own account**
+-- `/color`, `/block` and `/w` act on your account alone and can't reach a channel, so there's
+nothing to weigh up and no box to untick. **Moderator commands** and **Broadcaster commands** are
+off until you tick them, and each group's tooltip says which commands it unlocks. Ticking a box asks for more next time: it can't upgrade
+the token you're holding, so the panel says so and offers the button. Granting moderator scopes
+doesn't make you a moderator anywhere -- Twitch still checks that you are one, channel by channel.
+
+The groups are defined in [`src-tauri/src/auth.rs`](src-tauri/src/auth.rs)
+(`PERMISSION_GROUPS`); what a token actually carries comes back from `/oauth2/validate` and is
+what decides whether a command can run.
 
 ### The Client ID
 
@@ -83,6 +98,39 @@ the real id it assigns a sent message, which a reply needs to reference via
 Twitch broadcasts a sent message back to the sender's own IRC connection exactly like any other
 channel message, so it renders through the normal incoming-message pipeline, with real emote,
 badge, and reply-quote resolution identical to everything else.
+
+### Chat commands
+
+Twitch stopped accepting chat commands over IRC in 2023 -- sending `/ban someone` as a `PRIVMSG`
+posts those eleven characters as a message -- so every command is a Helix call. Typing `/` opens
+a picker listing them with their arguments; `↑`/`↓` moves, `Tab` completes, `Enter` takes the
+highlighted one (or runs it, if you've already typed the name in full), `Esc` closes. Once you're
+past the name a hint bar keeps the command's arguments in front of you.
+
+The list is filtered to what you could actually run where you're typing: no moderator commands
+unless you're a moderator in that channel, no broadcaster commands unless it's yours. That comes
+from your own `USERSTATE`, which Twitch sends on join -- there's no Helix endpoint that answers
+"am I a moderator in someone else's channel", so the tag is the only source. A channel that
+hasn't answered yet reads as viewer, which errs towards offering too little rather than offering
+something Twitch will refuse. Commands you're only missing a *permission* for do stay listed,
+marked, since that one you can act on. `/help` ignores the filter and lists everything.
+
+The split: [`src-tauri/src/twitch/commands.rs`](src-tauri/src/twitch/commands.rs) maps each
+command to its endpoint, arguments to query and body, and the response to the line printed back
+into the channel. The catalog the picker reads -- usage, description, which permission each
+command needs -- is [`src/lib/commands.ts`](src/lib/commands.ts), for the same reason mentions
+and emote blacklists are decided in the frontend: it depends on the granted scopes, which change
+on sign-in with nothing rebuilt, and the picker has to answer on every keystroke without a round
+trip. A failed command keeps your text in the composer, since the usual cause is an argument to
+fix; a successful one prints what it did as a notice.
+
+`/me` is the exception: it's a message rather than a command and goes out through the send path
+like any other text.
+
+`/mods` and `/vips` only work in your own channel, unlike Twitch's own chat: Helix's Get
+Moderators and Get VIPs both require the `broadcaster_id` to match the user in the token, and
+there's no public endpoint for anyone else's list. Twitch's web client reads it from an internal
+API this app can't use.
 
 ### Replies
 
@@ -204,7 +252,8 @@ key validation, content-type sniffing and purge selection.
 
 ## Settings
 
-The gear in the title bar opens a tabbed dialog -- Account (Twitch sign-in and the Client ID),
+The gear in the title bar opens a tabbed dialog -- Account (Twitch sign-in, the permissions to
+ask for, and the Client ID),
 Appearance (chat font size) and Notifications (the mention toggles above; the title bar keeps the
 mute). The account button in the title bar opens the same dialog on its Account tab, which is the
 only sign-in surface. It's sized for the window's 420px minimum: the panel is `min(560px, 100%)`,
@@ -227,9 +276,11 @@ mode has no backend to write to and falls back to `localStorage`.
   to go back
 - `@` + `Tab` — complete a chatter's name only, inserted as `@name, `
 - `:` — open the emote and emoji search; `↑`/`↓` to move, `Tab`/`Enter` to take, `Esc` to close
+- `/` — open the command picker, same keys
 - `↑`/`↓` — step back and forward through your sent messages in this channel
 - `Esc` — cancel a reply
 
 ## Not supported yet
 
-BTTV/FFZ emotes, whispers, moderation actions, and searching chat history.
+BTTV/FFZ emotes, receiving whispers (`/w` sends; replies arrive on Twitch, not here), and
+searching chat history.

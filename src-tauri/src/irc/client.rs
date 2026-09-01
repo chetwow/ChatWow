@@ -14,7 +14,7 @@ use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::emotes::{cache, seventv};
-use crate::irc::parse::{self, IrcMessage};
+use crate::irc::parse::{self, ChannelRole, IrcMessage};
 use crate::render::{self, BadgeLookup, ChatMessage, EmoteLookup};
 use crate::state::{AppState, IrcCommand, MAX_PENDING};
 use crate::twitch::{badges, emotes as twitch_emotes};
@@ -234,6 +234,30 @@ fn handle_line(
                 if entry.pending.len() < MAX_PENDING {
                     entry.pending.push(msg);
                 }
+            }
+        }
+        "USERSTATE" => {
+            let Some(channel) = msg.channel() else { return None };
+            let role = ChannelRole::of(&msg);
+
+            // Twitch repeats USERSTATE after every message we send, so only a
+            // real change is worth waking the UI for.
+            let changed = {
+                let mut data = state.data.write();
+                let entry = data.entry(channel.clone()).or_default();
+                let changed = entry.role != role;
+                entry.role = role;
+                changed
+            };
+            if changed {
+                let _ = app.emit(
+                    "chat://role",
+                    json!({
+                        "channel": channel,
+                        "moderator": role.moderator,
+                        "broadcaster": role.broadcaster,
+                    }),
+                );
             }
         }
         "ROOMSTATE" => {

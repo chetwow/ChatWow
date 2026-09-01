@@ -7,14 +7,10 @@ import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/Set
 import { EmoteTooltip } from "./components/EmoteTooltip";
 import { subscribeToBackend, useChat } from "./store/chat";
 
+/** Nothing joined: just the way in. The button says what this is. */
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3">
-      <div className="text-[15px] font-semibold text-ink">No channels yet</div>
-      <div className="max-w-[300px] text-center text-[12px] leading-relaxed text-ink-faint">
-        Join a channel to start reading chat. Twitch and 7TV emotes, badges and name colors are
-        rendered exactly as they appear on Twitch.
-      </div>
+    <div className="flex flex-1 items-center justify-center">
       <button
         onClick={onAdd}
         className="rounded-md bg-accent px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-accent-dim"

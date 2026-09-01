@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
+import { Hinted } from "./Hinted";
 import { imageKey, ruleKey } from "../lib/emoteBlacklist";
 import type { ChatFontSize, EmoteEntry, EmoteRule } from "../types";
 
@@ -28,43 +29,6 @@ export const FONT_SIZE_PX: Record<ChatFontSize, number> = {
   large: 15,
   larger: 17,
 };
-
-/**
- * A label with its explanation behind an info dot, shown on hover (or focus, so
- * it's reachable from the keyboard). Keeps a panel scannable -- the name of a
- * setting, or of a section, is usually enough on its own.
- */
-function Hinted({
-  hint,
-  className,
-  children,
-}: {
-  hint: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      tabIndex={0}
-      className={`group/hint relative inline-flex cursor-help items-center gap-1.5 outline-none ${className ?? ""}`}
-    >
-      {children}
-      <svg viewBox="0 0 16 16" width="12" height="12" className="shrink-0 text-ink-faint">
-        <circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <circle cx="8" cy="4.9" r="0.85" fill="currentColor" />
-        <path d="M8 7.2v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-      {/* Anchored under the label and clamped to the panel's width, so a long
-          explanation can't push a scrollbar into the dialog. */}
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] leading-relaxed text-ink-dim shadow-lg shadow-black/50 group-hover/hint:block group-focus/hint:block"
-      >
-        {hint}
-      </span>
-    </span>
-  );
-}
 
 /**
  * One labelled setting. The control wraps under the label rather than squeezing

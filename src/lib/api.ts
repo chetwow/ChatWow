@@ -12,6 +12,9 @@ export const api = {
       "poll_device_auth",
       { deviceCode },
     ),
+  /** Which optional permission groups the next sign-in asks Twitch for. */
+  setPermissionGroups: (groups: string[]) =>
+    invoke<AuthStatus>("set_permission_groups", { groups }),
   logout: () => invoke<AuthStatus>("logout"),
   listChannels: () => invoke<string[]>("list_channels"),
   joinChannel: (channel: string) => invoke<string[]>("join_channel", { channel }),
@@ -19,6 +22,9 @@ export const api = {
   reorderChannels: (channels: string[]) => invoke<string[]>("reorder_channels", { channels }),
   sendMessage: (channel: string, text: string, replyToId?: string) =>
     invoke<void>("send_message", { channel, text, replyToId }),
+  /** Runs a slash command; resolves with the line to print into the channel. */
+  runChatCommand: (channel: string, input: string) =>
+    invoke<string>("run_chat_command", { channel, input }),
   emoteIndex: (channel: string) => invoke<EmoteIndex>("emote_index", { channel }),
   /** Empty when signed out -- Helix has no unauthenticated channel search. */
   searchChannels: (query: string) => invoke<ChannelHit[]>("search_channels", { query }),

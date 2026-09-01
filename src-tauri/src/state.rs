@@ -32,6 +32,12 @@ pub struct Auth {
     /// Our own numeric Twitch id, from `/oauth2/validate`. Needed as the
     /// `sender_id` on Helix's chat-messages endpoint.
     pub user_id: Option<String>,
+    /// The scopes the token carries, as Twitch reports them. Not what we
+    /// asked for: a token predates any later change to `permission_groups`,
+    /// and Twitch grants what the user approved on the consent screen.
+    pub scopes: Vec<String>,
+    /// The optional permission groups the next sign-in will ask for.
+    pub permission_groups: Vec<String>,
 }
 
 impl Auth {
@@ -64,6 +70,14 @@ pub struct AuthStatus {
     pub client_id_override: Option<String>,
     pub logged_in: bool,
     pub login: Option<String>,
+    /// What the current token actually allows. Empty when signed out.
+    pub scopes: Vec<String>,
+    /// The optional permission groups the next sign-in will ask for.
+    pub permission_groups: Vec<String>,
+    /// The groups themselves -- ids, labels and what each one is for. Static,
+    /// but it travels with the status so the account panel has one source for
+    /// what to draw and what's been granted.
+    pub permission_catalog: &'static [crate::auth::PermissionGroup],
 }
 
 /// Per-channel caches. `ready` gates message rendering until emotes land.
@@ -71,6 +85,10 @@ pub struct AuthStatus {
 pub struct ChannelData {
     pub room_id: Option<String>,
     pub ready: bool,
+    /// What we are here, from our own USERSTATE. Decides which commands the
+    /// picker offers -- there's no Helix endpoint that answers "am I a mod in
+    /// this channel", so this tag is the only source.
+    pub role: crate::irc::parse::ChannelRole,
     /// Messages received before the emote/badge fetch finished.
     pub pending: Vec<IrcMessage>,
     pub emotes: HashMap<String, Emote>,
@@ -202,6 +220,9 @@ impl AppState {
             client_id_override: auth.client_id_override.clone(),
             logged_in: auth.access_token.is_some(),
             login: auth.login.clone(),
+            scopes: auth.scopes.clone(),
+            permission_groups: auth.permission_groups.clone(),
+            permission_catalog: crate::auth::PERMISSION_GROUPS,
         }
     }
 }
