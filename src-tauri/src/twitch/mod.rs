@@ -4,6 +4,7 @@ pub mod commands;
 pub mod emotes;
 pub mod eventsub;
 pub mod helix;
+pub mod links;
 pub mod search;
 pub mod streams;
 pub mod users;

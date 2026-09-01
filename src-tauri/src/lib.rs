@@ -399,15 +399,36 @@ async fn search_channels(
 /// Everything the card behind a clicked username shows. Signed out this still
 /// answers -- the follow and sub half never needed a token, and the avatar and
 /// account age fall back to a source that doesn't either.
-/// What the page behind a link says about itself, for the hover preview.
-/// `None` covers every way there's nothing to show -- no metadata, not a page,
-/// a host that refused -- because the preview draws the same nothing for all
-/// of them.
+/// What's behind a link, for the hover preview. `None` covers every way
+/// there's nothing to show -- no metadata, not a page, a host that refused --
+/// because the preview draws the same nothing for all of them.
+///
+/// Twitch's own links go to Helix first: a twitch.tv page tells a scraper
+/// almost nothing, and this app is already holding a token. Everything about
+/// that path is best-effort -- signed out there's no token, and a Helix miss or
+/// failure is not the end of the answer -- so it falls through to the ordinary
+/// page preview rather than reporting an error.
 #[tauri::command]
 async fn link_preview(
     state: State<'_, Shared>,
     url: String,
 ) -> Result<Option<linkinfo::LinkPreview>, String> {
+    if let Some(link) = reqwest::Url::parse(&url).ok().as_ref().and_then(twitch::links::parse) {
+        let credentials = { state.auth.read().credentials() };
+        if let Some((client_id, token)) = credentials {
+            let helix = twitch::helix::Helix {
+                client: &state.http,
+                client_id: &client_id,
+                token: &token,
+            };
+            match twitch::links::preview(&helix, &link).await {
+                Ok(Some(preview)) => return Ok(Some(preview)),
+                Ok(None) => {}
+                Err(error) => eprintln!("link preview: Helix failed ({error}); reading the page"),
+            }
+        }
+    }
+
     linkinfo::preview(&state.link_http, &url)
         .await
         .map_err(|e| e.to_string())

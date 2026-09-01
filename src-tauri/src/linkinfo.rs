@@ -26,7 +26,7 @@
 //!   to `</head>`.
 //! * **It happens on hover.** That's a request to a host of someone else's
 //!   choosing, from the user's own address, without a click -- which is the
-//!   whole reason `preview_pages` is a setting and defaults are the only thing
+//!   whole reason these are settings at all, and defaults are the only thing
 //!   this module doesn't decide.
 //!
 //! The host check is on the literal in the url, hop by hop. A *name* that
@@ -75,8 +75,14 @@ pub struct LinkPreview {
     /// the link often enough (a CDN) that the frontend can't assume otherwise.
     pub image: String,
     /// Labelled rows under the title, in the order they should be drawn. Empty
-    /// for a page that's just a page; YouTube is the one that fills it in.
+    /// for a page that's just a page; YouTube and Twitch fill it in.
     pub facts: Vec<Fact>,
+    /// How long this answer is worth keeping, in seconds. Zero means forever,
+    /// which is the truth for a page: its title won't change while you read
+    /// chat. A live stream's viewer count and uptime are wrong within minutes,
+    /// so that preview carries its own shelf life rather than the cache in
+    /// front of it having to guess which answers rot.
+    pub ttl_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -87,7 +93,7 @@ pub struct Fact {
 }
 
 impl Fact {
-    fn new(label: &str, value: impl Into<String>) -> Self {
+    pub fn new(label: &str, value: impl Into<String>) -> Self {
         Fact {
             label: label.to_string(),
             value: value.into(),
@@ -215,6 +221,9 @@ fn build_preview(html: &str, youtube: bool) -> Option<LinkPreview> {
         } else {
             Vec::new()
         },
+        // Nothing a page publishes about itself goes stale on the timescale of
+        // a chat session.
+        ttl_seconds: 0,
     };
 
     // A title is the one thing a preview can't do without: the rest is detail
@@ -582,7 +591,7 @@ fn parse_iso_duration(iso: &str) -> Option<u64> {
 }
 
 /// `4:46`, or `1:02:33` once there are hours.
-fn format_duration(seconds: u64) -> String {
+pub fn format_duration(seconds: u64) -> String {
     let (hours, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
     if hours > 0 {
         format!("{hours}:{minutes:02}:{seconds:02}")
@@ -598,7 +607,7 @@ const MONTHS: [&str; 12] = [
 /// `2023-03-03T04:14:46-08:00` -> `3 Mar 2023`. Only the date part is read:
 /// the time a video went up is never what you're hovering to find out, and the
 /// zone it's in is the uploader's, not yours.
-fn format_date(iso: &str) -> Option<String> {
+pub fn format_date(iso: &str) -> Option<String> {
     let date = iso.get(..10)?;
     let mut parts = date.split('-');
     let year: u32 = parts.next()?.parse().ok()?;
@@ -611,7 +620,7 @@ fn format_date(iso: &str) -> Option<String> {
 /// `1.2M`, `532K`, `847`. Same shape YouTube itself uses, and the reason the
 /// exact number isn't worth the width: nobody hovers a link to learn that a
 /// video has 1,215,370 views rather than 1.2 million.
-fn compact(count: u64) -> String {
+pub fn compact(count: u64) -> String {
     let (scaled, suffix) = match count {
         0..=999 => return count.to_string(),
         1_000..=999_999 => (count as f64 / 1_000.0, "K"),

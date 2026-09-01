@@ -61,11 +61,19 @@ pub struct Preferences {
     /// chatter linked -- hovering tells that host you're here, which nothing
     /// else about reading chat does.
     pub preview_images: bool,
-    /// The same for every other link, which shows what the page says about
-    /// itself. Separate from the switch above because the two cost different
-    /// things: an image is one request to the host in the link, where a page
-    /// is a request, a read of up to a megabyte, and a thumbnail from
-    /// wherever that page names. See `linkinfo`.
+    /// A YouTube video, which shows the channel, duration, date and counts.
+    /// Its own switch because it's the most expensive preview there is: the
+    /// page is read to a megabyte to reach numbers Google buries behind
+    /// half of it (see `linkinfo`).
+    pub preview_youtube: bool,
+    /// A Twitch clip, VOD or channel, which comes from Helix rather than the
+    /// page (see `twitch::links`). Its own switch because it's the one that
+    /// goes to Twitch with your token rather than to a stranger's host.
+    pub preview_twitch: bool,
+    /// Every other link, which shows what the page says about itself.
+    /// Separate from the three above because they cost different things: an
+    /// image is one request to the host in the link, where a page is a
+    /// request, a read, and a thumbnail from wherever that page names.
     pub preview_pages: bool,
     /// Keep the channel tabs on one row and scroll them sideways. On by
     /// default: wrapping keeps every tab in sight, but it also lets the tab
@@ -114,6 +122,8 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             preview_images: true,
+            preview_youtube: true,
+            preview_twitch: true,
             preview_pages: true,
             single_row_tabs: true,
             mentions_tab: false,

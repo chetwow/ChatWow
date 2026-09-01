@@ -382,3 +382,51 @@ async fn live_link_previews_read_real_pages() {
         );
     }
 }
+
+/// The Twitch half of link previews, which needs a token -- Helix has no
+/// anonymous mode and this app has no client secret to mint an app token with.
+/// Supply one from a signed-in session to run it:
+///
+///   TWITCH_TEST_CLIENT_ID=... TWITCH_TEST_TOKEN=... \
+///     cargo test -- --ignored --nocapture live_twitch_link
+#[tokio::test]
+#[ignore = "needs a Twitch token in TWITCH_TEST_CLIENT_ID / TWITCH_TEST_TOKEN"]
+async fn live_twitch_link_previews_resolve() {
+    let (Ok(client_id), Ok(token)) = (
+        std::env::var("TWITCH_TEST_CLIENT_ID"),
+        std::env::var("TWITCH_TEST_TOKEN"),
+    ) else {
+        println!("skipped: set TWITCH_TEST_CLIENT_ID and TWITCH_TEST_TOKEN to run this");
+        return;
+    };
+
+    let http = reqwest::Client::new();
+    let helix = crate::twitch::helix::Helix {
+        client: &http,
+        client_id: &client_id,
+        token: &token,
+    };
+
+    // A channel answers live or offline, so this holds either way -- the rows
+    // differ, the card doesn't.
+    let url = reqwest::Url::parse("https://www.twitch.tv/forsen").unwrap();
+    let link = crate::twitch::links::parse(&url).expect("a channel link");
+    let preview = crate::twitch::links::preview(&helix, &link)
+        .await
+        .expect("Helix should answer")
+        .expect("a channel that exists should preview");
+    println!("{preview:#?}");
+    assert!(!preview.title.is_empty());
+    // Live leads with the channel, offline with the status -- either is a card.
+    let first = preview.facts.first().map(|fact| fact.label.as_str());
+    assert!(matches!(first, Some("Channel" | "Status")), "leading row: {first:?}");
+
+    // A name Twitch doesn't know is a miss, not an error: the caller falls
+    // back to reading the page.
+    let missing = reqwest::Url::parse("https://www.twitch.tv/thisuserdoesnotexist99123").unwrap();
+    let link = crate::twitch::links::parse(&missing).expect("a channel link");
+    assert_eq!(
+        crate::twitch::links::preview(&helix, &link).await.expect("no error"),
+        None
+    );
+}

@@ -209,6 +209,21 @@ const DRAFTS: Draft[] = [
     ],
   },
   {
+    login: "clipper",
+    displayName: "clipper",
+    color: "#9AD3E5",
+    segments: [
+      text("chat "),
+      {
+        kind: "link",
+        text: "https://clips.twitch.tv/SoftKindPuppyKappa-abc123",
+        href: "https://clips.twitch.tv/SoftKindPuppyKappa-abc123",
+      },
+      text(" and "),
+      { kind: "link", text: "https://twitch.tv/forsen", href: "https://twitch.tv/forsen" },
+    ],
+  },
+  {
     login: "songrequest",
     displayName: "songrequest",
     color: "#E39A7F",
@@ -462,6 +477,34 @@ const LINK_PREVIEWS: Record<string, LinkPreview> = {
     description: "The emote platform for Twitch, YouTube and Kick.",
     image: "",
     facts: [],
+    ttlSeconds: 0,
+  },
+  "clips.twitch.tv": {
+    title: "insane play",
+    description: "",
+    image: FORSEN_AVATAR,
+    facts: [
+      { label: "Channel", value: "Forsen" },
+      { label: "Clipped by", value: "someone" },
+      { label: "Game", value: "Minecraft" },
+      { label: "Length", value: "0:28" },
+      { label: "Views", value: "15K" },
+      { label: "Clipped", value: "2 Nov 2024" },
+    ],
+    ttlSeconds: 0,
+  },
+  "twitch.tv": {
+    title: "wide peepo",
+    description: "",
+    image: FORSEN_AVATAR,
+    facts: [
+      { label: "Channel", value: "Forsen" },
+      { label: "Playing", value: "Minecraft" },
+      { label: "Viewers", value: "25K" },
+      { label: "Live for", value: "2h 14m" },
+    ],
+    // Live: the frontend cache re-asks once this runs out.
+    ttlSeconds: 120,
   },
   "youtu.be": {
     title: "Hold Me Now",
@@ -475,6 +518,7 @@ const LINK_PREVIEWS: Record<string, LinkPreview> = {
       { label: "Views", value: "1.2M" },
       { label: "Likes", value: "17,430" },
     ],
+    ttlSeconds: 0,
   },
 };
 

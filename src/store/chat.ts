@@ -68,6 +68,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   previewImages: true,
+  previewYoutube: true,
+  previewTwitch: true,
   previewPages: true,
   singleRowTabs: true,
   mentionsTab: false,

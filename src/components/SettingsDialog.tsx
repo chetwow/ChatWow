@@ -599,13 +599,33 @@ export function SettingsDialog({
                   />
                 </Row>
                 <Row
-                  label="Preview page links"
-                  hint="Hovering any other link shows the page's title, thumbnail and summary, which means asking that page for them."
+                  label="Preview YouTube links"
+                  hint="A video's channel, duration, date and counts. The most expensive one: the page is read to a megabyte to reach them."
+                >
+                  <Toggle
+                    checked={preferences.previewYoutube}
+                    onChange={(previewYoutube) => updatePreferences({ previewYoutube })}
+                    label="Preview YouTube links"
+                  />
+                </Row>
+                <Row
+                  label="Preview Twitch links"
+                  hint="Clips, VODs and channels, answered by Twitch itself rather than by reading the page. Needs you signed in."
+                >
+                  <Toggle
+                    checked={preferences.previewTwitch}
+                    onChange={(previewTwitch) => updatePreferences({ previewTwitch })}
+                    label="Preview Twitch links"
+                  />
+                </Row>
+                <Row
+                  label="Preview other links"
+                  hint="Everything else, shown as the page's own title, thumbnail and summary -- which means asking that page for them."
                 >
                   <Toggle
                     checked={preferences.previewPages}
                     onChange={(previewPages) => updatePreferences({ previewPages })}
-                    label="Preview page links"
+                    label="Preview other links"
                   />
                 </Row>
               </Section>

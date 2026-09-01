@@ -144,6 +144,10 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Show the picture on hover when a link points straight at an image. */
   previewImages: boolean;
+  /** Show a YouTube video's channel, duration, date and counts on hover. */
+  previewYoutube: boolean;
+  /** Show what Twitch knows about a clip, VOD or channel link on hover. */
+  previewTwitch: boolean;
   /** Show what the page says about itself on hover, for every other link. */
   previewPages: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
@@ -283,6 +287,12 @@ export type LinkPreview = {
   /** Thumbnail url. Often a different host from the link itself. */
   image: string;
   facts: LinkFact[];
+  /**
+   * How long this answer is worth keeping, in seconds; 0 means forever. A
+   * live stream's viewer count and uptime are wrong within minutes, so that
+   * preview says so rather than the cache having to guess which answers rot.
+   */
+  ttlSeconds: number;
 };
 
 export type ChannelReadyEvent = {

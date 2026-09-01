@@ -100,10 +100,22 @@ to write `settings.json`.
   host, an eight-second timeout, and a body read in chunks and stopped as soon as it holds what's
   wanted (`</head>`, capped at 256KB). Don't route a link fetch through `state.http`, and don't
   drop the host check because "the user could have clicked it anyway" -- this happens on *hover*,
-  without a click. `previewImages` and `previewPages` are enforced in the frontend only (Rust
-  fetches whatever `link_preview` is handed), so a switch has to stop the call; which of the two
-  applies is decided from the url's extension, since a link that points straight at an image is
-  never fetched by Rust at all -- the frontend renders an `<img>` for those.
+  without a click. The four `preview*` preferences are enforced in the frontend only (Rust
+  fetches whatever `link_preview` is handed), so a switch has to stop the call; which one applies
+  is decided by `linkKind` ([src/lib/links.ts](src/lib/links.ts)) from the extension and host
+  alone, before anything is asked. That classification is coarser than the resolvers' -- a
+  `twitch.tv/directory` link answers to the Twitch switch and is then handled as an ordinary page
+  -- which is right, because the switch is about which host gets the request. A link that points
+  straight at an image is never fetched by Rust at all: the frontend renders an `<img>`.
+- **A Twitch link is answered by Helix, not by reading twitch.tv.** The page is a React shell
+  whose og: tags say nothing, so `twitch::links` ([src-tauri/src/twitch/links.rs](src-tauri/src/twitch/links.rs))
+  matches clip/VOD/channel urls and asks Helix instead, from the command in
+  [src-tauri/src/lib.rs](src-tauri/src/lib.rs) before `linkinfo` is reached. Every part of it is
+  best-effort by design -- signed out there's no token (and no client secret to mint an app token
+  with), so a miss, a failure or an absent token falls through to the page scrape. Don't make that
+  path return an error: the fallback is what keeps previews working signed out. A live channel's
+  preview sets `ttl_seconds`, which is the only reason the frontend cache re-asks for anything --
+  viewer counts and uptimes go stale, clips and page titles don't.
 - **A YouTube video url is read to a megabyte, on purpose, and `reqwest` needs its compression
   features for that to be sane.** YouTube puts the head behind ~700KB of inline script and the
   view/like counts behind more, so `youtube_id` recognizes a video url up front and gives that

@@ -416,8 +416,22 @@ player's own JSON below it, read by looking for the field rather than parsing a 
 script. A field that isn't there is a row that isn't drawn -- an unlisted video has no view count
 worth showing, a channel that hides likes hides them here too.
 
+Twitch's own links skip the page entirely. twitch.tv is a React shell whose OpenGraph tags are a
+name and a generic blurb, and this app is already holding a token, so
+[src-tauri/src/twitch/links.rs](src-tauri/src/twitch/links.rs) recognizes the three shapes people
+paste -- a clip, a VOD, a channel -- and asks Helix. A clip costs two calls (the clip carries the
+game's id, never its name); a live channel two, run together (the stream and the user are
+independent); an offline one three, since what they last played comes from `channels`. Everything
+about that path is best-effort: signed out there's no token and no app token to fall back on, and
+a miss or a failure falls through to the ordinary page preview rather than becoming an error.
+
 Rust hands over rows that are already formatted (`4:46`, `1.2M`, `3 Mar 2023`), the same split as
 everywhere else: `render.rs` sends image urls, not emote ids, and the frontend does no arithmetic.
+
+A preview carries its own `ttlSeconds`, which is how the cache knows what rots. Zero -- a page
+title, a clip, a VOD -- means keep it for the session. A live channel says 120, because a viewer
+count and an uptime are wrong within minutes and the alternative is a cache that either re-fetches
+YouTube's megabyte on a schedule or shows a two-hour-old audience as current.
 
 All of it shares one popup ([src/components/HoverPreview.tsx](src/components/HoverPreview.tsx))
 with the emote preview, through one store -- two would leave both on screen at once, overlapping.
@@ -437,16 +451,21 @@ answers are cached for the session either way ([src/lib/linkPreviews.ts](src/lib
 -- with a cap, since chat is endless where the user cards are a handful of names you clicked. A
 cached link draws with no spinner at all, since there's nothing to wait for.
 
-`previewImages` and `previewPages` are separate preferences because the two halves cost different
-things -- one request to the host in the link, against a request, a read of up to a megabyte, and
-a thumbnail from a host the page named. Which one applies is decided by the *link*, not by what
-comes back: `imagePreviewUrl` answers from the url alone, so a link either takes the image path
-or the fetch path before either switch is consulted.
+`previewImages`, `previewYoutube`, `previewTwitch` and `previewPages` are four preferences
+because the four cost different things: one request to the host in the link; a megabyte read off
+YouTube; a Helix call carrying your token; a request to a stranger's host and a thumbnail from
+wherever it names. Splitting them is what lets someone keep the cheap ones and drop the rest.
 
-Both gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch has to
-stop the call rather than the request. Nothing else reads them, and a message already on screen
-picks up the change because `LinkView` subscribes to the store instead of taking a prop -- the
-same reason the emote blacklists do.
+Which switch applies is decided by the *link*, before anything is asked, so `linkKind`
+([src/lib/links.ts](src/lib/links.ts)) classifies by extension and host alone. That's coarser
+than what the resolvers do -- `twitch.tv/directory` is a Twitch link to the switch and an
+ordinary page to Rust -- and deliberately so: the switch is about where the request goes, and
+that one goes to Twitch either way.
+
+All four gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch
+has to stop the call rather than the request. Nothing else reads them, and a message already on
+screen picks up the change because `LinkView` subscribes to the store instead of taking a prop --
+the same reason the emote blacklists do.
 
 ## Emote completion and search
 

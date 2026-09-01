@@ -147,12 +147,23 @@ its title, its thumbnail and its own one-line summary, the same things that make
 Slack or Discord. A YouTube video adds the channel, the duration, when it went up, and its view
 and like counts.
 
+Twitch's own links get more, since the app can ask Twitch directly. A clip shows who was
+streaming, who clipped it, the game, its length and its views; a VOD shows the channel, length,
+views and date; a channel shows what they're playing, how many are watching and how long they've
+been live, or their bio and what they last streamed if they're off. That half needs you signed
+in -- Twitch answers none of it anonymously -- and falls back to the ordinary page preview when
+you're not.
+
 Nothing is fetched until the pointer has rested on the link for a moment, so reading past a
 message costs nothing, and a spinner marks the wait while a preview loads. A page that publishes
-nothing about itself simply has no preview. The two kinds have their own switches in
-Settings -> General -- *Preview image links* and *Preview page links* -- since they cost
-different things: an image is one request to the host in the link, where a page is a request, a
-read, and a thumbnail from wherever that page names.
+nothing about itself simply has no preview.
+
+Each kind has its own switch in Settings -> General, since they cost different things:
+
+- *Preview image links* — one request, to the host in the link
+- *Preview YouTube links* — the most expensive; the page is read to a megabyte to reach the numbers
+- *Preview Twitch links* — goes to Twitch with your sign-in, not to a stranger's host
+- *Preview other links* — a request, and a thumbnail from wherever that page names
 
 ## Mentions and pings
 
@@ -177,7 +188,7 @@ in Settings -> General.
 
 The gear in the title bar opens:
 
-- **General** — recent message history on join, the two link-preview switches, and the list of
+- **General** — recent message history on join, the four link-preview switches, and the list of
   blocked people
 - **Account** — sign in and out, choose permissions, set a Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
@@ -196,7 +207,7 @@ recent message history on join* in General stops it. Opening a chatter's card as
 clicked and the channel you clicked it in; that one only happens when you open a card. The third
 is the only one that isn't a service this app chose: a link preview loads from whatever host was
 linked, so hovering tells that host you're here. That's why it waits before fetching, and why
-*Preview image links* and *Preview page links* are switches.
+each kind of preview has its own switch.
 
 ## Shortcuts
 

@@ -7,7 +7,7 @@ import { isAboutYou, repliesToYou } from "../lib/mentions";
 import { mentionIgnored, userBlocked } from "../lib/ignores";
 import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
-import { imagePreviewUrl, linkHost } from "../lib/links";
+import { imagePreviewUrl, linkHost, linkKind, type LinkKind } from "../lib/links";
 import { cachedLinkPreview, loadLinkPreview } from "../lib/linkPreviews";
 import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
 
@@ -296,19 +296,25 @@ function SegmentView({ segment }: { segment: Segment }) {
  */
 const PREVIEW_DELAY_MS = 220;
 
+/** The switch each kind of link answers to. */
+const PREFERENCE = {
+  image: "previewImages",
+  youtube: "previewYoutube",
+  twitch: "previewTwitch",
+  page: "previewPages",
+} as const satisfies Record<LinkKind, string>;
+
 function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) {
   const show = useTooltip((s) => s.show);
   const hide = useTooltip((s) => s.hide);
-  // Subscribed here rather than passed down, for the reason `EmoteView` gives:
-  // rows are memoized on message identity and the messages already on screen
-  // are immutable, so switching either of these off has to reach them through
-  // the store.
-  const previewImages = useChat((state) => state.preferences.previewImages);
-  const previewPages = useChat((state) => state.preferences.previewPages);
-  // Which switch applies is decided by the link, not by what comes back: an
-  // image url is answered from the url alone, and everything else is a fetch.
-  const image = imagePreviewUrl(segment.href);
-  const enabled = image ? previewImages : previewPages;
+  // Which switch applies is decided by the link, not by what comes back --
+  // the switch has to be read before anything is asked. Subscribed here rather
+  // than passed down, for the reason `EmoteView` gives: rows are memoized on
+  // message identity and the messages already on screen are immutable, so
+  // flipping one has to reach them through the store.
+  const kind = linkKind(segment.href);
+  const enabled = useChat((state) => state.preferences[PREFERENCE[kind]]);
+  const image = kind === "image" ? imagePreviewUrl(segment.href) : null;
   const timer = useRef<number | undefined>(undefined);
   /**
    * Bumped every time the pointer leaves. A title arrives whenever the host

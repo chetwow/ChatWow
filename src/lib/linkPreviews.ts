@@ -11,28 +11,46 @@ import { api } from "./api";
 import { IS_TAURI } from "./tauri";
 import type { LinkPreview } from "../types";
 
+type Entry = {
+  preview: LinkPreview | null;
+  /** When this stops being worth trusting. `Infinity` for a page. */
+  expires: number;
+};
+
 /** Insertion-ordered, so the oldest entry is the first key. */
-const cache = new Map<string, LinkPreview | null>();
+const cache = new Map<string, Entry>();
 const pending = new Map<string, Promise<LinkPreview | null>>();
 
 const MAX_CACHED = 500;
 
 function remember(url: string, preview: LinkPreview | null) {
-  cache.set(url, preview);
+  const ttl = preview?.ttlSeconds ?? 0;
+  cache.set(url, { preview, expires: ttl > 0 ? Date.now() + ttl * 1000 : Infinity });
   if (cache.size > MAX_CACHED) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
 }
 
-/** What we already hold, so a second hover draws instantly instead of spinning. */
+/**
+ * What we already hold, so a second hover draws instantly instead of spinning
+ * -- or `undefined` when there's nothing usable, which includes an answer that
+ * has passed its shelf life and has to be asked for again.
+ */
 export function cachedLinkPreview(url: string): LinkPreview | null | undefined {
-  return cache.get(url);
+  const entry = cache.get(url);
+  if (!entry) return undefined;
+  if (entry.expires <= Date.now()) {
+    cache.delete(url);
+    return undefined;
+  }
+  return entry.preview;
 }
 
 /** What the page behind a link says about itself, or null when it says nothing. */
 export function loadLinkPreview(url: string): Promise<LinkPreview | null> {
-  if (cache.has(url)) return Promise.resolve(cache.get(url) ?? null);
+  const known = cachedLinkPreview(url);
+  if (known !== undefined) return Promise.resolve(known);
 
   const inFlight = pending.get(url);
   if (inFlight) return inFlight;
