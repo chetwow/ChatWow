@@ -42,6 +42,9 @@ pub struct Preferences {
     /// the one thing that talks to a third party, which is why it's a setting
     /// -- see `irc::history`.
     pub show_message_history: bool,
+    /// Keep the channel tabs on one row and scroll them sideways, instead of
+    /// wrapping onto as many rows as they need.
+    pub single_row_tabs: bool,
     /// The title bar's quick mute. Silences the ping without touching the two
     /// toggles above, so unmuting restores exactly what you had.
     pub muted: bool,
@@ -61,6 +64,7 @@ impl Default for Preferences {
             notify_on_name: true,
             notify_active_tab: false,
             show_message_history: true,
+            single_row_tabs: false,
             muted: false,
             emote_blacklist: Vec::new(),
             emote_complete_blacklist: Vec::new(),

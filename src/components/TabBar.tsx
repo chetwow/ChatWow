@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { useChat } from "../store/chat";
 
 /** Matches the row's gap-x-1. */
@@ -16,13 +16,21 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   const setActive = useChat((state) => state.setActive);
   const part = useChat((state) => state.part);
   const reorderChannels = useChat((state) => state.reorderChannels);
+  // One scrolling row, or as many wrapped rows as the tabs need.
+  const singleRow = useChat((state) => state.preferences.singleRowTabs);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const rowRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const addRef = useRef<HTMLButtonElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
+
+  // Which edges of the scrolling row have a tab naming you somewhere past
+  // them. Only ever set in single-row mode -- when the tabs wrap, every badge
+  // is already on screen.
+  const [hiddenMentions, setHiddenMentions] = useState({ left: false, right: false });
 
   // The close button shares a fixed-size slot with the unread badge (see
   // below) instead of growing the tab on hover, so a tab's rendered width
@@ -35,6 +43,14 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   const recompute = () => {
     const row = rowRef.current;
     const addButton = addRef.current;
+    // Nothing to bucket in single-row mode: the row never wraps, and its
+    // container isn't even mounted (rowRef is null), so any breaks left over
+    // from wrap mode have to be dropped rather than measured again.
+    if (singleRow) {
+      setBreakAfter((prev) => (prev.size === 0 ? prev : new Set()));
+      setBreakBeforeAdd((prev) => (prev ? false : prev));
+      return;
+    }
     if (!row || !addButton) return;
 
     // clientWidth is the row's padding-box width, but flex children are laid
@@ -97,7 +113,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Recompute whenever the channel list itself changes shape (join, part,
   // drag-reorder) -- this can change bucketing even when no individual tab's
   // rendered width changed.
-  useLayoutEffect(recompute, [channels]);
+  useLayoutEffect(recompute, [channels, singleRow]);
 
   // Recompute whenever a tab (or the row, or the add button) actually
   // changes size -- an unread count gaining a digit, a window resize. (The
@@ -119,8 +135,72 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
       observer.disconnect();
       observerRef.current = null;
     };
+    // Rebuilt when the mode changes: switching back to wrapping mounts a new
+    // row element, which the observer from the first mount knows nothing about.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [singleRow]);
+
+  // Keep the active tab on screen. In wrap mode every tab is always visible,
+  // but a scrolling row can easily have the one you just switched to (Ctrl+Tab,
+  // or a channel you've only just joined) sitting off its right edge.
+  useEffect(() => {
+    if (!singleRow || !active) return;
+    tabRefs.current.get(active)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active, singleRow]);
+
+  // A rose badge that's scrolled out of the row is the one thing the tab bar
+  // can't just show you -- so mark the edge it's past. Measured with
+  // `getBoundingClientRect` rather than `offsetLeft`: a tab's offsetParent is
+  // the wrapper *outside* the scroller (the tabs are `relative` for their
+  // active underline), so its offsets don't move as the row scrolls.
+  const checkHiddenMentions = () => {
+    const scroller = scrollerRef.current;
+    if (!singleRow || !scroller) {
+      setHiddenMentions((prev) => (prev.left || prev.right ? { left: false, right: false } : prev));
+      return;
+    }
+    const box = scroller.getBoundingClientRect();
+    let left = false;
+    let right = false;
+    for (const channel of channels) {
+      // Same condition as the badge itself: reading a channel clears its
+      // mentions, and the active tab shows no badge to be missing.
+      if (channel === active || (mentions[channel] ?? 0) === 0) continue;
+      const rect = tabRefs.current.get(channel)?.getBoundingClientRect();
+      if (!rect) continue;
+      // A tab clipped by a pixel is still readable, hence the tolerance.
+      if (rect.left < box.left - 1) left = true;
+      else if (rect.right > box.right + 1) right = true;
+    }
+    setHiddenMentions((prev) =>
+      prev.left === left && prev.right === right ? prev : { left, right },
+    );
+  };
+
+  const checkRef = useRef(checkHiddenMentions);
+  checkRef.current = checkHiddenMentions;
+
+  // Which channels are waiting on you, as a value that only changes when the
+  // answer does -- `mentions` itself is a fresh object on every batch of
+  // messages, which would re-measure the row a dozen times a second.
+  const mentionKey = channels
+    .filter((channel) => channel !== active && (mentions[channel] ?? 0) > 0)
+    .join(" ");
+
+  useLayoutEffect(() => {
+    checkRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionKey, channels, singleRow]);
+
+  // The row scrolling isn't the only way a badge crosses an edge: resizing the
+  // window moves the right one under the tabs.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const observer = new ResizeObserver(() => checkRef.current());
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [singleRow]);
 
   // The browser decides whether a drop is allowed (and so which cursor to
   // show) starting at dragenter, not dragover -- a handler that only cancels
@@ -163,139 +243,198 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
     return current;
   });
 
+  // Shared by both modes -- only the container around them differs, and the
+  // break spacers below are inert in single-row mode because `recompute`
+  // leaves `breakAfter` empty there.
+  const tabs = channels.map((channel, index) => {
+    const isActive = channel === active;
+    const count = unread[channel] ?? 0;
+    // Only the badge's colors change, never its size -- see the slot
+    // comment below for why a tab's width has to stay put.
+    const named = (mentions[channel] ?? 0) > 0;
+
+    return (
+      <Fragment key={channel}>
+        <div
+          ref={(element) => {
+            if (element) {
+              tabRefs.current.set(channel, element);
+              observerRef.current?.observe(element);
+            } else {
+              const previous = tabRefs.current.get(channel);
+              if (previous) observerRef.current?.unobserve(previous);
+              tabRefs.current.delete(channel);
+            }
+          }}
+          draggable
+          onDragStart={(event) => {
+            setDragIndex(index);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnter={allowDrop}
+          onDragOver={allowDrop}
+          onDrop={(event) => {
+            // Reordering here (rather than live, on dragover) avoids
+            // shuffling the DOM under the cursor while the drag is still
+            // in progress -- the actual move happens once, on release.
+            event.preventDefault();
+            if (dragIndex !== null) moveTab(dragIndex, index);
+            setDragIndex(null);
+          }}
+          onDragEnd={() => setDragIndex(null)}
+          onClick={() => setActive(channel)}
+          className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
+            isActive ? "bg-surface text-ink" : "text-ink-dim hover:bg-surface-hover hover:text-ink"
+          } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
+            dragIndex === index ? "opacity-50" : ""
+          }`}
+        >
+          {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
+
+          <span className="font-medium">
+            <span className="text-ink-faint">#</span>
+            {channel}
+          </span>
+
+          {/* The slot is always here, whether or not there's a dot in it.
+              Rendering the dot conditionally changed the tab's width the
+              moment a channel finished loading or went live, and a width
+              change is exactly what corrupts the row-wrap measurement
+              mid-transition -- same reason the close button shares the
+              badge's slot below. */}
+          <span className="grid h-1.5 w-1.5 shrink-0 place-items-center">
+            {!ready[channel] ? (
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+            ) : live[channel] ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+            ) : null}
+          </span>
+
+          {/* The close button takes over the unread badge's slot on hover
+              instead of growing the tab to fit alongside it -- swapping
+              which of the two is visible never changes the tab's rendered
+              width, so hovering can't shift row-wrapping the way resizing
+              the tab used to. */}
+          <span className="relative grid h-4 w-6 shrink-0 place-items-center">
+            {!isActive && count > 0 && (
+              <span
+                className={`absolute inset-0 grid place-items-center rounded-full text-[10px] font-semibold group-hover:invisible ${
+                  named ? "bg-rose-500/25 text-rose-300" : "bg-accent/20 text-accent"
+                }`}
+              >
+                {count > 99 ? "99+" : count}
+              </span>
+            )}
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                void part(channel);
+              }}
+              aria-label={`Leave ${channel}`}
+              // Square, and pinned to the right of the slot rather than
+              // filling or centring in it. The slot has to stay as wide as
+              // "99+" for the badge it shares, but the X shouldn't inherit
+              // that width as a lozenge, nor leave the slot's leftover
+              // width sitting as dead space against the tab's edge.
+              className="invisible absolute right-0 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded text-ink-faint transition-colors hover:bg-line hover:text-ink group-hover:visible"
+            >
+              <svg width="7" height="7" viewBox="0 0 10 10">
+                <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
+              </svg>
+            </button>
+          </span>
+        </div>
+
+        {breakAfter.has(index) && <div className="h-1 basis-full" />}
+      </Fragment>
+    );
+  });
+
+  // Without this, crossing the gaps/padding between tabs (or the add button)
+  // flashes the browser's "not allowed" cursor, since only the tab cells
+  // themselves otherwise accept a drop.
+  const dragHandlers = {
+    onDragEnter: (event: DragEvent<HTMLDivElement>) => {
+      if (dragIndex !== null) allowDrop(event);
+    },
+    onDragOver: (event: DragEvent<HTMLDivElement>) => {
+      if (dragIndex !== null) allowDrop(event);
+    },
+  };
+
+  const addButton = (
+    <button
+      ref={addRef}
+      onClick={onAdd}
+      aria-label="Join a channel"
+      title="Join a channel (Ctrl+K)"
+      className={`my-1 grid h-6 w-5 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink ${
+        singleRow ? "ml-1 self-start" : "-ml-0.5"
+      }`}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <path d="M6 1 V11 M1 6 H11" stroke="currentColor" strokeWidth="1.4" fill="none" />
+      </svg>
+    </button>
+  );
+
+  if (singleRow) {
+    // The button sits outside the scroller so it stays pinned to the right
+    // edge rather than riding away with the last tab. `self-start` keeps it
+    // level with the tabs instead of centred against the scrollbar's gutter.
+    return (
+      <div
+        className="relative flex shrink-0 items-stretch border-b border-line bg-surface-raised px-1"
+        {...dragHandlers}
+      >
+        <div className="min-w-0 flex-1">
+          <div
+            ref={scrollerRef}
+            onScroll={() => checkRef.current()}
+            className="tab-scroller flex items-start gap-x-1 overflow-x-auto"
+            {...dragHandlers}
+          >
+            {tabs}
+          </div>
+        </div>
+        {addButton}
+        {/* Anchored to the bar itself, outside its padding and past the add
+            button -- an absolute child of the scroller would be part of what
+            scrolls and slide off the very edge it marks, and one anchored to
+            the scroller's box would stop short of the window's edge. */}
+        {hiddenMentions.left && <MentionEdge side="left" />}
+        {hiddenMentions.right && <MentionEdge side="right" />}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={rowRef}
       className="flex shrink-0 flex-wrap items-stretch gap-x-1 border-b border-line bg-surface-raised px-1"
-      onDragEnter={(event) => {
-        // Without this, crossing the gaps/padding between tabs (or the add
-        // button) flashes the browser's "not allowed" cursor, since only the
-        // tab cells themselves otherwise accept a drop.
-        if (dragIndex !== null) allowDrop(event);
-      }}
-      onDragOver={(event) => {
-        if (dragIndex !== null) allowDrop(event);
-      }}
+      {...dragHandlers}
     >
-      {channels.map((channel, index) => {
-        const isActive = channel === active;
-        const count = unread[channel] ?? 0;
-        // Only the badge's colors change, never its size -- see the slot
-        // comment below for why a tab's width has to stay put.
-        const named = (mentions[channel] ?? 0) > 0;
-
-        return (
-          <Fragment key={channel}>
-            <div
-              ref={(element) => {
-                if (element) {
-                  tabRefs.current.set(channel, element);
-                  observerRef.current?.observe(element);
-                } else {
-                  const previous = tabRefs.current.get(channel);
-                  if (previous) observerRef.current?.unobserve(previous);
-                  tabRefs.current.delete(channel);
-                }
-              }}
-              draggable
-              onDragStart={(event) => {
-                setDragIndex(index);
-                event.dataTransfer.effectAllowed = "move";
-              }}
-              onDragEnter={allowDrop}
-              onDragOver={allowDrop}
-              onDrop={(event) => {
-                // Reordering here (rather than live, on dragover) avoids
-                // shuffling the DOM under the cursor while the drag is still
-                // in progress -- the actual move happens once, on release.
-                event.preventDefault();
-                if (dragIndex !== null) moveTab(dragIndex, index);
-                setDragIndex(null);
-              }}
-              onDragEnd={() => setDragIndex(null)}
-              onClick={() => setActive(channel)}
-              className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
-                isActive
-                  ? "bg-surface text-ink"
-                  : "text-ink-dim hover:bg-surface-hover hover:text-ink"
-              } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
-                dragIndex === index ? "opacity-50" : ""
-              }`}
-            >
-              {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
-
-              <span className="font-medium">
-                <span className="text-ink-faint">#</span>
-                {channel}
-              </span>
-
-              {/* The slot is always here, whether or not there's a dot in it.
-                  Rendering the dot conditionally changed the tab's width the
-                  moment a channel finished loading or went live, and a
-                  width change is exactly what corrupts the row-wrap
-                  measurement mid-transition -- same reason the close button
-                  shares the badge's slot below. */}
-              <span className="grid h-1.5 w-1.5 shrink-0 place-items-center">
-                {!ready[channel] ? (
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                ) : live[channel] ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                ) : null}
-              </span>
-
-              {/* The close button takes over the unread badge's slot on
-                  hover instead of growing the tab to fit alongside it --
-                  swapping which of the two is visible never changes the
-                  tab's rendered width, so hovering can't shift row-wrapping
-                  the way resizing the tab used to. */}
-              <span className="relative grid h-4 w-6 shrink-0 place-items-center">
-                {!isActive && count > 0 && (
-                  <span
-                    className={`absolute inset-0 grid place-items-center rounded-full text-[10px] font-semibold group-hover:invisible ${
-                      named ? "bg-rose-500/25 text-rose-300" : "bg-accent/20 text-accent"
-                    }`}
-                  >
-                    {count > 99 ? "99+" : count}
-                  </span>
-                )}
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void part(channel);
-                  }}
-                  aria-label={`Leave ${channel}`}
-                  // Square, and pinned to the right of the slot rather than
-                  // filling or centring in it. The slot has to stay as wide as
-                  // "99+" for the badge it shares, but the X shouldn't inherit
-                  // that width as a lozenge, nor leave the slot's leftover
-                  // width sitting as dead space against the tab's edge.
-                  className="invisible absolute right-0 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded text-ink-faint transition-colors hover:bg-line hover:text-ink group-hover:visible"
-                >
-                  <svg width="7" height="7" viewBox="0 0 10 10">
-                    <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
-                  </svg>
-                </button>
-              </span>
-            </div>
-
-            {breakAfter.has(index) && <div className="h-1 basis-full" />}
-          </Fragment>
-        );
-      })}
-
+      {tabs}
       {breakBeforeAdd && <div className="h-1 basis-full" />}
-
-      <button
-        ref={addRef}
-        onClick={onAdd}
-        aria-label="Join a channel"
-        title="Join a channel (Ctrl+K)"
-        className="-ml-0.5 my-1 grid h-6 w-5 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <path d="M6 1 V11 M1 6 H11" stroke="currentColor" strokeWidth="1.4" fill="none" />
-        </svg>
-      </button>
+      {addButton}
     </div>
+  );
+}
+
+/**
+ * The rose bar at an edge of the tab bar, meaning: a tab past this side is
+ * holding a mention. Flush to the window's edge and the bar's full height, so
+ * it reads as part of the chrome rather than something floating between the
+ * tabs -- and in the mention highlight's own `rose-400/70`, the same signal at
+ * the same strength as the stripe down a message that names you.
+ */
+function MentionEdge({ side }: { side: "left" | "right" }) {
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute inset-y-0 w-[3px] bg-rose-400/70 ${
+        side === "left" ? "left-0" : "right-0"
+      }`}
+    />
   );
 }

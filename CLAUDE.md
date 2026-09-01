@@ -167,7 +167,9 @@ to write `settings.json`.
   badge's existing fixed-size slot — that hover-driven resize re-triggers the same
   `ResizeObserver` mid-transition, corrupting the measurement and making the tab flicker between
   rows. Any hover-only affordance here has to be opacity/visibility inside a slot that's already
-  reserved at its full size, never a width or margin change.
+  reserved at its full size, never a width or margin change. (The `singleRowTabs` preference
+  bypasses the measurement entirely -- that branch renders one scrolling row and never wraps --
+  but the invariant still holds, since the tabs themselves are shared between both modes.)
 
 ## Conventions
 

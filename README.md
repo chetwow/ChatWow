@@ -198,6 +198,20 @@ from accent to rose -- so an inactive tab distinguishes "chat moved" from "chat 
 you" at a glance. Reading the channel clears both. The badge only changes color, never size --
 the tab bar measures its own row wrapping, so a tab's rendered width has to stay put.
 
+### Tabs
+
+Channel tabs wrap onto as many rows as they need by default, so every channel you're in is
+visible at once. Appearance -> *Keep tabs on one row* switches that for a single row that
+scrolls sideways instead, with the join button pinned to the right edge rather than trailing the
+last tab, and its scrollbar staying invisible until you point at the bar. Switching channels
+scrolls the new one into view, so the keyboard still reaches a tab that's off the edge. Tabs
+reorder by dragging in either mode.
+
+Scrolling can hide a rose mention badge, which is the one thing in the bar you'd want to know
+about, so the edge it's past gets a rose bar of its own -- flush to the window, the bar's full
+height, and on the left as readily as the right, since a marker pointing the wrong way is worse
+than none. It clears when that tab scrolls back into view or you read the channel.
+
 ### Message history
 
 `↑` in the composer walks back through what you've sent in the current channel, `↓` comes
@@ -291,9 +305,9 @@ key validation, content-type sniffing and purge selection.
 ## Settings
 
 The gear in the title bar opens a tabbed dialog -- General (the chat-history backlog), Account
-(Twitch sign-in, the permissions to ask for, and the Client ID), Appearance (chat font size),
-Emotes (the two blacklists) and Notifications (the mention toggles above; the title bar keeps the
-mute). The account button in the title bar opens the same dialog on its Account tab, which is the
+(Twitch sign-in, the permissions to ask for, and the Client ID), Appearance (chat font size,
+and whether the tabs wrap or scroll), Emotes (the two blacklists) and Notifications (the mention
+toggles above; the title bar keeps the mute). The account button in the title bar opens the same dialog on its Account tab, which is the
 only sign-in surface. It's sized for the window's 420px minimum: the panel is `min(560px, 100%)`,
 setting rows wrap their control under the label when they have to, and the tab row scrolls
 sideways rather than wrapping to a second row that would push content off the bottom. Its height is fixed to the window rather than the

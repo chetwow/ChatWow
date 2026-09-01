@@ -476,17 +476,31 @@ export function SettingsDialog({
           {tab === "account" && <AccountPanel onDone={onClose} />}
 
           {tab === "appearance" && (
-            <Section title="Chat">
-              <Row
-                label="Font size"
-                hint="Applies to messages and the composer. Timestamps and tabs keep their size."
-              >
-                <SegmentedFontSize
-                  value={preferences.chatFontSize}
-                  onChange={(chatFontSize) => updatePreferences({ chatFontSize })}
-                />
-              </Row>
-            </Section>
+            <div className="flex flex-col gap-5">
+              <Section title="Chat">
+                <Row
+                  label="Font size"
+                  hint="Applies to messages and the composer. Timestamps and tabs keep their size."
+                >
+                  <SegmentedFontSize
+                    value={preferences.chatFontSize}
+                    onChange={(chatFontSize) => updatePreferences({ chatFontSize })}
+                  />
+                </Row>
+              </Section>
+              <Section title="Tabs">
+                <Row
+                  label="Keep tabs on one row"
+                  hint="Scroll sideways when there are more channels than fit, instead of wrapping."
+                >
+                  <Toggle
+                    checked={preferences.singleRowTabs}
+                    onChange={(singleRowTabs) => updatePreferences({ singleRowTabs })}
+                    label="Keep tabs on one row"
+                  />
+                </Row>
+              </Section>
+            </div>
           )}
 
           {tab === "emotes" && (

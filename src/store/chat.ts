@@ -40,6 +40,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notifyOnName: true,
   notifyActiveTab: false,
   showMessageHistory: true,
+  singleRowTabs: false,
   muted: false,
   emoteBlacklist: [],
   emoteCompleteBlacklist: [],
