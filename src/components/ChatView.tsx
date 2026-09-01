@@ -11,7 +11,7 @@ import { MessageRow, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
-import { MENTIONS_TAB, useChat, type BlacklistKind } from "../store/chat";
+import { loginOf, useChat, type BlacklistKind } from "../store/chat";
 import { messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
 import { ignoreForChannel, ignoreForUser, mentionIgnored } from "../lib/ignores";
@@ -21,10 +21,11 @@ import type { EmoteRule, StoredMessage } from "../types";
 const PIN_THRESHOLD = 40;
 
 export function ChatView({
-  channel,
+  id,
   capturesTyping = true,
 }: {
-  channel: string;
+  /** The tab this view is of. Two tabs can be of one channel, so it's not the name. */
+  id: string;
   /**
    * Whether this view's composer answers to typing anywhere in the window.
    * False in the pane you aren't working in: two composers both reclaiming
@@ -32,14 +33,18 @@ export function ChatView({
    */
   capturesTyping?: boolean;
 }) {
-  // The one tab with no channel behind it reads from the cross-channel log
-  // instead. Everything below -- scroll pinning, the context menu, user cards
-  // -- is the same view either way; only the source and the composer differ.
-  const isMentions = channel === MENTIONS_TAB;
-  const channelMessages = useChat((state) => state.messages[channel]);
-  const mentionLog = useChat((state) => state.mentionLog);
-  const ready = useChat((state) => state.ready[channel]);
-  const channels = useChat((state) => state.channels);
+  const tab = useChat((state) => state.tabs.find((open) => open.id === id));
+  const channel = tab?.channel ?? "";
+  const account = tab?.account ?? "";
+  // A mentions tab has no channel behind it and reads from its account's
+  // cross-channel log instead. Everything below -- scroll pinning, the
+  // context menu, user cards -- is the same view either way; only the source
+  // and the composer differ.
+  const isMentions = tab?.kind === "mentions";
+  const channelMessages = useChat((state) => state.messages[id]);
+  const mentionLog = useChat((state) => state.mentionLog[account]);
+  const ready = useChat((state) => state.ready[id]);
+  const tabs = useChat((state) => state.tabs);
   const setActive = useChat((state) => state.setActive);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -58,25 +63,27 @@ export function ChatView({
   // blacklists are: adding a rule has to clear out what's already listed, and
   // taking one back has to bring it in again.
   const shown = useMemo(
-    () => mentionLog.filter((message) => !mentionIgnored(message, mentionIgnores)),
+    () => (mentionLog ?? []).filter((message) => !mentionIgnored(message, mentionIgnores)),
     [mentionLog, mentionIgnores],
   );
   const messages = isMentions ? shown : channelMessages;
   const setMentionIgnored = useChat((state) => state.setMentionIgnored);
   const setUserBlocked = useChat((state) => state.setUserBlocked);
-  const myLogin = useChat((state) => state.auth.login);
+  // Who "you" are here, which is this tab's account rather than the app's:
+  // the same message can name you in one tab and nobody in the one beside it.
+  const myLogin = useChat((state) => loginOf(state, account));
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
 
-  // Re-pin when switching channels.
-  useEffect(() => setPinned(true), [channel]);
-  // Drop any open reply/menu when switching channels -- they refer to messages
+  // Re-pin when switching tabs.
+  useEffect(() => setPinned(true), [id]);
+  // Drop any open reply/menu when switching tabs -- they refer to messages
   // that are about to scroll out from under them.
   useEffect(() => {
     setMenu(null);
     setReplyTo(null);
     setCard(null);
-  }, [channel]);
+  }, [id]);
 
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -167,9 +174,15 @@ export function ChatView({
   // selecting a tab that isn't there.
   const goToChannel = useCallback(
     (target: string) => {
-      if (channels.includes(target)) setActive(target);
+      // The same account's tab on it, since that's the one holding the copy of
+      // the message you just clicked; failing that, anyone's.
+      const mine = tabs.find(
+        (open) => open.kind === "channel" && open.channel === target && open.account === account,
+      );
+      const any = mine ?? tabs.find((open) => open.kind === "channel" && open.channel === target);
+      if (any) setActive(any.id);
     },
-    [channels, setActive],
+    [tabs, account, setActive],
   );
 
   /**
@@ -346,7 +359,7 @@ export function ChatView({
           no one room a message typed here would belong to. */}
       {!isMentions && (
         <Composer
-          channel={channel}
+          id={id}
           capturesTyping={capturesTyping}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}

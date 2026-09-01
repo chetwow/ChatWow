@@ -7,9 +7,10 @@ import {
   useState,
   type DragEvent,
 } from "react";
-import { MENTIONS_TAB, paneTabs, useChat } from "../store/chat";
+import { paneTabs, useChat } from "../store/chat";
 import { useTabDrag } from "../store/tabDrag";
-import type { PaneIndex } from "../types";
+import { AccountMenu } from "./AccountMenu";
+import type { PaneIndex, Tab } from "../types";
 
 /** Matches the row's gap-x-1. */
 const TAB_GAP = 4;
@@ -23,16 +24,19 @@ const ROUNDING_SLOP = 2;
  * these, measuring independently against their own widths.
  */
 export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) {
-  const channels = useChat((state) => state.channels);
+  const tabs_ = useChat((state) => state.tabs);
   const preferences = useChat((state) => state.preferences);
   const active = useChat((state) => state.active[pane]);
   const unread = useChat((state) => state.unread);
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
   const live = useChat((state) => state.live);
+  const accounts = useChat((state) => state.auth.accounts);
   const setActive = useChat((state) => state.setActive);
-  const part = useChat((state) => state.part);
+  const closeTab = useChat((state) => state.closeTab);
   const moveTab = useChat((state) => state.moveTab);
+  /** Which tab's account menu is open, and where it was opened. */
+  const [accountMenu, setAccountMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   // One scrolling row, or as many wrapped rows as the tabs need.
   const singleRow = preferences.singleRowTabs;
 
@@ -48,11 +52,20 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
    * store update would re-measure the row on every incoming message.
    */
   const tabList = useMemo(
-    () => paneTabs({ channels, preferences }, pane),
-    [channels, preferences, pane],
+    () => paneTabs({ tabs: tabs_, preferences }, pane),
+    [tabs_, preferences, pane],
   );
   /** Cheap dependency for effects that only care that the tabs changed. */
-  const tabKey = tabList.join(" ");
+  const tabKey = tabList.map((tab) => `${tab.id}:${tab.account}`).join(" ");
+
+  /**
+   * Whether to say which account each tab reads as. With one account (or
+   * none) every tab reads as the same thing and the label is noise; with two
+   * it's the first thing you need to know about a row of tabs.
+   */
+  const showAccounts = accounts.length > 1 || (accounts.length === 1 && tabList.some((tab) => !tab.account));
+  const loginOf = (account: string) =>
+    accounts.find((held) => held.id === account)?.login ?? "anon";
 
   // Shared with the other pane's bar: a tab dragged across the divider is
   // lifted in one of these components and dropped in the other.
@@ -104,8 +117,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     let rowWidth = 0;
     let rowHasTabs = false;
 
-    tabList.forEach((channel, index) => {
-      const tabWidth = tabRefs.current.get(channel)?.offsetWidth ?? 0;
+    tabList.forEach((tab, index) => {
+      const tabWidth = tabRefs.current.get(tab.id)?.offsetWidth ?? 0;
       // The last tab must also leave room for the add button right after it
       // on the same row -- otherwise the button would be the one bumped to
       // a new row, alone, instead of joining this tab there.
@@ -202,15 +215,15 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     const box = scroller.getBoundingClientRect();
     let left = false;
     let right = false;
-    for (const channel of tabList) {
-      // Same condition as the badge itself: reading a channel clears its
-      // mentions, and the active tab shows no badge to be missing. The
-      // mentions tab is exempt on top of that -- the bar means "something
-      // named you past this edge", and pointing at the tab those are already
-      // gathered in says nothing you didn't know.
-      if (channel === MENTIONS_TAB) continue;
-      if (channel === active || (mentions[channel] ?? 0) === 0) continue;
-      const rect = tabRefs.current.get(channel)?.getBoundingClientRect();
+    for (const tab of tabList) {
+      // Same condition as the badge itself: reading a tab clears its
+      // mentions, and the active tab shows no badge to be missing. A mentions
+      // tab is exempt on top of that -- the bar means "something named you
+      // past this edge", and pointing at the tab those are already gathered
+      // in says nothing you didn't know.
+      if (tab.kind === "mentions") continue;
+      if (tab.id === active || (mentions[tab.id] ?? 0) === 0) continue;
+      const rect = tabRefs.current.get(tab.id)?.getBoundingClientRect();
       if (!rect) continue;
       // A tab clipped by a pixel is still readable, hence the tolerance.
       if (rect.left < box.left - 1) left = true;
@@ -228,10 +241,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // answer does -- `mentions` itself is a fresh object on every batch of
   // messages, which would re-measure the row a dozen times a second.
   const mentionKey = tabList
-    .filter(
-      (channel) =>
-        channel !== MENTIONS_TAB && channel !== active && (mentions[channel] ?? 0) > 0,
-    )
+    .filter((tab) => tab.kind !== "mentions" && tab.id !== active && (mentions[tab.id] ?? 0) > 0)
+    .map((tab) => tab.id)
     .join(" ");
 
   useLayoutEffect(() => {
@@ -298,30 +309,30 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // Shared by both modes -- only the container around them differs, and the
   // break spacers below are inert in single-row mode because `recompute`
   // leaves `breakAfter` empty there.
-  const tabs = tabList.map((channel, index) => {
-    const isActive = channel === active;
-    const isMentions = channel === MENTIONS_TAB;
-    const count = unread[channel] ?? 0;
+  const tabs = tabList.map((tab: Tab, index) => {
+    const isActive = tab.id === active;
+    const isMentions = tab.kind === "mentions";
+    const count = unread[tab.id] ?? 0;
     // Only the badge's colors change, never its size -- see the slot
     // comment below for why a tab's width has to stay put.
-    const named = (mentions[channel] ?? 0) > 0;
+    const named = (mentions[tab.id] ?? 0) > 0;
 
     return (
-      <Fragment key={channel}>
+      <Fragment key={tab.id}>
         <div
           ref={(element) => {
             if (element) {
-              tabRefs.current.set(channel, element);
+              tabRefs.current.set(tab.id, element);
               observerRef.current?.observe(element);
             } else {
-              const previous = tabRefs.current.get(channel);
+              const previous = tabRefs.current.get(tab.id);
               if (previous) observerRef.current?.unobserve(previous);
-              tabRefs.current.delete(channel);
+              tabRefs.current.delete(tab.id);
             }
           }}
           draggable
           onDragStart={(event) => {
-            startDrag({ tab: channel, pane });
+            startDrag({ tab: tab.id, pane });
             event.dataTransfer.effectAllowed = "move";
           }}
           onDragEnter={allowDrop}
@@ -331,19 +342,35 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           // the actual move happens once, on release.
           onDrop={(event) => dropAt(event, index)}
           onDragEnd={endDrag}
-          onClick={() => setActive(channel, pane)}
+          onClick={() => setActive(tab.id, pane)}
+          // Right-click is where a tab's account is changed -- the tab is the
+          // thing being changed, so it's the thing you aim at.
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setAccountMenu({ id: tab.id, x: event.clientX, y: event.clientY });
+          }}
           className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
             isActive ? "bg-surface text-ink" : "text-ink-dim hover:bg-surface-hover hover:text-ink"
           } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
-            drag?.tab === channel ? "opacity-50" : ""
+            drag?.tab === tab.id ? "opacity-50" : ""
           }`}
         >
           {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
 
           <span className="font-medium">
             <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
-            {isMentions ? "mentions" : channel}
+            {isMentions ? "mentions" : tab.channel}
           </span>
+
+          {/* Which account this tab reads as, once there's more than one
+              answer. Dimmer and smaller than the channel: it qualifies the
+              tab rather than naming it, and the name is what you scan for. */}
+          {showAccounts && (
+            <span className="max-w-[9ch] shrink-0 truncate text-[10px] text-ink-faint">
+              {loginOf(tab.account)}
+            </span>
+          )}
 
           {/* The slot is always here, whether or not there's a dot in it.
               Rendering the dot conditionally changed the tab's width the
@@ -354,9 +381,9 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           <span className="grid h-1.5 w-1.5 shrink-0 place-items-center">
             {/* Nothing to load and nothing to be live: the mentions tab keeps
                 the slot only so it's the same shape as its neighbours. */}
-            {isMentions ? null : !ready[channel] ? (
+            {isMentions ? null : !ready[tab.id] ? (
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-            ) : live[channel] ? (
+            ) : live[tab.channel] ? (
               <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
             ) : null}
           </span>
@@ -379,9 +406,9 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             <button
               onClick={(event) => {
                 event.stopPropagation();
-                void part(channel);
+                void closeTab(tab.id);
               }}
-              aria-label={isMentions ? "Close the mentions tab" : `Leave ${channel}`}
+              aria-label={isMentions ? "Close the mentions tab" : `Leave ${tab.channel}`}
               // Square, and pinned to the right of the slot rather than
               // filling or centring in it. The slot has to stay as wide as
               // "99+" for the badge it shares, but the X shouldn't inherit
@@ -432,6 +459,15 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     </button>
   );
 
+  const menu = accountMenu && (
+    <AccountMenu
+      tabId={accountMenu.id}
+      x={accountMenu.x}
+      y={accountMenu.y}
+      onClose={() => setAccountMenu(null)}
+    />
+  );
+
   if (singleRow) {
     // The button sits outside the scroller so it stays pinned to the right
     // edge rather than riding away with the last tab. `self-start` keeps it
@@ -458,6 +494,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             the scroller's box would stop short of the window's edge. */}
         {hiddenMentions.left && <MentionEdge side="left" />}
         {hiddenMentions.right && <MentionEdge side="right" />}
+        {menu}
       </div>
     );
   }
@@ -471,6 +508,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       {tabs}
       {breakBeforeAdd && <div className="h-1 basis-full" />}
       {addButton}
+      {menu}
     </div>
   );
 }

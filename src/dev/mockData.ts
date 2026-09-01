@@ -1,4 +1,5 @@
 import type {
+  AccountInfo,
   AuthStatus,
   Badge,
   ChannelHit,
@@ -9,6 +10,7 @@ import type {
   Overlay,
   ReplyInfo,
   Segment,
+  Tab,
   UserCard,
 } from "../types";
 
@@ -19,6 +21,30 @@ import type {
  */
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
+
+/**
+ * Two accounts, so the multi-account paths -- a tab per account, the same
+ * channel open twice, the account picker on a tab and on the composer -- are
+ * all exercisable without signing in to Twitch.
+ */
+export const MOCK_ACCOUNTS: AccountInfo[] = [
+  { id: "1", login: "you", scopes: [] },
+  { id: "2", login: "you_alt", scopes: [] },
+];
+
+/**
+ * The tabs mock mode opens with: two channels as the first account, one as the
+ * second, and the same channel a second time under the other account -- which
+ * is the case the whole feature exists for.
+ */
+export function mockTabs(): Tab[] {
+  return [
+    { id: "mock-tab-1", kind: "channel", channel: MOCK_CHANNELS[0], account: "1" },
+    { id: "mock-tab-2", kind: "channel", channel: MOCK_CHANNELS[1], account: "1" },
+    { id: "mock-tab-3", kind: "channel", channel: MOCK_CHANNELS[2], account: "2" },
+    { id: "mock-tab-4", kind: "channel", channel: MOCK_CHANNELS[0], account: "2" },
+  ];
+}
 
 /** Real Twitch profile images, so the user card's avatar is a real avatar. */
 const FORSEN_AVATAR =
@@ -289,10 +315,13 @@ const DRAFTS: Draft[] = [
 
 let nextId = 1;
 
-function toMessage(draft: Draft, channel: string, ts: number): ChatMessage {
+function toMessage(draft: Draft, tab: Tab, ts: number): ChatMessage {
   return {
     id: `mock-${nextId++}`,
-    channel,
+    channel: tab.channel,
+    // Stamped the way the backend stamps a real one: it's what routes a
+    // message to its tab when the same channel is open twice.
+    account: tab.account,
     // Stable per chatter, the way a real user id is -- it's what the 7TV
     // badges below are keyed by.
     userId: `mock-${draft.login}`,
@@ -313,10 +342,11 @@ function toMessage(draft: Draft, channel: string, ts: number): ChatMessage {
  * (the store files it under whichever you're reading), no badges, and text
  * resolved against the global emote set alone.
  */
-function mockWhisper(): ChatMessage {
+function mockWhisper(account: string): ChatMessage {
   return {
     id: "whisper-1",
     channel: "",
+    account,
     userId: "mock-forsen",
     ts: Date.now(),
     login: "forsen",
@@ -334,22 +364,20 @@ function mockWhisper(): ChatMessage {
 }
 
 /** The initial backlog shown as soon as mock mode starts. */
-export function buildInitialMessages(): ChatMessage[] {
+export function buildInitialMessages(tabs: Tab[]): ChatMessage[] {
   const now = Date.now();
   return [
-    ...MOCK_CHANNELS.flatMap((channel, channelIndex) =>
-      DRAFTS.map((draft, index) =>
-        toMessage(draft, channel, now + channelIndex * DRAFTS.length + index),
-      ),
+    ...tabs.flatMap((tab, tabIndex) =>
+      DRAFTS.map((draft, index) => toMessage(draft, tab, now + tabIndex * DRAFTS.length + index)),
     ),
-    mockWhisper(),
+    mockWhisper(tabs[0]?.account ?? "1"),
   ];
 }
 
 /** One more message, for the periodic mock "chat activity" while iterating. */
-export function randomMockMessage(channel: string): ChatMessage {
+export function randomMockMessage(tab: Tab): ChatMessage {
   const draft = DRAFTS[Math.floor(Math.random() * DRAFTS.length)];
-  return toMessage(draft, channel, Date.now());
+  return toMessage(draft, tab, Date.now());
 }
 
 /**
@@ -566,19 +594,24 @@ export function mockEmoteIndex(): EmoteIndex {
 const YOU_COLOR = "#7C5CFC";
 
 /** Local echo of a message typed into the composer, for design iteration. */
-export function buildOwnMockMessage(channel: string, raw: string, replyTo?: ReplyInfo): ChatMessage {
+export function buildOwnMockMessage(
+  tab: Tab,
+  login: string,
+  raw: string,
+  replyTo?: ReplyInfo,
+): ChatMessage {
   const isAction = raw.startsWith("/me ") && raw.slice(4).trim().length > 0;
   const body = isAction ? raw.slice(4) : raw;
   return toMessage(
     {
-      login: "you",
-      displayName: "You",
+      login,
+      displayName: login,
       color: YOU_COLOR,
       segments: [text(body)],
       isAction,
       replyTo: replyTo ?? null,
     },
-    channel,
+    tab,
     Date.now(),
   );
 }
@@ -666,14 +699,21 @@ const MOCK_PERMISSION_GROUPS = [
  * row to design against.
  */
 export function mockAuthStatus(): AuthStatus {
+  // The first account holds everything but the broadcaster group and the
+  // second only the basics, so the command picker's locked rows and the
+  // "this account can't do that" paths are both visible while iterating.
+  const granted = MOCK_PERMISSION_GROUPS.filter((group) => group.id !== "channel").flatMap(
+    (group) => group.scopes,
+  );
+  const basics = MOCK_PERMISSION_GROUPS.find((group) => group.id === "chat")?.scopes ?? [];
   return {
     hasClientId: true,
     clientIdOverride: null,
-    loggedIn: false,
-    login: "you",
-    scopes: MOCK_PERMISSION_GROUPS.filter((group) => group.id !== "channel").flatMap(
-      (group) => group.scopes,
-    ),
+    accounts: [
+      { ...MOCK_ACCOUNTS[0], scopes: granted },
+      { ...MOCK_ACCOUNTS[1], scopes: basics },
+    ],
+    defaultAccount: MOCK_ACCOUNTS[0].id,
     permissionGroups: ["moderation"],
     permissionCatalog: MOCK_PERMISSION_GROUPS,
   };

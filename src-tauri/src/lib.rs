@@ -19,7 +19,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::irc::client;
-use crate::state::{AppState, AuthStatus, IrcCommand};
+use crate::settings::{Tab, ANONYMOUS};
+use crate::state::{AppState, AuthStatus};
 use crate::twitch::chat;
 
 type Shared = Arc<AppState>;
@@ -71,15 +72,13 @@ fn persist(app: &AppHandle, state: &AppState) {
     let auth = state.auth.read();
     let settings = settings::Settings {
         client_id_override: auth.client_id_override.clone(),
-        access_token: auth.access_token.clone(),
-        refresh_token: auth.refresh_token.clone(),
-        login: auth.login.clone(),
-        user_id: auth.user_id.clone(),
-        scopes: auth.scopes.clone(),
+        accounts: auth.accounts.clone(),
+        default_account: auth.default_account.clone(),
         permission_groups: auth.permission_groups.clone(),
-        channels: state.channels.read().clone(),
+        tabs: state.tabs.read().clone(),
         emote_uses: state.emote_uses.read().clone(),
         preferences: state.preferences.read().clone(),
+        ..Default::default()
     };
     drop(auth);
     if let Err(error) = settings::save(app, &settings) {
@@ -87,69 +86,101 @@ fn persist(app: &AppHandle, state: &AppState) {
     }
 }
 
-/// Check a stored token on startup, refreshing it if it has expired, then load
-/// global assets. A token that can't be recovered is cleared so the UI can
-/// prompt for a fresh sign-in instead of silently losing badges.
-async fn restore_session(app: AppHandle, state: Shared) {
-    let (client_id, access_token, refresh_token) = {
-        let auth_state = state.auth.read();
-        (
-            auth_state.client_id().map(str::to_string),
-            auth_state.access_token.clone(),
-            auth_state.refresh_token.clone(),
-        )
-    };
+/// Tabs, and the connections that follow from them, after a change. Every
+/// command that touches the list ends here.
+fn tabs_changed(app: &AppHandle, state: &Shared) -> Vec<Tab> {
+    persist(app, state);
+    client::sync(app, state);
+    // A channel that has just appeared should get its live dot now rather than
+    // up to a poll period later.
+    state.live_poll.notify_one();
+    state.tabs.read().clone()
+}
 
-    if let (Some(client_id), Some(token)) = (client_id, access_token) {
-        match auth::validate(&state.http, &token).await {
+/// Check every stored token on startup, refreshing the ones that have expired,
+/// then load global assets.
+///
+/// An account whose token can't be recovered is dropped rather than kept as a
+/// dead entry: its tabs fall back to anonymous, which is a state the app can
+/// actually be in, where a signed-in account that can't do anything isn't.
+async fn restore_session(app: AppHandle, state: Shared) {
+    let client_id = { state.auth.read().client_id().map(str::to_string) };
+    let accounts = { state.auth.read().accounts.clone() };
+    // Something worth writing down and telling the UI about.
+    let mut changed = false;
+    // A token that is *not* the one the sockets are already using. Kept apart
+    // from `changed` deliberately: re-validating a good token rewrites its
+    // scopes and its login, which is worth persisting but is no reason to drop
+    // the connections. Reconnecting the whisper socket on every launch leaves
+    // the old subscription behind on Twitch's side, and three of those is the
+    // limit for one type and condition -- after which it refuses, and whispers
+    // silently stop arriving.
+    let mut credentials_changed = false;
+
+    for account in accounts {
+        match auth::validate(&state.http, &account.access_token).await {
             Ok(validation) => {
-                {
-                    let mut auth_state = state.auth.write();
-                    auth_state.login = Some(validation.login);
-                    auth_state.user_id = Some(validation.user_id);
-                    // Twitch is the authority on what the token allows, and
-                    // what it allows decides which commands the picker offers.
-                    auth_state.scopes = validation.scopes;
-                }
-                persist(&app, &state);
-                let _ = app.emit("chat://auth", state.auth_status());
+                let mut auth_state = state.auth.write();
+                let Some(stored) = auth_state.accounts.iter_mut().find(|a| a.id == account.id)
+                else {
+                    continue;
+                };
+                // Twitch is the authority on what a token allows, and what it
+                // allows decides which commands the picker offers. The login
+                // can have changed too -- ids are what we key on for exactly
+                // that reason.
+                stored.login = validation.login;
+                stored.scopes = validation.scopes;
+                changed = true;
             }
             Err(_) => {
-                let refreshed = match refresh_token {
-                    Some(token) => auth::refresh(&state.http, &client_id, &token).await.ok(),
+                let refreshed = match &client_id {
+                    Some(client_id) => {
+                        auth::refresh(&state.http, client_id, &account.refresh_token).await.ok()
+                    }
+                    None => None,
+                };
+                let validated = match &refreshed {
+                    Some(tokens) => auth::validate(&state.http, &tokens.access_token).await.ok(),
                     None => None,
                 };
 
-                match refreshed {
-                    Some(tokens) => {
-                        let validation =
-                            auth::validate(&state.http, &tokens.access_token).await.ok();
-                        let mut auth_state = state.auth.write();
-                        auth_state.access_token = Some(tokens.access_token);
-                        if !tokens.refresh_token.is_empty() {
-                            auth_state.refresh_token = Some(tokens.refresh_token);
+                let mut auth_state = state.auth.write();
+                match (refreshed, validated) {
+                    (Some(tokens), Some(validation)) => {
+                        if let Some(stored) =
+                            auth_state.accounts.iter_mut().find(|a| a.id == account.id)
+                        {
+                            stored.access_token = tokens.access_token;
+                            if !tokens.refresh_token.is_empty() {
+                                stored.refresh_token = tokens.refresh_token;
+                            }
+                            stored.login = validation.login;
+                            stored.scopes = validation.scopes;
                         }
-                        auth_state.login = validation.as_ref().map(|v| v.login.clone());
-                        auth_state.scopes =
-                            validation.as_ref().map(|v| v.scopes.clone()).unwrap_or_default();
-                        auth_state.user_id = validation.map(|v| v.user_id);
                     }
-                    None => {
-                        let mut auth_state = state.auth.write();
-                        auth_state.access_token = None;
-                        auth_state.refresh_token = None;
-                        auth_state.login = None;
-                        auth_state.user_id = None;
-                        auth_state.scopes.clear();
+                    _ => {
+                        auth_state.accounts.retain(|a| a.id != account.id);
+                        if auth_state.default_account == account.id {
+                            auth_state.default_account = ANONYMOUS.to_string();
+                        }
                     }
                 }
-
-                persist(&app, &state);
-                let _ = app.emit("chat://auth", state.auth_status());
-                state.send(IrcCommand::Reconnect);
-                state.eventsub_restart.notify_one();
+                changed = true;
+                credentials_changed = true;
             }
         }
+    }
+
+    if changed {
+        persist(&app, &state);
+        let _ = app.emit("chat://auth", state.auth_status());
+    }
+    if credentials_changed {
+        // Tabs whose account has just gone read anonymously from here on, and
+        // the ones whose token was refreshed need the socket to use the new one.
+        client::reconnect_all(&state);
+        state.eventsub_restart.notify_one();
     }
 
     client::load_global_assets(app, state).await;
@@ -203,14 +234,16 @@ fn set_preferences(
 /// Drop the signed-in session and everything that came with it. Badges are
 /// the visible half: they're fetched with the token, so they'd otherwise linger
 /// as art we can no longer refresh.
+/// Drop every account. Tabs fall back to anonymous, as they do when a single
+/// account is removed -- see `remove_account`.
 fn clear_session(state: &AppState) {
     {
         let mut auth_state = state.auth.write();
-        auth_state.access_token = None;
-        auth_state.refresh_token = None;
-        auth_state.login = None;
-        auth_state.user_id = None;
-        auth_state.scopes.clear();
+        auth_state.accounts.clear();
+        auth_state.default_account = ANONYMOUS.to_string();
+    }
+    for tab in state.tabs.write().iter_mut() {
+        tab.account = ANONYMOUS.to_string();
     }
     state.global_badges.write().clear();
     for data in state.data.write().values_mut() {
@@ -241,7 +274,8 @@ fn set_client_id_override(
     state.eventsub_restart.notify_one();
     state.auth.write().client_id_override = next;
     persist(&app, &state);
-    state.send(IrcCommand::Reconnect);
+    client::sync(&app, &state);
+    client::reconnect_all(&state);
     state.auth_status()
 }
 
@@ -281,6 +315,7 @@ fn set_permission_groups(
 #[tauri::command]
 async fn run_chat_command(
     state: State<'_, Shared>,
+    account: String,
     channel: String,
     input: String,
 ) -> Result<String, String> {
@@ -289,15 +324,14 @@ async fn run_chat_command(
         return Err("That isn't a command".to_string());
     };
 
+    // Run as the tab's account: whether this one can time somebody out here is
+    // its own question, answered by its own token.
     let (client_id, token, user_id) = {
         let auth = state.auth.read();
-        let Some((client_id, token)) = auth.credentials() else {
+        let Some((client_id, token)) = auth.credentials(&account) else {
             return Err(format!("Sign in to use /{command}"));
         };
-        let Some(user_id) = auth.user_id.clone() else {
-            return Err("Sign in again to refresh permissions".to_string());
-        };
-        (client_id, token, user_id)
+        (client_id, token, account.clone())
     };
 
     // Every command is scoped to a channel, and the broadcaster id is what
@@ -339,7 +373,8 @@ async fn poll_live(app: AppHandle, state: Shared) {
 
         let (credentials, logins) = {
             let auth = state.auth.read();
-            (auth.credentials(), state.channels.read().clone())
+            let logins: Vec<String> = state.open_channels().into_iter().collect();
+            (auth.any_credentials(), logins)
         };
 
         // Signed out we can't ask, so nothing is claimed live. Clearing matters
@@ -387,7 +422,7 @@ async fn search_channels(
         return Ok(Vec::new());
     }
 
-    let Some((client_id, token)) = ({ state.auth.read().credentials() }) else {
+    let Some((client_id, token)) = ({ state.auth.read().any_credentials() }) else {
         return Ok(Vec::new());
     };
 
@@ -414,7 +449,7 @@ async fn link_preview(
     url: String,
 ) -> Result<Option<linkinfo::LinkPreview>, String> {
     if let Some(link) = reqwest::Url::parse(&url).ok().as_ref().and_then(twitch::links::parse) {
-        let credentials = { state.auth.read().credentials() };
+        let credentials = { state.auth.read().any_credentials() };
         if let Some((client_id, token)) = credentials {
             let helix = twitch::helix::Helix {
                 client: &state.http,
@@ -440,7 +475,7 @@ async fn user_card(
     login: String,
     channel: String,
 ) -> Result<usercard::UserCard, String> {
-    let credentials = { state.auth.read().credentials() };
+    let credentials = { state.auth.read().any_credentials() };
     usercard::fetch(
         &state.http,
         credentials,
@@ -496,42 +531,85 @@ async fn poll_device_auth(
 
             {
                 let mut auth_state = state.auth.write();
-                auth_state.access_token = Some(tokens.access_token);
-                auth_state.refresh_token = Some(tokens.refresh_token);
-                auth_state.login = Some(validation.login.clone());
-                auth_state.user_id = Some(validation.user_id.clone());
-                // What was actually granted, which can be less than we asked
-                // for: the consent screen lets scopes be declined.
-                auth_state.scopes = validation.scopes.clone();
+                let account = settings::Account {
+                    id: validation.user_id.clone(),
+                    login: validation.login.clone(),
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    // What was actually granted, which can be less than we
+                    // asked for: the consent screen lets scopes be declined.
+                    scopes: validation.scopes.clone(),
+                };
+                // Signing the same account in again replaces its tokens rather
+                // than listing it twice -- which is how you widen what one
+                // account may do, scopes being granted once and only at sign-in.
+                match auth_state.accounts.iter_mut().find(|a| a.id == account.id) {
+                    Some(existing) => *existing = account,
+                    None => auth_state.accounts.push(account),
+                }
+                // The first account signed in becomes what new tabs use; after
+                // that the choice is the settings dialog's to make.
+                if auth_state.default_account == ANONYMOUS {
+                    auth_state.default_account = validation.user_id.clone();
+                }
             }
             persist(&app, &state);
 
-            // Badges need a token, so refetch everything and reconnect as the user.
+            // Badges need a token, so refetch everything; sockets belonging to
+            // this account (a re-sign-in) need to log in again with the new one.
             let shared: Shared = Arc::clone(&state);
-            for data in state.data.write().values_mut() {
-                data.ready = false;
-            }
             tauri::async_runtime::spawn(client::load_global_assets(app.clone(), shared));
-            state.send(IrcCommand::Reconnect);
+            state.send(&validation.user_id, state::IrcCommand::Reconnect);
             // We can ask about live status now that there's a token, and the
             // whisper socket has one to subscribe with.
             state.live_poll.notify_one();
             state.eventsub_restart.notify_one();
+            let _ = app.emit("chat://auth", state.auth_status());
 
             Ok(json!({ "status": "granted", "login": validation.login }))
         }
     }
 }
 
+/// Sign one account out.
+///
+/// Its tabs stay open and fall back to anonymous: they keep showing the channel
+/// they were showing, without a composer that can send. Losing the channels you
+/// had open because you signed something out would be a worse trade than a tab
+/// that can only read.
 #[tauri::command]
-fn logout(app: AppHandle, state: State<'_, Shared>) -> AuthStatus {
-    clear_session(&state);
+fn remove_account(app: AppHandle, state: State<'_, Shared>, id: String) -> AuthStatus {
+    {
+        let mut auth = state.auth.write();
+        auth.accounts.retain(|account| account.id != id);
+        if auth.default_account == id {
+            auth.default_account = ANONYMOUS.to_string();
+        }
+    }
+    for tab in state.tabs.write().iter_mut().filter(|tab| tab.account == id) {
+        tab.account = ANONYMOUS.to_string();
+    }
+    state.global_badges.write().clear();
+    for data in state.data.write().values_mut() {
+        data.badges.clear();
+    }
+
+    persist(&app, &state);
     // Whether we can ask about live status -- or listen for whispers -- at all
-    // just changed.
+    // may just have changed, and the tabs that moved need their new socket.
+    client::sync(&app, &state);
     state.live_poll.notify_one();
     state.eventsub_restart.notify_one();
+    state.auth_status()
+}
+
+/// Which account a newly opened tab reads as. Anonymous is a legitimate
+/// choice here, not just the state before signing in.
+#[tauri::command]
+fn set_default_account(app: AppHandle, state: State<'_, Shared>, id: String) -> AuthStatus {
+    let resolved = resolve_account(&state, &id);
+    state.auth.write().default_account = resolved;
     persist(&app, &state);
-    state.send(IrcCommand::Reconnect);
     state.auth_status()
 }
 
@@ -546,10 +624,14 @@ struct EmoteIndex {
 }
 
 #[tauri::command]
-fn emote_index(state: State<'_, Shared>, channel: String) -> Result<EmoteIndex, String> {
+fn emote_index(
+    state: State<'_, Shared>,
+    account: String,
+    channel: String,
+) -> Result<EmoteIndex, String> {
     let name = normalize_channel(&channel)?;
     Ok(EmoteIndex {
-        entries: state.emote_entries(&name),
+        entries: state.emote_entries(&account, &name),
         uses: state.emote_uses.read().clone(),
     })
 }
@@ -561,85 +643,150 @@ fn emote_index(state: State<'_, Shared>, channel: String) -> Result<EmoteIndex, 
 fn record_emote_uses(
     app: AppHandle,
     state: State<'_, Shared>,
+    account: String,
     channel: String,
     names: Vec<String>,
 ) -> Result<(), String> {
     let channel = normalize_channel(&channel)?;
-    if state.record_emote_uses(&channel, &names) {
+    if state.record_emote_uses(&account, &channel, &names) {
         persist(&app, &state);
     }
     Ok(())
 }
 
 #[tauri::command]
-fn list_channels(state: State<'_, Shared>) -> Vec<String> {
-    state.channels.read().clone()
+fn list_tabs(state: State<'_, Shared>) -> Vec<Tab> {
+    state.tabs.read().clone()
 }
 
+/// Open a tab. The id is the frontend's -- it mints one when it opens the view,
+/// so the view has a key from the first frame rather than after a round trip --
+/// and everything else is validated here.
+///
+/// The same channel twice under one account is refused: two identical views of
+/// one stream is a mistake, not a feature. Under a *different* account it's the
+/// whole point, so that passes.
 #[tauri::command]
-fn join_channel(
+fn add_tab(
     app: AppHandle,
     state: State<'_, Shared>,
+    id: String,
+    kind: String,
     channel: String,
-) -> Result<Vec<String>, String> {
-    let name = normalize_channel(&channel)?;
+    account: String,
+) -> Result<Vec<Tab>, String> {
+    if id.trim().is_empty() {
+        return Err("A tab needs an id".to_string());
+    }
+    let account = resolve_account(&state, &account);
+
+    let tab = match kind.as_str() {
+        "mentions" => Tab { id, kind, channel: String::new(), account },
+        _ => {
+            let channel = normalize_channel(&channel)?;
+            Tab { id, kind: "channel".to_string(), channel, account }
+        }
+    };
 
     {
-        let mut channels = state.channels.write();
-        if channels.contains(&name) {
-            return Ok(channels.clone());
+        let mut tabs = state.tabs.write();
+        let duplicate = tabs.iter().any(|open| {
+            open.id == tab.id
+                || (open.kind == tab.kind && open.channel == tab.channel && open.account == tab.account)
+        });
+        if duplicate {
+            return Ok(tabs.clone());
         }
-        channels.push(name.clone());
+        tabs.push(tab);
     }
 
-    state.data.write().entry(name.clone()).or_default();
-    state.send(IrcCommand::Join(name));
-    // Ask who's live now rather than leaving the new tab dotless until the
-    // poller's next tick.
-    state.live_poll.notify_one();
-    persist(&app, &state);
-
-    Ok(state.channels.read().clone())
+    Ok(tabs_changed(&app, &state))
 }
 
 #[tauri::command]
-fn part_channel(
+fn close_tab(app: AppHandle, state: State<'_, Shared>, id: String) -> Vec<Tab> {
+    state.tabs.write().retain(|tab| tab.id != id);
+    tabs_changed(&app, &state)
+}
+
+/// Read a tab as a different account -- the right-click on a tab, and the one
+/// on the composer.
+///
+/// It stays the same tab: the messages already in it were said in this channel
+/// and are just as true under the new login, so only what happens from here on
+/// changes. That's a part on one socket and a join on another, which `sync`
+/// works out for itself.
+#[tauri::command]
+fn set_tab_account(
     app: AppHandle,
     state: State<'_, Shared>,
-    channel: String,
-) -> Result<Vec<String>, String> {
-    let name = normalize_channel(&channel)?;
-
-    state.channels.write().retain(|c| c != &name);
-    state.data.write().remove(&name);
-    state.send(IrcCommand::Part(name));
-    persist(&app, &state);
-
-    Ok(state.channels.read().clone())
-}
-
-/// Apply a drag-to-reorder from the tab bar. `channels` is the full requested
-/// order; anything not actually in our channel set is dropped, and any of our
-/// channels the caller's list left out are appended, so a stale or partial
-/// list can never make a channel disappear.
-#[tauri::command]
-fn reorder_channels(app: AppHandle, state: State<'_, Shared>, channels: Vec<String>) -> Vec<String> {
-    let mut ordered = state.channels.write();
-    let mut next: Vec<String> = channels.into_iter().filter(|c| ordered.contains(c)).collect();
-    for channel in ordered.iter() {
-        if !next.contains(channel) {
-            next.push(channel.clone());
+    id: String,
+    account: String,
+) -> Vec<Tab> {
+    let account = resolve_account(&state, &account);
+    {
+        let mut tabs = state.tabs.write();
+        let Some(moving) = tabs.iter().find(|tab| tab.id == id).cloned() else {
+            return tabs.clone();
+        };
+        if moving.account == account {
+            return tabs.clone();
+        }
+        // Moving a tab onto an account that already has this channel open would
+        // make the duplicate `add_tab` refuses, so it's refused here too.
+        let taken = tabs.iter().any(|tab| {
+            tab.id != id
+                && tab.account == account
+                && tab.kind == moving.kind
+                && tab.channel == moving.channel
+        });
+        if taken {
+            return tabs.clone();
+        }
+        if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id) {
+            tab.account = account;
         }
     }
-    *ordered = next.clone();
-    drop(ordered);
+    tabs_changed(&app, &state)
+}
+
+/// Apply a drag-to-reorder from the tab bar. `ids` is the full requested order;
+/// anything not actually open is dropped, and any open tab the caller's list
+/// left out is appended, so a stale or partial list can never lose a tab.
+#[tauri::command]
+fn reorder_tabs(app: AppHandle, state: State<'_, Shared>, ids: Vec<String>) -> Vec<Tab> {
+    {
+        let mut tabs = state.tabs.write();
+        let mut next: Vec<Tab> = ids
+            .iter()
+            .filter_map(|id| tabs.iter().find(|tab| &tab.id == id).cloned())
+            .collect();
+        for tab in tabs.iter() {
+            if !next.iter().any(|kept| kept.id == tab.id) {
+                next.push(tab.clone());
+            }
+        }
+        *tabs = next;
+    }
+    // Order alone changes no connection, but it does change the file.
     persist(&app, &state);
-    next
+    state.tabs.read().clone()
+}
+
+/// An account id we actually hold, or anonymous. Anything else -- a removed
+/// account, a hand-edited settings file -- reads as signed out rather than as
+/// an error: a tab pointing at nobody still shows chat.
+fn resolve_account(state: &AppState, account: &str) -> String {
+    match state.auth.read().account(account) {
+        Some(account) => account.id.clone(),
+        None => ANONYMOUS.to_string(),
+    }
 }
 
 #[tauri::command]
 async fn send_message(
     state: State<'_, Shared>,
+    account: String,
     channel: String,
     text: String,
     reply_to_id: Option<String>,
@@ -647,15 +794,15 @@ async fn send_message(
     let name = normalize_channel(&channel)?;
     let (_, _, wire_text) = prepare_outgoing(&text)?;
 
+    // The sender is the tab's account, not "the" account: the same channel can
+    // be open twice, and which composer you typed into is what decides who
+    // says it.
     let (client_id, token, user_id) = {
         let auth = state.auth.read();
-        let Some((client_id, token)) = auth.credentials() else {
+        let Some((client_id, token)) = auth.credentials(&account) else {
             return Err("Sign in to send messages".to_string());
         };
-        let Some(user_id) = auth.user_id.clone() else {
-            return Err("Sign in again to refresh permissions".to_string());
-        };
-        (client_id, token, user_id)
+        (client_id, token, account.clone())
     };
 
     let broadcaster_id = state.data.read().get(&name).and_then(|c| c.room_id.clone());
@@ -797,26 +944,19 @@ pub fn run() {
             {
                 let mut auth_state = shared.auth.write();
                 auth_state.client_id_override = saved.client_id_override;
-                auth_state.access_token = saved.access_token;
-                auth_state.refresh_token = saved.refresh_token;
-                auth_state.login = saved.login;
-                auth_state.user_id = saved.user_id;
-                auth_state.scopes = saved.scopes;
+                auth_state.accounts = saved.accounts;
+                auth_state.default_account = saved.default_account;
                 auth_state.permission_groups = saved.permission_groups;
             }
             *shared.emote_uses.write() = saved.emote_uses;
             *shared.preferences.write() = saved.preferences;
             {
-                let mut channels = shared.channels.write();
                 let mut data = shared.data.write();
-                for channel in saved.channels {
-                    data.entry(channel.clone()).or_default();
-                    channels.push(channel);
+                for tab in saved.tabs.iter().filter(|tab| tab.is_channel()) {
+                    data.entry(tab.channel.clone()).or_default();
                 }
             }
-
-            let (tx, rx) = mpsc::unbounded_channel::<IrcCommand>();
-            *shared.commands.write() = Some(tx);
+            *shared.tabs.write() = saved.tabs;
 
             // 7TV answers "who has which badge" one user at a time, so chatters
             // queue here and go out in batches.
@@ -829,21 +969,19 @@ pub fn run() {
             ));
 
             let sink = client::spawn_emitter(handle.clone());
+            *shared.sink.write() = Some(sink.clone());
 
             tauri::async_runtime::spawn(restore_session(handle.clone(), Arc::clone(&shared)));
             tauri::async_runtime::spawn(poll_live(handle.clone(), Arc::clone(&shared)));
             // Whispers arrive on their own socket -- Twitch doesn't send them
             // over IRC -- but through the same sink, so they batch with chat.
+            // One per signed-in account, since a whisper is addressed to one.
             tauri::async_runtime::spawn(twitch::eventsub::run(
                 Arc::clone(&shared),
-                sink.clone(),
-            ));
-            tauri::async_runtime::spawn(client::run(
-                handle.clone(),
-                Arc::clone(&shared),
                 sink,
-                rx,
             ));
+            // The restored tabs decide which sockets to open, and as whom.
+            client::sync(&handle, &shared);
 
             app.manage(shared);
             Ok(())
@@ -858,11 +996,13 @@ pub fn run() {
             link_preview,
             start_device_auth,
             poll_device_auth,
-            logout,
-            list_channels,
-            join_channel,
-            part_channel,
-            reorder_channels,
+            remove_account,
+            set_default_account,
+            list_tabs,
+            add_tab,
+            close_tab,
+            set_tab_account,
+            reorder_tabs,
             send_message,
             preferences,
             set_preferences,

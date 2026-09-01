@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
 import { IS_TAURI } from "../lib/tauri";
-import type { ChannelHit } from "../types";
+import { ANONYMOUS, type ChannelHit } from "../types";
 
 /** Wait this long after the last keystroke before asking Twitch. */
 const DEBOUNCE_MS = 250;
@@ -77,11 +77,20 @@ function Suggestion({
 }
 
 export function AddChannelDialog({ onClose }: { onClose: () => void }) {
-  const join = useChat((state) => state.join);
-  const channels = useChat((state) => state.channels);
-  const loggedIn = useChat((state) => state.auth.loggedIn);
-  const mentionsTab = useChat((state) => state.preferences.mentionsTab);
-  const openMentionsTab = useChat((state) => state.openMentionsTab);
+  const openTab = useChat((state) => state.openTab);
+  const tabs = useChat((state) => state.tabs);
+  const accounts = useChat((state) => state.auth.accounts);
+  const defaultAccount = useChat((state) => state.auth.defaultAccount);
+  const loggedIn = accounts.length > 0;
+  /**
+   * Which account the tab about to be opened will read as. Starts at the one
+   * new tabs are set to use; picking another here is how you open a channel
+   * you already have open -- as somebody else.
+   */
+  const [account, setAccount] = useState(defaultAccount);
+  const openTabs = tabs.filter((tab) => tab.account === account);
+  const joinedChannels = openTabs.map((tab) => tab.channel);
+  const hasMentions = openTabs.some((tab) => tab.kind === "mentions");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,10 +112,10 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
    * for when you want one. Only while the input is empty: once you're typing a
    * channel name it's in the way, and the search results take the space.
    */
-  const offerMentions = !mentionsTab && query.length === 0;
+  const offerMentions = !hasMentions && query.length === 0;
 
   const openMentions = () => {
-    openMentionsTab();
+    void openTab("mentions", "", account);
     onClose();
   };
 
@@ -148,7 +157,7 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
       next += direction;
       if (next >= hits.length) next = -1;
       else if (next < -1) next = hits.length - 1;
-      if (next === -1 || !channels.includes(hits[next].login)) return next;
+      if (next === -1 || !joinedChannels.includes(hits[next].login)) return next;
     }
     return -1;
   };
@@ -160,7 +169,7 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await join(trimmed);
+      await openTab("channel", trimmed, account);
       onClose();
     } catch (cause) {
       setError(String(cause));
@@ -248,11 +257,37 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
               <Suggestion
                 key={hit.login}
                 hit={hit}
-                joined={channels.includes(hit.login)}
+                joined={joinedChannels.includes(hit.login)}
                 active={index === active}
                 onHover={() => setActive(index)}
                 onPick={() => void submit(hit.login)}
               />
+            ))}
+          </div>
+        )}
+
+        {/* Which account the new tab reads as. Only worth a row when there's
+            more than one answer -- and it's what makes opening a channel you
+            already have open a sensible thing to do rather than a duplicate. */}
+        {accounts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 border-t border-line px-3 py-2">
+            <span className="mr-1 text-[11px] text-ink-faint">Join as</span>
+            {[...accounts.map((held) => ({ id: held.id, label: held.login })), {
+              id: ANONYMOUS,
+              label: "anonymous",
+            }].map((choice) => (
+              <button
+                key={choice.id || "anon"}
+                type="button"
+                onClick={() => setAccount(choice.id)}
+                className={`rounded-full px-2 py-0.5 text-[11px] transition-colors ${
+                  account === choice.id
+                    ? "bg-accent/20 text-accent"
+                    : "text-ink-dim hover:bg-surface-hover hover:text-ink"
+                }`}
+              >
+                {choice.label}
+              </button>
             ))}
           </div>
         )}

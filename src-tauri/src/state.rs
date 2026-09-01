@@ -7,17 +7,56 @@ use tokio::sync::mpsc;
 
 use crate::emotes::Emote;
 use crate::irc::parse::IrcMessage;
+use crate::settings::{Account, Tab, ANONYMOUS};
 use crate::twitch::badges::BadgeMap;
 use crate::twitch::emotes::TwitchEmote;
 
-/// Commands sent from Tauri command handlers into the IRC task.
+/// Commands sent from Tauri command handlers into one account's IRC task.
 #[derive(Debug, Clone)]
 pub enum IrcCommand {
     Join(String),
     Part(String),
     /// Drop and rebuild the connection, e.g. after signing in.
     Reconnect,
+    /// Close for good: this account has no tabs left, or has been removed.
+    Shutdown,
 }
+
+/// One account's socket, and what it has been told to be in.
+pub struct Connection {
+    pub commands: mpsc::UnboundedSender<IrcCommand>,
+    /// The channels this socket is in. Held here rather than in the task so
+    /// that reconciling tabs against connections is a set comparison, and so a
+    /// reconnect rejoins exactly what the tabs still ask for.
+    pub joined: HashSet<String>,
+}
+
+/// What one account is doing in one channel: its own view of a room.
+///
+/// Separate from `ChannelData` because these are the parts that genuinely
+/// differ per account -- when *its* connection finished loading, what it was
+/// holding meanwhile, whether it can moderate here, and which of Twitch's
+/// emotes it owns. Everything in `ChannelData` is a property of the room and
+/// is shared by every account watching it.
+#[derive(Debug, Default)]
+pub struct Session {
+    /// Gates rendering until this account's join has assets and backlog.
+    pub ready: bool,
+    /// Messages received before that finished.
+    pub pending: Vec<IrcMessage>,
+    /// What we are here, from our own USERSTATE. Decides which commands the
+    /// picker offers -- there's no Helix endpoint that answers "am I a mod in
+    /// this channel", so this tag is the only source. Per account by nature:
+    /// one of your logins can be a mod here and another not.
+    pub role: crate::irc::parse::ChannelRole,
+    /// Twitch's own emotes for this account in this channel -- completion
+    /// fodder, deliberately not part of `ChannelData::emotes` (see
+    /// `twitch::emotes`). Per account because subscriber emotes are.
+    pub twitch_emotes: Vec<TwitchEmote>,
+}
+
+/// A session key: which account, in which channel.
+pub type SessionKey = (String, String);
 
 #[derive(Debug, Clone, Default)]
 pub struct Auth {
@@ -26,17 +65,15 @@ pub struct Auth {
     /// `client_id`, so a file left by an earlier build can't supply one: an
     /// override only ever exists because someone asked for it in this build.
     pub client_id_override: Option<String>,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
-    pub login: Option<String>,
-    /// Our own numeric Twitch id, from `/oauth2/validate`. Needed as the
-    /// `sender_id` on Helix's chat-messages endpoint.
-    pub user_id: Option<String>,
-    /// The scopes the token carries, as Twitch reports them. Not what we
-    /// asked for: a token predates any later change to `permission_groups`,
-    /// and Twitch grants what the user approved on the consent screen.
-    pub scopes: Vec<String>,
-    /// The optional permission groups the next sign-in will ask for.
+    /// Every signed-in account. One Client ID covers all of them -- it
+    /// identifies the *app*, not the user -- so this is a list of tokens, not
+    /// of apps.
+    pub accounts: Vec<Account>,
+    /// Which account a newly opened tab reads as. `ANONYMOUS` for none.
+    pub default_account: String,
+    /// The optional permission groups the next sign-in will ask for. Shared:
+    /// it's what to *request*, where what each account was actually granted
+    /// rides on that account.
     pub permission_groups: Vec<String>,
 }
 
@@ -51,20 +88,54 @@ impl Auth {
         self.client_id_override.as_deref().or(crate::auth::BUILT_IN_CLIENT_ID)
     }
 
-    /// Whether the token carries a scope. Answered from the token rather than
-    /// from which permission groups are ticked: a group turned on after signing
-    /// in isn't granted until the next one.
-    pub fn has_scope(&self, scope: &str) -> bool {
-        self.scopes.iter().any(|held| held == scope)
+    pub fn account(&self, id: &str) -> Option<&Account> {
+        if id == ANONYMOUS {
+            return None;
+        }
+        self.accounts.iter().find(|account| account.id == id)
     }
 
-    /// Client id + token, present only when we can call Helix.
-    pub fn credentials(&self) -> Option<(String, String)> {
-        match (self.client_id(), &self.access_token) {
-            (Some(id), Some(token)) => Some((id.to_string(), token.clone())),
+    /// Whether an account's token carries a scope. Answered from the token
+    /// rather than from which permission groups are ticked: a group turned on
+    /// after signing in isn't granted until the next sign-in.
+    pub fn has_scope(&self, id: &str, scope: &str) -> bool {
+        self.account(id).is_some_and(|a| a.scopes.iter().any(|held| held == scope))
+    }
+
+    /// Client id + token for one account, present only when we can call Helix
+    /// as it. Anonymous has none, which is not an error -- it's a tab that
+    /// reads and doesn't send.
+    pub fn credentials(&self, id: &str) -> Option<(String, String)> {
+        match (self.client_id(), self.account(id)) {
+            (Some(client_id), Some(account)) => {
+                Some((client_id.to_string(), account.access_token.clone()))
+            }
             _ => None,
         }
     }
+
+    /// Credentials for *any* account, preferring the default one.
+    ///
+    /// For the calls that ask Twitch about the world rather than about you --
+    /// badge images, who's live, channel search, a link preview. Any token
+    /// answers those identically, so needing a particular one would mean a
+    /// signed-in app losing them the moment a tab went anonymous.
+    pub fn any_credentials(&self) -> Option<(String, String)> {
+        self.credentials(&self.default_account)
+            .or_else(|| self.accounts.first().map(|a| (a.id.clone(), a.access_token.clone())).and_then(
+                |(id, _)| self.credentials(&id),
+            ))
+    }
+}
+
+/// One account as the frontend sees it: everything but the tokens.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountInfo {
+    pub id: String,
+    pub login: String,
+    /// What this account's token actually allows.
+    pub scopes: Vec<String>,
 }
 
 /// What the UI needs to know about the auth state.
@@ -75,10 +146,11 @@ pub struct AuthStatus {
     /// The override in force, if any. `None` means the compiled-in Client ID,
     /// which is the normal case.
     pub client_id_override: Option<String>,
-    pub logged_in: bool,
-    pub login: Option<String>,
-    /// What the current token actually allows. Empty when signed out.
-    pub scopes: Vec<String>,
+    /// Every signed-in account. Empty is the ordinary signed-out state, where
+    /// every tab reads anonymously.
+    pub accounts: Vec<AccountInfo>,
+    /// Which account new tabs get.
+    pub default_account: String,
     /// The optional permission groups the next sign-in will ask for.
     pub permission_groups: Vec<String>,
     /// The groups themselves -- ids, labels and what each one is for. Static,
@@ -87,21 +159,15 @@ pub struct AuthStatus {
     pub permission_catalog: &'static [crate::auth::PermissionGroup],
 }
 
-/// Per-channel caches. `ready` gates message rendering until emotes land.
+/// What a channel is, as opposed to what an account is doing in it: the room
+/// id, and the emotes and badges every account watching it renders with.
 #[derive(Debug, Default)]
 pub struct ChannelData {
     pub room_id: Option<String>,
-    pub ready: bool,
-    /// What we are here, from our own USERSTATE. Decides which commands the
-    /// picker offers -- there's no Helix endpoint that answers "am I a mod in
-    /// this channel", so this tag is the only source.
-    pub role: crate::irc::parse::ChannelRole,
-    /// Messages received before the emote/badge fetch finished.
-    pub pending: Vec<IrcMessage>,
+    /// Whether the emote and badge sets have landed. Fetched once per channel
+    /// however many accounts are in it -- they're the same sets either way.
+    pub assets_ready: bool,
     pub emotes: HashMap<String, Emote>,
-    /// Twitch's own emotes for this channel -- completion fodder, deliberately
-    /// not part of `emotes` (see `twitch::emotes`).
-    pub twitch_emotes: Vec<TwitchEmote>,
     pub badges: BadgeMap,
 }
 
@@ -113,13 +179,22 @@ pub struct AppState {
     /// The client link previews use. Separate from `http` because it's the one
     /// that goes wherever a chatter pointed it -- see `linkinfo`.
     pub link_http: reqwest::Client,
-    pub commands: RwLock<Option<mpsc::UnboundedSender<IrcCommand>>>,
-    /// Joined channels, lowercase, in tab order.
-    pub channels: RwLock<Vec<String>>,
+    /// One socket per account with a tab open, keyed by account id
+    /// (`ANONYMOUS` for the signed-out one). IRC authenticates per connection,
+    /// so reading as two accounts at once is two connections -- there is no
+    /// way to do it on one.
+    pub connections: RwLock<HashMap<String, Connection>>,
+    /// The open tabs, in bar order. The app's list of what exists: which
+    /// channels to be in, and as whom, both fall out of it.
+    pub tabs: RwLock<Vec<Tab>>,
     pub data: RwLock<HashMap<String, ChannelData>>,
+    /// What each account is doing in each channel it's in.
+    pub sessions: RwLock<HashMap<SessionKey, Session>>,
     pub global_emotes: RwLock<HashMap<String, Emote>>,
-    /// Twitch's global emotes, same shape as `ChannelData::twitch_emotes`.
-    pub twitch_global_emotes: RwLock<Vec<TwitchEmote>>,
+    /// Twitch's global emotes per account, same shape as
+    /// `Session::twitch_emotes` -- they include what that account subscribes
+    /// to, so they're no more shared than a channel's are.
+    pub twitch_global_emotes: RwLock<HashMap<String, Vec<TwitchEmote>>>,
     pub global_badges: RwLock<BadgeMap>,
     /// 7TV badges by Twitch user id, for the chatters we've resolved so far.
     /// Sent to the frontend as they land rather than baked into a message:
@@ -144,6 +219,10 @@ pub struct AppState {
     /// Kicks the live poller off its interval, so a channel you just joined
     /// gets its dot now rather than up to a poll period later.
     pub live_poll: tokio::sync::Notify,
+    /// Where rendered messages go, once `setup` has built the batcher. Held
+    /// here because connections are spawned on demand, from wherever a tab
+    /// changed, rather than only at startup.
+    pub sink: RwLock<Option<crate::irc::client::MessageSink>>,
     /// Tells the whisper socket its credentials changed: it drops the
     /// connection and comes back with the new token, or idles here when
     /// there's no longer one to listen with.
@@ -161,11 +240,12 @@ impl AppState {
         Self {
             http,
             link_http: crate::linkinfo::build_client(),
-            commands: RwLock::new(None),
-            channels: RwLock::new(Vec::new()),
+            connections: RwLock::new(HashMap::new()),
+            tabs: RwLock::new(Vec::new()),
             data: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
             global_emotes: RwLock::new(HashMap::new()),
-            twitch_global_emotes: RwLock::new(Vec::new()),
+            twitch_global_emotes: RwLock::new(HashMap::new()),
             global_badges: RwLock::new(BadgeMap::new()),
             seventv_badges: RwLock::new(HashMap::new()),
             seventv_badges_asked: RwLock::new(HashSet::new()),
@@ -174,6 +254,7 @@ impl AppState {
             preferences: RwLock::new(crate::settings::Preferences::default()),
             auth: RwLock::new(Auth::default()),
             live: RwLock::new(HashSet::new()),
+            sink: RwLock::new(None),
             live_poll: tokio::sync::Notify::new(),
             eventsub_restart: tokio::sync::Notify::new(),
         }
@@ -194,21 +275,52 @@ impl AppState {
         }
     }
 
-    pub fn send(&self, command: IrcCommand) {
-        if let Some(tx) = self.commands.read().as_ref() {
-            let _ = tx.send(command);
+    /// Tell one account's connection something, if it has one.
+    pub fn send(&self, account: &str, command: IrcCommand) {
+        if let Some(connection) = self.connections.read().get(account) {
+            let _ = connection.commands.send(command);
         }
     }
 
-    /// Every emote completable in a channel: the 7TV global and channel sets
-    /// plus, when signed in, Twitch's global and channel emotes.
-    pub fn emote_entries(&self, channel: &str) -> Vec<EmoteEntry> {
+    /// Every channel any tab is reading, however many accounts are in each.
+    pub fn open_channels(&self) -> HashSet<String> {
+        self.tabs
+            .read()
+            .iter()
+            .filter(|tab| tab.is_channel())
+            .map(|tab| tab.channel.clone())
+            .collect()
+    }
+
+    /// What each account needs to be in, from the tabs alone. The one place
+    /// connections are derived from tabs; `client::sync` acts on the result.
+    pub fn wanted(&self) -> HashMap<String, HashSet<String>> {
+        let mut wanted: HashMap<String, HashSet<String>> = HashMap::new();
+        for tab in self.tabs.read().iter() {
+            // A mentions tab joins nothing, but it still needs its account's
+            // socket up: whispers arrive on it and land there.
+            let channels = wanted.entry(tab.account.clone()).or_default();
+            if tab.is_channel() {
+                channels.insert(tab.channel.clone());
+            }
+        }
+        wanted
+    }
+
+    /// Every emote completable in a channel as one account: the 7TV global and
+    /// channel sets, plus that account's own Twitch emotes when signed in.
+    pub fn emote_entries(&self, account: &str, channel: &str) -> Vec<EmoteEntry> {
         let mut entries: Vec<EmoteEntry> =
             self.global_emotes.read().values().map(EmoteEntry::from_emote).collect();
-        entries.extend(self.twitch_global_emotes.read().iter().map(EmoteEntry::from_twitch));
+        if let Some(globals) = self.twitch_global_emotes.read().get(account) {
+            entries.extend(globals.iter().map(EmoteEntry::from_twitch));
+        }
         if let Some(data) = self.data.read().get(channel) {
             entries.extend(data.emotes.values().map(EmoteEntry::from_emote));
-            entries.extend(data.twitch_emotes.iter().map(EmoteEntry::from_twitch));
+        }
+        if let Some(session) = self.sessions.read().get(&(account.to_string(), channel.to_string()))
+        {
+            entries.extend(session.twitch_emotes.iter().map(EmoteEntry::from_twitch));
         }
         sort_and_dedupe(entries)
     }
@@ -222,9 +334,9 @@ impl AppState {
         if self.global_emotes.read().is_empty() {
             return false;
         }
-        let channels = self.channels.read();
+        let channels = self.open_channels();
         let data = self.data.read();
-        channels.iter().all(|channel| data.get(channel).is_some_and(|c| c.ready))
+        channels.iter().all(|channel| data.get(channel).is_some_and(|c| c.assets_ready))
     }
 
     /// Cache keys for every emote image worth keeping on disk: the ones
@@ -232,12 +344,14 @@ impl AppState {
     pub fn active_cache_keys(&self) -> HashSet<String> {
         let mut keys: HashSet<String> =
             self.global_emotes.read().values().map(|e| cache_key(e.provider, &e.id)).collect();
-        keys.extend(
-            self.twitch_global_emotes.read().iter().map(|e| cache_key("twitch", &e.id)),
-        );
+        for globals in self.twitch_global_emotes.read().values() {
+            keys.extend(globals.iter().map(|e| cache_key("twitch", &e.id)));
+        }
         for data in self.data.read().values() {
             keys.extend(data.emotes.values().map(|e| cache_key(e.provider, &e.id)));
-            keys.extend(data.twitch_emotes.iter().map(|e| cache_key("twitch", &e.id)));
+        }
+        for session in self.sessions.read().values() {
+            keys.extend(session.twitch_emotes.iter().map(|e| cache_key("twitch", &e.id)));
         }
         keys
     }
@@ -245,9 +359,9 @@ impl AppState {
     /// Count emotes that went out in a message. Names we don't recognize are
     /// ignored, so the persisted map only ever holds real emotes. Returns
     /// whether anything changed, i.e. whether settings need rewriting.
-    pub fn record_emote_uses(&self, channel: &str, names: &[String]) -> bool {
+    pub fn record_emote_uses(&self, account: &str, channel: &str, names: &[String]) -> bool {
         let known: HashSet<String> =
-            self.emote_entries(channel).into_iter().map(|entry| entry.name).collect();
+            self.emote_entries(account, channel).into_iter().map(|entry| entry.name).collect();
         let mut uses = self.emote_uses.write();
         let mut changed = false;
         for name in names.iter().filter(|name| known.contains(*name)) {
@@ -262,9 +376,16 @@ impl AppState {
         AuthStatus {
             has_client_id: auth.client_id().is_some(),
             client_id_override: auth.client_id_override.clone(),
-            logged_in: auth.access_token.is_some(),
-            login: auth.login.clone(),
-            scopes: auth.scopes.clone(),
+            accounts: auth
+                .accounts
+                .iter()
+                .map(|account| AccountInfo {
+                    id: account.id.clone(),
+                    login: account.login.clone(),
+                    scopes: account.scopes.clone(),
+                })
+                .collect(),
+            default_account: auth.default_account.clone(),
             permission_groups: auth.permission_groups.clone(),
             permission_catalog: crate::auth::PERMISSION_GROUPS,
         }
@@ -402,12 +523,36 @@ mod tests {
         assert!(converted.url.contains("/25/"), "built from the id: {}", converted.url);
     }
 
+    fn channel_tab(id: &str, channel: &str, account: &str) -> Tab {
+        Tab {
+            id: id.to_string(),
+            kind: "channel".to_string(),
+            channel: channel.to_string(),
+            account: account.to_string(),
+        }
+    }
+
+    fn account(id: &str, login: &str) -> Account {
+        Account {
+            id: id.to_string(),
+            login: login.to_string(),
+            access_token: format!("token-{id}"),
+            refresh_token: format!("refresh-{id}"),
+            scopes: vec!["chat:read".to_string()],
+        }
+    }
+
     #[test]
     fn cache_keys_cover_every_joined_channel() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().push(kappa());
-        state.data.write().entry("forsen".to_string()).or_default().twitch_emotes =
-            vec![TwitchEmote { id: "99".to_string(), name: "forsenE".to_string() }];
+        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        state.sessions.write().insert(
+            (ANONYMOUS.to_string(), "forsen".to_string()),
+            Session {
+                twitch_emotes: vec![TwitchEmote { id: "99".to_string(), name: "forsenE".to_string() }],
+                ..Session::default()
+            },
+        );
 
         let keys = state.active_cache_keys();
         assert!(keys.contains("twitch-25"), "globals stay cached");
@@ -418,51 +563,93 @@ mod tests {
     fn emote_sets_are_not_loaded_until_every_channel_has_landed() {
         let state = AppState::new();
         state.global_emotes.write().insert("Clap".to_string(), sample_emote());
-        state.channels.write().push("forsen".to_string());
-        state.channels.write().push("nymn".to_string());
+        state.tabs.write().push(channel_tab("1", "forsen", ANONYMOUS));
+        state.tabs.write().push(channel_tab("2", "nymn", ANONYMOUS));
         {
             let mut data = state.data.write();
-            data.entry("forsen".to_string()).or_default().ready = true;
+            data.entry("forsen".to_string()).or_default().assets_ready = true;
             data.entry("nymn".to_string()).or_default();
         }
         assert!(!state.emote_sets_are_loaded(), "nymn is still fetching");
 
-        state.data.write().entry("nymn".to_string()).or_default().ready = true;
+        state.data.write().entry("nymn".to_string()).or_default().assets_ready = true;
+        assert!(state.emote_sets_are_loaded());
+    }
+
+    /// The same channel open twice is one channel to fetch, not two -- the
+    /// sets belong to the room, not to the account reading it.
+    #[test]
+    fn a_channel_open_under_two_accounts_is_loaded_once() {
+        let state = AppState::new();
+        state.global_emotes.write().insert("Clap".to_string(), sample_emote());
+        state.tabs.write().push(channel_tab("1", "forsen", "111"));
+        state.tabs.write().push(channel_tab("2", "forsen", "222"));
+        state.data.write().entry("forsen".to_string()).or_default().assets_ready = true;
+
+        assert_eq!(state.open_channels().len(), 1);
         assert!(state.emote_sets_are_loaded());
     }
 
     #[test]
     fn emote_sets_are_not_loaded_without_the_global_set() {
         let state = AppState::new();
-        state.channels.write().push("forsen".to_string());
-        state.data.write().entry("forsen".to_string()).or_default().ready = true;
+        state.tabs.write().push(channel_tab("1", "forsen", ANONYMOUS));
+        state.data.write().entry("forsen".to_string()).or_default().assets_ready = true;
         assert!(!state.emote_sets_are_loaded(), "the global set is still fetching");
+    }
+
+    /// Every account needs its own socket, and a mentions tab needs one too --
+    /// it joins nothing, but whispers arrive on that connection.
+    #[test]
+    fn connections_are_wanted_per_account() {
+        let state = AppState::new();
+        state.tabs.write().push(channel_tab("1", "forsen", "111"));
+        state.tabs.write().push(channel_tab("2", "forsen", "222"));
+        state.tabs.write().push(channel_tab("3", "nymn", "111"));
+        state.tabs.write().push(Tab {
+            id: "4".to_string(),
+            kind: "mentions".to_string(),
+            channel: String::new(),
+            account: "333".to_string(),
+        });
+
+        let wanted = state.wanted();
+        assert_eq!(wanted.len(), 3);
+        assert_eq!(wanted["111"].len(), 2, "both channels on one socket");
+        assert_eq!(wanted["222"], HashSet::from(["forsen".to_string()]));
+        assert!(wanted["333"].is_empty(), "a mentions tab joins nothing");
     }
 
     #[test]
     fn only_known_emotes_are_counted() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().push(kappa());
-        assert!(state.record_emote_uses("forsen", &owned(&["Kappa", "definitely not an emote"])));
+        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        assert!(state.record_emote_uses(
+            ANONYMOUS,
+            "forsen",
+            &owned(&["Kappa", "definitely not an emote"])
+        ));
 
         let uses = state.emote_uses.read();
         assert_eq!(uses.get("Kappa"), Some(&1));
         assert_eq!(uses.len(), 1, "unknown words never enter the map");
     }
 
+    /// The ranking is shared across accounts, like every other preference --
+    /// what you type is what you type, whoever you're typing it as.
     #[test]
     fn repeated_uses_accumulate() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().push(kappa());
-        state.record_emote_uses("forsen", &owned(&["Kappa", "Kappa"]));
-        state.record_emote_uses("forsen", &owned(&["Kappa"]));
+        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        state.record_emote_uses(ANONYMOUS, "forsen", &owned(&["Kappa", "Kappa"]));
+        state.record_emote_uses(ANONYMOUS, "forsen", &owned(&["Kappa"]));
         assert_eq!(state.emote_uses.read().get("Kappa"), Some(&3));
     }
 
     #[test]
     fn a_message_with_no_known_emotes_needs_no_save() {
         let state = AppState::new();
-        assert!(!state.record_emote_uses("forsen", &owned(&["hello", "chat"])));
+        assert!(!state.record_emote_uses(ANONYMOUS, "forsen", &owned(&["hello", "chat"])));
     }
 
     #[test]
@@ -485,17 +672,53 @@ mod tests {
     }
 
     #[test]
-    fn credentials_need_both_an_id_and_a_token() {
-        let mut auth = Auth {
+    fn credentials_are_per_account_and_anonymous_has_none() {
+        let auth = Auth {
             client_id_override: Some("id".to_string()),
+            accounts: vec![account("111", "first"), account("222", "second")],
             ..Auth::default()
         };
-        assert!(auth.credentials().is_none(), "no token yet");
 
-        auth.access_token = Some("token".to_string());
-        let (client_id, token) = auth.credentials().expect("both halves present");
-        assert_eq!(token, "token");
+        let (client_id, token) = auth.credentials("222").expect("both halves present");
+        assert_eq!(token, "token-222");
         assert_eq!(Some(client_id.as_str()), auth.client_id());
+        assert!(auth.credentials(ANONYMOUS).is_none(), "anonymous holds no token");
+        assert!(auth.credentials("nobody").is_none(), "an unknown id is not an account");
+    }
+
+    /// Asking Twitch who's live, or for a badge image, doesn't care which
+    /// login asks -- so those calls keep working while a tab is anonymous.
+    #[test]
+    fn any_credentials_prefers_the_default_account() {
+        let auth = Auth {
+            accounts: vec![account("111", "first"), account("222", "second")],
+            default_account: "222".to_string(),
+            ..Auth::default()
+        };
+        assert_eq!(auth.any_credentials().map(|(_, token)| token), Some("token-222".to_string()));
+
+        let auth = Auth { default_account: ANONYMOUS.to_string(), ..auth };
+        assert_eq!(
+            auth.any_credentials().map(|(_, token)| token),
+            Some("token-111".to_string()),
+            "with no default, the first account answers"
+        );
+    }
+
+    /// Scopes are granted per token, so one account being allowed to time
+    /// people out says nothing about another.
+    #[test]
+    fn scopes_are_held_per_account() {
+        let mut privileged = account("222", "second");
+        privileged.scopes.push("moderator:manage:banned_users".to_string());
+        let auth = Auth {
+            accounts: vec![account("111", "first"), privileged],
+            ..Auth::default()
+        };
+
+        assert!(auth.has_scope("222", "moderator:manage:banned_users"));
+        assert!(!auth.has_scope("111", "moderator:manage:banned_users"));
+        assert!(!auth.has_scope(ANONYMOUS, "chat:read"));
     }
 }
 

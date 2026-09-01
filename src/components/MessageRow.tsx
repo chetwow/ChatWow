@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useRef, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
-import { useChat } from "../store/chat";
+import { loginOf, useChat } from "../store/chat";
 import { isAboutYou, repliesToYou } from "../lib/mentions";
 import { mentionIgnored, userBlocked } from "../lib/ignores";
 import { isBlacklisted } from "../lib/emoteBlacklist";
@@ -398,7 +398,9 @@ function MessageRowInner({
   onChannelClick?: (channel: string) => void;
 }) {
   const time = timeOf(message.ts);
-  const myLogin = useChat((state) => state.auth.login);
+  // Who "you" are for this row: the account whose connection received it, not
+  // the app's -- the same message in the tab beside this one may name nobody.
+  const myLogin = useChat((state) => loginOf(state, message.account));
   // Read from the store rather than passed down: this component is memoized on
   // message identity, and the messages already on screen are immutable, so a
   // prop would never reach a row that's already rendered. Same reason

@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useChat } from "../store/chat";
+import { connectionState, useChat } from "../store/chat";
 import { IS_TAURI } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
+import type { AuthStatus } from "../types";
 
 const DOT: Record<string, string> = {
   connected: "bg-emerald-400",
@@ -144,8 +145,20 @@ function SplitButton() {
   );
 }
 
+/**
+ * What the account button says. One account is named; several are counted,
+ * since no single one of them is "the" account any more and the list is a
+ * click away.
+ */
+function accountLabel(auth: AuthStatus): string {
+  if (auth.accounts.length === 0) return "Sign in";
+  if (auth.accounts.length === 1) return `@${auth.accounts[0].login}`;
+  return `${auth.accounts.length} accounts`;
+}
+
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
-  const connection = useChat((state) => state.connection);
+  // One socket per account, so the dot shows the worst of them.
+  const connection = useChat(connectionState);
   const auth = useChat((state) => state.auth);
 
   return (
@@ -193,7 +206,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         onClick={() => onOpenSettings("account")}
         className="mr-1 rounded px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
       >
-        {auth.loggedIn ? `@${auth.login}` : "Sign in"}
+        {accountLabel(auth)}
       </button>
 
       <ControlButton onClick={() => void getCurrentWindow().minimize()} label="Minimize">

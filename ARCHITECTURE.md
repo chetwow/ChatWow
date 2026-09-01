@@ -166,32 +166,34 @@ Audio API rather than shipping an audio file). Your own messages never match, so
 name doesn't light up the line you just sent. One batch of messages pings at most once, and no
 more often than every 1.5s.
 
-Mentions are counted per channel alongside unread, and a tab holding any turns its unread badge
+Mentions are counted per tab alongside unread, and a tab holding any turns its unread badge
 from accent to rose. The badge only changes color, never size -- see below.
 
 `isAboutYou` in [src/lib/mentions.ts](src/lib/mentions.ts) is the single answer to "is chat
 talking to me": named, or replied to, and never your own message. The row highlight and the
 mentions tab below both read it, so a message can't be one and not the other.
 
+Which "me" is the tab's, not the app's: it takes the login of the account that tab reads as, so
+the same message highlights in one tab and passes unremarked in the one beside it on the same
+channel. That's also why it lives in the frontend rather than in `render.rs` -- it depends on
+who's signed in, which changes without the already-resolved backlog being rebuilt.
+
 ## The mentions tab
 
-An optional tab that isn't a channel: everything addressed to you, from everywhere, in one list.
-Opened from the join dialog (which offers it whenever it isn't already open and nothing has been
-typed) and persisted as the `mentionsTab` preference, so it survives a restart.
+A tab that isn't a channel: everything addressed to one account, from everywhere, in one list.
+Opened from the join dialog (which offers it whenever the account you're joining as hasn't got
+one and nothing has been typed) and stored in `tabs` like any other, so it survives a restart.
 
-Its key is `MENTIONS_TAB` -- the string `@mentions`. `@` is illegal in a Twitch login, so the
-sentinel can never collide with a real channel, which is what lets it share `active`, `unread`
-and `mentions` with the channels and behave like an ordinary tab everywhere those are read:
-selecting it clears its counts, its badge is drawn by the same code, `Ctrl+W` closes it through
-the same `part` call. It is deliberately *not* in `channels` -- that list is the backend's, and a
-name in it would be something to join, part and reorder.
+It's an ordinary `Tab` with `kind: "mentions"` and an empty channel -- not a sentinel key beside
+the real ones. That's what lets it share `active`, `unread`, `mentions` and the whole tab bar
+with the channel tabs and behave like one everywhere those are read: selecting it clears its
+counts, its badge is drawn by the same code, dragging and wrapping measure it like any other,
+`Ctrl+W` closes it through the same call. The only thing it does differently is render
+`mentionLog[account]` instead of `messages[id]`, and have no composer -- there's no one room a
+message typed into it would belong to.
 
-It's an ordinary tab in the row, not a pinned one: it drags anywhere, and where it ended up is
-the `mentionsTabIndex` preference. The tab bar folds the sentinel into `tabList` at that index
-and measures, wraps, drags and scroll-checks over that rather than `channels`, so nothing in the
-layout has to know it's there. A drop is handled entirely in `tabList` terms and only split
-apart on the way out: the channel order goes to the backend, the sentinel's new index goes to
-the preferences, and only the one that actually moved is written.
+There is one per account, because a mention is addressed to a login: what names one of yours
+names only that one. Two accounts, two possible mentions tabs, each collecting its own.
 
 One exemption: the rose bar at a scrolled-off edge skips it. That bar means "something past this
 edge named you", and pointing at the tab those are already gathered in says nothing you didn't
@@ -271,34 +273,86 @@ channels have mentions rather than on the mentions map, which is a fresh object 
 ([`macos_menu`](src-tauri/src/lib.rs)): Tauri's default menu binds `Cmd+W` to Close Window, and
 a menu key equivalent is matched before the keystroke ever reaches the webview.
 
+## Accounts and tabs
+
+Several Twitch accounts can be signed in at once, and **a tab picks one**. That single
+sentence is what re-keys the app: the same channel can be open twice under two logins, so a
+channel name no longer identifies a view. A `settings::Tab` -- `{ id, kind, channel, account }`
+-- does, and everything kept per view (messages, unread, scroll position, sent history,
+completable emotes, role) is keyed by its id. `channel` still keys what belongs to the *room*:
+emote sets, badge sets, room id, who's live.
+
+`Settings::tabs` is the whole list, in bar order, and it's what the connections are derived
+from. `AppState::wanted` reduces it to "which account needs to be in which channels", and
+`client::sync` makes that true: it spawns a socket per account, sends the joins and parts that
+differ, drops sockets nothing wants any more, and forgets the sessions and channel data that
+went with them. Every tab change ends there, so nothing else has to reason about connections.
+
+Two sockets rather than one because **IRC authenticates per connection** -- the login *is* the
+connection, and there is no way to read as two accounts on one. Whispers are the same story for
+the same reason: `user.whisper.message` is a subscription made with one token, so there's an
+EventSub socket per account too. Every message the backend renders is stamped with the account
+whose socket received it (`ChatMessage::account`), and that stamp is what routes it to a tab:
+with a channel open twice, the two copies are otherwise identical.
+
+What was one question is now two:
+
+- **A channel's assets are fetched once; a session's are per account.** The emote and badge sets
+  belong to the room. The backlog, the messages buffered while joining, the Twitch emotes this
+  login owns (subscriber emotes) and the `USERSTATE` role belong to `state::Session`, keyed by
+  (account, channel) -- a second account joining a room the first is already in still needs all
+  of them.
+- **"Is this about me?" is per tab.** `isAboutYou` takes the login the tab reads as, so the same
+  message highlights in one tab and not in the one beside it. Mention logs are per account for
+  the same reason, which is why a mentions tab belongs to an account like any other tab.
+
+Calls that ask Twitch about the *world* rather than about you -- badge images, who's live,
+channel search, a link preview -- go through `Auth::any_credentials` instead: any token answers
+them identically, so needing a particular one would mean losing them the moment a tab went
+anonymous. Sending, slash commands and emote completion use `Auth::credentials(account)`, since
+those are about you and about which of you.
+
+Anonymous (`settings::ANONYMOUS`, the empty id) is a first-class account rather than a failure.
+It's how the app works before you ever sign in, it stays a per-tab choice afterwards, and it's
+where a tab lands when its account is signed out -- the tab keeps reading and loses its composer,
+which beats losing the channels you had open.
+
+Scopes are granted per token, at sign-in, and can't be escalated afterwards
+([Permissions and scopes](#permissions-and-scopes)) -- so `permission_groups` (what the next
+sign-in asks for) is shared, while `Account::scopes` (what this one got) is not. The command
+picker asks per tab, and two tabs on the same channel can genuinely offer different commands.
+
+An older `settings.json` is migrated on load (`settings::migrate`): one account's tokens become
+the first entry in `accounts`, the channel list becomes a tab each, and the mentions tab -- three
+preferences before this -- becomes a tab where those three described. The keys it reads are
+`skip_serializing`, so they survive exactly long enough to be migrated and leave the file on the
+next save.
+
 ## Split view
 
 The window holds one pane or two, never a tree of them: `splitLayout` is `none`, `row` or
 `column`, and `splitRatio` is the first pane's share of that axis. Both live in `Preferences`
 with everything else the user can set, so a split window comes back split.
 
-Which pane a channel is in is **one number**, `splitIndex`: how many of the leading `channels`
-belong to the first pane. `channels` stays the single record of what's joined and in what order
--- it's the backend's list, written by `reorder_channels` -- so dragging a tab across the
-divider is an ordinary move within it, and no channel can end up in both panes or in neither.
-A second list of names per pane would have to be reconciled against that one on every join,
-part and reorder; a boundary can't drift out of agreement with itself. The mentions tab is the
-exception that proves it: there's only one of it and it isn't in `channels`, so it needs
-`mentionsPane` alongside its index to say which row it sits in.
+Which pane a tab is in is **one number**, `splitIndex`: how many of the leading `tabs` belong to
+the first pane. `tabs` stays the single record of what's open and in what order -- it's the
+backend's list, written by `reorder_tabs` -- so dragging a tab across the divider is an ordinary
+move within it, and no tab can end up in both panes or in neither. A second list per pane would
+have to be reconciled against that one on every open, close and reorder; a boundary can't drift
+out of agreement with itself.
 
-`paneChannels`, `paneTabs` and `paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive
-everything from those pieces, and `commitTabs` writes a rearranged pair of tab lists back to
-them -- channel order to the backend, boundary and mentions placement to the preferences, each
-only if it actually changed. Every rearrangement (a drag across, a part, an unsplit) then runs
-`settleActive`, which corrects each pane's open tab against the tabs it actually holds rather
-than patching `active` by hand at each call site.
+`paneTabs` and `paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive everything from those
+pieces, and `commitTabs` writes a rearranged pair of tab lists back to them -- order to the
+backend, boundary to the preferences, each only if it actually changed. Every rearrangement (a
+drag across, a close, an unsplit) then runs `settleActive`, which corrects each pane's open tab
+against the tabs it actually holds rather than patching `active` by hand at each call site.
 
 `active` is therefore a pair, one tab per pane, and both are "what you're reading": a message
 that lands in either is one you can see, so neither counts as unread. `focusedPane` -- the pane
 you last clicked in, tracked by a capture-phase pointer handler on the pane wrapper -- is the
 narrower question of where a whisper is filed, what `Ctrl/Cmd+W` closes, and which half a newly
-joined channel drops into. A channel joined from the first pane arrives at the end of
-`channels`, which is the *second* pane, so `placeJoined` moves it back across.
+opened tab drops into. A tab opened from the first pane arrives at the end of `tabs`, which is
+the *second* pane, so `placeNewTab` moves it back across.
 
 Two panes mean two composers, and a composer reclaims focus on any keystroke anywhere in the
 window, so chat feels always-focused. Exactly one of them can be doing that,
@@ -606,10 +660,12 @@ caps were being inherited into whole sentences.
 | `src-tauri/src/linkinfo.rs` | Link previews: the fetch, the meta scan, the YouTube fields |
 | `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
-| `src-tauri/src/settings.rs` | `settings.json`: tokens, channels, emote counts, preferences |
+| `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
 | `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
 | `src/components/Panes.tsx` | One pane or two, the divider, and the empty-pane screen |
+| `src/components/AccountMenu.tsx` | The tab's (and composer's) right-click account picker |
+| `src/components/AccountPanel.tsx` | The accounts manager, permissions, and the Client ID |
 | `src/lib/commands.ts` | The command catalog the `/` picker reads |
 | `src/lib/emoteComplete.ts` | Completion cycling, picker search and ranking |
 | `src/lib/chatterComplete.ts` | Chatters seen this session, matched for `@` and Tab |

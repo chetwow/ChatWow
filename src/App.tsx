@@ -46,9 +46,9 @@ export default function App() {
         event.preventDefault();
         // The pane you were last in owns the shortcut -- closing the tab
         // you can see in the other one isn't what Ctrl+W means here.
-        const { active, focusedPane, part } = useChat.getState();
-        const channel = active[focusedPane];
-        if (channel) void part(channel);
+        const { active, focusedPane, closeTab } = useChat.getState();
+        const id = active[focusedPane];
+        if (id) void closeTab(id);
       }
     };
     window.addEventListener("keydown", onKey);

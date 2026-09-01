@@ -5,12 +5,15 @@ import type { AuthStatus } from "../types";
 function Row({
   match,
   auth,
+  account,
   selected,
   onHover,
   onPick,
 }: {
   match: CommandMatch;
   auth: AuthStatus;
+  /** Whose token decides whether this row is locked -- the tab's account. */
+  account: string;
   selected: boolean;
   onHover: () => void;
   onPick: () => void;
@@ -22,7 +25,7 @@ function Row({
     if (selected) row.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  const locked = problemLabel(match.command, auth);
+  const locked = problemLabel(match.command, auth, account);
 
   return (
     <button
@@ -65,12 +68,14 @@ function Row({
 export function CommandPicker({
   matches,
   auth,
+  account,
   selected,
   onSelect,
   onPick,
 }: {
   matches: CommandMatch[];
   auth: AuthStatus;
+  account: string;
   selected: number;
   onSelect: (index: number) => void;
   onPick: (match: CommandMatch) => void;
@@ -83,6 +88,7 @@ export function CommandPicker({
             key={match.name}
             match={match}
             auth={auth}
+            account={account}
             selected={index === selected}
             onHover={() => onSelect(index)}
             onPick={() => onPick(match)}

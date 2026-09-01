@@ -2,15 +2,20 @@
 //!
 //! Twitch doesn't deliver whispers over IRC at all -- receiving one means
 //! subscribing to `user.whisper.message` on an EventSub WebSocket, so this is a
-//! second socket running alongside the chat connection. It carries the sender
+//! second socket running alongside each chat connection. It carries the sender
 //! and the text and nothing else: no emote ranges, no badges, no color. What
 //! the text alone resolves to (7TV globals, links, mentions) comes through;
 //! the rest was never sent.
+//!
+//! A whisper is addressed to one account, so there is one of these per account
+//! that can carry one, and the message is stamped with whose it is on the way
+//! out -- that stamp is what puts it in that account's tabs and no others'.
 
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -99,6 +104,7 @@ fn now_ms() -> i64 {
 /// channel, so there's no channel set to shadow it with.
 fn build(
     state: &AppState,
+    account: &str,
     id: &str,
     user_id: &str,
     login: &str,
@@ -107,7 +113,9 @@ fn build(
 ) -> ChatMessage {
     let globals = state.global_emotes.read();
     let emotes = EmoteLookup { channel: None, global: &globals };
-    render::whisper(id, user_id, login, name, text, now_ms(), &emotes)
+    let mut message = render::whisper(id, user_id, login, name, text, now_ms(), &emotes);
+    message.account = account.to_string();
+    message
 }
 
 async fn subscribe(
@@ -145,6 +153,7 @@ async fn subscribe(
 async fn connect_once(
     state: &Arc<AppState>,
     sink: &MessageSink,
+    account: &str,
     url: &str,
     resuming: bool,
     client_id: &str,
@@ -154,66 +163,46 @@ async fn connect_once(
     let (stream, _) = connect_async(url).await?;
     let (mut write, mut read) = stream.split();
 
+    // No restart signal to watch here: the supervisor below owns that, and
+    // drops this task outright when the accounts change. One shared notify
+    // can't wake several sockets anyway.
     loop {
-        tokio::select! {
-            // The token changed under us. Reconnecting is the whole response:
-            // the subscription belongs to the old one.
-            _ = state.eventsub_restart.notified() => return Ok(None),
-            frame = read.next() => {
-                let Some(frame) = frame else { return Ok(None) };
-                match frame? {
-                    Message::Text(text) => match classify(&text) {
-                        Incoming::Welcome(session) => {
-                            // A reconnect url brings its own welcome and keeps
-                            // the subscriptions, so only a fresh session has
-                            // anything to ask for.
-                            if !resuming {
-                                subscribe(state, client_id, token, user_id, &session).await?;
-                            }
-                        }
-                        Incoming::Reconnect(next) => return Ok(Some(next)),
-                        Incoming::Whisper { id, from_id, from_login, from_name, text } => {
-                            state.queue_badge_lookup(&from_id);
-                            let _ =
-                                sink.send(build(state, &id, &from_id, &from_login, &from_name, &text));
-                        }
-                        Incoming::Ignored => {}
-                    },
-                    Message::Ping(payload) => write.send(Message::Pong(payload)).await?,
-                    Message::Close(_) => return Ok(None),
-                    _ => {}
+        let Some(frame) = read.next().await else { return Ok(None) };
+        match frame? {
+            Message::Text(text) => match classify(&text) {
+                Incoming::Welcome(session) => {
+                    // A reconnect url brings its own welcome and keeps the
+                    // subscriptions, so only a fresh session has anything to
+                    // ask for.
+                    if !resuming {
+                        subscribe(state, client_id, token, user_id, &session).await?;
+                    }
                 }
-            }
+                Incoming::Reconnect(next) => return Ok(Some(next)),
+                Incoming::Whisper { id, from_id, from_login, from_name, text } => {
+                    state.queue_badge_lookup(&from_id);
+                    let _ = sink
+                        .send(build(state, account, &id, &from_id, &from_login, &from_name, &text));
+                }
+                Incoming::Ignored => {}
+            },
+            Message::Ping(payload) => write.send(Message::Pong(payload)).await?,
+            Message::Close(_) => return Ok(None),
+            _ => {}
         }
     }
 }
 
-/// Keep a whisper socket up for as long as there's a token that can carry one.
-///
-/// Signed out -- or signed in without the whisper scope, which a token issued
-/// by an older build won't have -- this idles on the restart signal rather than
-/// retrying, since nothing but a sign-in can change the answer.
-pub async fn run(state: Arc<AppState>, sink: MessageSink) {
+/// Keep one account's whisper socket up for as long as its token can carry one.
+async fn run_account(state: Arc<AppState>, sink: MessageSink, account: String) {
     let mut backoff_secs = 1u64;
     let mut resume: Option<String> = None;
 
     loop {
-        let credentials = {
-            let auth = state.auth.read();
-            match (auth.credentials(), auth.user_id.clone()) {
-                (Some((client_id, token)), Some(user_id))
-                    if WHISPER_SCOPES.iter().any(|scope| auth.has_scope(scope)) =>
-                {
-                    Some((client_id, token, user_id))
-                }
-                _ => None,
-            }
-        };
-
-        let Some((client_id, token, user_id)) = credentials else {
-            state.eventsub_restart.notified().await;
-            resume = None;
-            continue;
+        // Re-read every time round: a refresh mid-session replaces the token
+        // under us, and the next connection should use the new one.
+        let Some((client_id, token)) = ({ state.auth.read().credentials(&account) }) else {
+            return;
         };
 
         let (url, resuming) = match resume.take() {
@@ -221,19 +210,64 @@ pub async fn run(state: Arc<AppState>, sink: MessageSink) {
             None => (WS_URL.to_string(), false),
         };
 
-        match connect_once(&state, &sink, &url, resuming, &client_id, &token, &user_id).await {
+        match connect_once(&state, &sink, &account, &url, resuming, &client_id, &token, &account)
+            .await
+        {
             Ok(Some(next)) => {
                 resume = Some(next);
                 backoff_secs = 1;
                 continue;
             }
             Ok(None) => backoff_secs = 1,
-            Err(error) => eprintln!("whisper socket: {error}"),
+            Err(error) => eprintln!("whisper socket ({account}): {error}"),
         }
 
         let jitter = rand::thread_rng().gen_range(0..500);
         tokio::time::sleep(Duration::from_millis(backoff_secs * 1000 + jitter)).await;
         backoff_secs = (backoff_secs * 2).min(30);
+    }
+}
+
+/// A whisper socket per account that can carry one, kept in step with the
+/// accounts themselves.
+///
+/// The restart signal is handled here rather than inside each socket: one
+/// `Notify` wakes one waiter, so several sockets can't share it. When accounts
+/// change, every socket is dropped and the ones still wanted come back -- which
+/// is also what a token refresh needs, the subscription belonging to the token
+/// that made it.
+///
+/// Signed out -- or signed in without the whisper scope, which a token issued
+/// by an older build won't have -- there's simply nothing to run, and this
+/// waits: nothing but a sign-in can change the answer.
+pub async fn run(state: Arc<AppState>, sink: MessageSink) {
+    loop {
+        let wanted: HashSet<String> = {
+            let auth = state.auth.read();
+            auth.accounts
+                .iter()
+                .filter(|account| {
+                    WHISPER_SCOPES.iter().any(|scope| auth.has_scope(&account.id, scope))
+                })
+                .map(|account| account.id.clone())
+                .collect()
+        };
+
+        let running: Vec<_> = wanted
+            .into_iter()
+            .map(|account| {
+                tauri::async_runtime::spawn(run_account(
+                    Arc::clone(&state),
+                    sink.clone(),
+                    account,
+                ))
+            })
+            .collect();
+
+        state.eventsub_restart.notified().await;
+        for handle in running {
+            handle.abort();
+        }
     }
 }
 

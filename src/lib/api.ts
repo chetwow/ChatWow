@@ -6,6 +6,7 @@ import type {
   EmoteIndex,
   LinkPreview,
   Preferences,
+  Tab,
   UserCard,
 } from "../types";
 
@@ -23,25 +24,33 @@ export const api = {
   /** Which optional permission groups the next sign-in asks Twitch for. */
   setPermissionGroups: (groups: string[]) =>
     invoke<AuthStatus>("set_permission_groups", { groups }),
-  logout: () => invoke<AuthStatus>("logout"),
-  listChannels: () => invoke<string[]>("list_channels"),
-  joinChannel: (channel: string) => invoke<string[]>("join_channel", { channel }),
-  partChannel: (channel: string) => invoke<string[]>("part_channel", { channel }),
-  reorderChannels: (channels: string[]) => invoke<string[]>("reorder_channels", { channels }),
-  sendMessage: (channel: string, text: string, replyToId?: string) =>
-    invoke<void>("send_message", { channel, text, replyToId }),
+  /** Signs one account out. Its tabs stay open and fall back to anonymous. */
+  removeAccount: (id: string) => invoke<AuthStatus>("remove_account", { id }),
+  /** Which account a newly opened tab reads as. */
+  setDefaultAccount: (id: string) => invoke<AuthStatus>("set_default_account", { id }),
+  listTabs: () => invoke<Tab[]>("list_tabs"),
+  /** The id is ours to mint, so a new view has a key before the round trip. */
+  addTab: (tab: Tab) => invoke<Tab[]>("add_tab", tab),
+  closeTab: (id: string) => invoke<Tab[]>("close_tab", { id }),
+  /** Read (and send) as a different account, keeping the tab and its messages. */
+  setTabAccount: (id: string, account: string) =>
+    invoke<Tab[]>("set_tab_account", { id, account }),
+  reorderTabs: (ids: string[]) => invoke<Tab[]>("reorder_tabs", { ids }),
+  sendMessage: (account: string, channel: string, text: string, replyToId?: string) =>
+    invoke<void>("send_message", { account, channel, text, replyToId }),
   /** Runs a slash command; resolves with the line to print into the channel. */
-  runChatCommand: (channel: string, input: string) =>
-    invoke<string>("run_chat_command", { channel, input }),
-  emoteIndex: (channel: string) => invoke<EmoteIndex>("emote_index", { channel }),
+  runChatCommand: (account: string, channel: string, input: string) =>
+    invoke<string>("run_chat_command", { account, channel, input }),
+  emoteIndex: (account: string, channel: string) =>
+    invoke<EmoteIndex>("emote_index", { account, channel }),
   /** Empty when signed out -- Helix has no unauthenticated channel search. */
   searchChannels: (query: string) => invoke<ChannelHit[]>("search_channels", { query }),
   /** Everything the card behind a clicked username shows. Works signed out. */
   userCard: (login: string, channel: string) => invoke<UserCard>("user_card", { login, channel }),
   /** What the page behind a link says about itself, or null when it says nothing. */
   linkPreview: (url: string) => invoke<LinkPreview | null>("link_preview", { url }),
-  recordEmoteUses: (channel: string, names: string[]) =>
-    invoke<void>("record_emote_uses", { channel, names }),
+  recordEmoteUses: (account: string, channel: string, names: string[]) =>
+    invoke<void>("record_emote_uses", { account, channel, names }),
   preferences: () => invoke<Preferences>("preferences"),
   setPreferences: (preferences: Preferences) =>
     invoke<Preferences>("set_preferences", { preferences }),

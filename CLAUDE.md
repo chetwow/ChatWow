@@ -250,17 +250,14 @@ to write `settings.json`.
   [src/components/ChatView.tsx](src/components/ChatView.tsx) observes the rows' wrapper with a
   `ResizeObserver` and re-pins once the real height lands; keep that if you touch the scroller or
   the row CSS.
-- **The mentions tab is a sentinel key, not a channel.** `MENTIONS_TAB` (`"@mentions"`, in
-  [src/store/chat.ts](src/store/chat.ts)) shares `active`, `unread` and `mentions` with the real
-  channels -- `@` is illegal in a Twitch login, so it can't collide -- which is what makes it
-  behave like an ordinary tab without a parallel set of state. It must never enter `channels`:
-  that array is the backend's, and anything in it is something to join, part and reorder. The tab
-  bar therefore measures over its own `tabList` -- the channels with the sentinel spliced in at
-  `mentionsTabIndex` -- and splits a drop back apart on the way out: channel order to the
-  backend, the sentinel's index to the preferences. `part` routes the sentinel to closing the tab
-  instead of leaving a channel. Its messages are appended to `mentionLog` in `ingest` as the
-  *same objects* their channel gets, so anything that rewrites a stored message (`clear`) has to
-  rewrite both copies or the two views disagree.
+- **A mentions tab is an ordinary tab with no channel, and there's one per account.** `kind:
+  "mentions"` with an empty `channel`, so it drags, closes and counts unread through exactly the
+  same code as a channel tab -- nothing in the tab bar or the panes knows it's different. It
+  renders `mentionLog[account]`, which `ingest` fills with the *same message objects* the channel
+  tabs get, so anything that rewrites a stored message (`clear`) has to rewrite both copies or
+  the two views disagree. Per account because a mention is addressed to a login: what names one
+  of yours names only that one. One exemption in the UI: the rose bar at a scrolled-off tab-bar
+  edge skips it, since pointing at the tab those are already gathered in says nothing new.
 - **Ignoring and blocking are matched in the frontend, like the emote blacklists and for the same
   reason** ([src/lib/ignores.ts](src/lib/ignores.ts)). Rust only persists the two lists. An
   ignored mention keeps its message but loses everything a *mention* has -- ping, count,
@@ -268,17 +265,51 @@ to write `settings.json`.
   all (`MessageRow` returns null). Blocking implies ignoring: a row that isn't drawn must not
   still be ringing a bell. Both are local; Twitch's own block needs a scope this app doesn't ask
   for and still delivers the messages over IRC, so it would need this half regardless.
-- **Which pane a channel is in is a boundary in `channels`, not a second list.** `splitIndex`
-  ([src-tauri/src/settings.rs](src-tauri/src/settings.rs)) counts the leading channels belonging
-  to the first pane, so `channels` stays the one record of what's joined and in what order and a
+- **A tab, not a channel, is the unit everything is keyed by.** Several accounts can be signed
+  in and each tab picks one, so the same channel can be open twice and a channel name no longer
+  identifies a view. `settings::Tab` (`id`, `kind`, `channel`, `account`) does: messages, unread,
+  scroll, sent history, completable emotes and role are all keyed by tab id, while emote sets,
+  badges, room id and live state stay keyed by channel because they belong to the *room*. Ids are
+  minted in the frontend so a new view has a key before the round trip.
+- **One IRC socket per account, and `client::sync` is the only thing that opens or closes one.**
+  IRC authenticates per connection -- the login *is* the connection -- so reading as two accounts
+  is two sockets, and whispers need one EventSub socket per account on top. Every tab change ends
+  at `sync` ([src-tauri/src/irc/client.rs](src-tauri/src/irc/client.rs)), which diffs
+  `AppState::wanted` against the live connections; don't join or part from anywhere else. Each
+  rendered message is stamped with the account whose socket received it (`ChatMessage::account`),
+  and that stamp is what routes it to a tab -- with a channel open twice the two copies are
+  otherwise identical.
+- **A channel's assets load once; a session's load per account.** `ChannelData` holds what
+  belongs to the room (emotes, badges, room id); `state::Session`, keyed by (account, channel),
+  holds what belongs to one login in it: `ready`, the pre-ready buffer, the `USERSTATE` role, and
+  that account's own Twitch emotes. A second account joining a room the first is already in still
+  needs its own backlog and its own `ready` -- don't collapse the two back together.
+- **Only `restore_session` may leave the sockets alone.** Re-validating a good token rewrites its
+  scopes and login, which is worth persisting but is *not* a credentials change -- reconnecting
+  the whisper socket every launch orphans its EventSub subscription, and three of those is
+  Twitch's limit for one type and condition, after which whispers silently stop. That's why
+  `changed` and `credentials_changed` are separate in
+  [src-tauri/src/lib.rs](src-tauri/src/lib.rs); this was a real bug.
+- **Anonymous is an account, not a failure.** `settings::ANONYMOUS` (the empty id) is how the app
+  works signed out, stays a per-tab choice afterwards, and is where a tab lands when its account
+  is signed out -- it keeps reading and loses its composer. Calls that ask Twitch about the world
+  (badge art, who's live, search, link previews) go through `Auth::any_credentials`, not the
+  tab's account, or a signed-in app would lose them the moment a tab went anonymous.
+- **Scopes are per account; what to *ask* for is shared.** `permission_groups` is one list for
+  the whole app (what the next sign-in requests), `Account::scopes` is what that token actually
+  got. `commandProblem`/`problemLabel`/`helpLines` ([src/lib/commands.ts](src/lib/commands.ts))
+  therefore all take an account, and two tabs on one channel can honestly offer different
+  commands.
+- **Which pane a tab is in is a boundary in `tabs`, not a second list.** `splitIndex`
+  ([src-tauri/src/settings.rs](src-tauri/src/settings.rs)) counts the leading tabs belonging to
+  the first pane, so `tabs` stays the one record of what's open and in what order and a
   cross-pane drag is a move within it -- nothing can land in both panes or neither. Derive with
-  `paneChannels`/`paneTabs`/`paneOf` and write back through `commitTabs`
-  ([src/store/chat.ts](src/store/chat.ts)); don't add a per-pane name list that then has to be
-  reconciled against `channels` on every join, part and reorder. The mentions tab needs
-  `mentionsPane` beside its index only because it isn't in `channels` and there's just one of it.
+  `paneTabs`/`paneOf` and write back through `commitTabs`
+  ([src/store/chat.ts](src/store/chat.ts)); don't add a per-pane list that then has to be
+  reconciled against `tabs` on every open, close and reorder.
   `active` is a pair, one tab per pane, and *both* count as "what you're reading" for unread and
   pings; `focusedPane` is the narrower question of where a whisper lands, what Ctrl+W closes, and
-  which half a join drops into.
+  which half a new tab drops into.
 - **Only one composer may listen for typing.** `Composer` reclaims focus on any keystroke in the
   window so chat feels always-focused, so in a split window two of them would take turns stealing
   the caret. `capturesTyping` ([src/components/Composer.tsx](src/components/Composer.tsx)) is
@@ -319,10 +350,11 @@ to write `settings.json`.
   so a hand-edited file can't wedge the UI. Add settings there, not to `localStorage`, which is
   only the fallback for mock mode.
 - Whether a message is *about you* -- a mention, a reply to you -- is decided in the frontend
-  ([src/lib/mentions.ts](src/lib/mentions.ts)), not in `render.rs`. It depends on the signed-in
-  login, which changes on sign-in/out without the already-resolved backlog being rebuilt. Same
-  for the chatter list behind `@` completion: session-only frontend state, since Twitch gives a
-  plain chat client no roster to read.
+  ([src/lib/mentions.ts](src/lib/mentions.ts)), not in `render.rs`. It depends on which login is
+  reading, which is now a per-*tab* question and changes without the already-resolved backlog
+  being rebuilt: pass the tab's account login, never a single app-wide one. Same for the chatter
+  list behind `@` completion: session-only frontend state, since Twitch gives a plain chat client
+  no roster to read.
 - **Emote blacklists are matched in the frontend for the same reason**
   ([src/lib/emoteBlacklist.ts](src/lib/emoteBlacklist.ts)). Rust only persists the two rule lists
   in `Preferences`; whether an emote draws as an image or as its underlined name is decided at

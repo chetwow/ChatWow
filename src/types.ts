@@ -38,6 +38,12 @@ export type ReplyInfo = {
 export type ChatMessage = {
   id: string;
   channel: string;
+  /**
+   * Which account's connection received this, stamped by the backend. With
+   * the same channel open under two accounts it's the only thing telling
+   * their two copies apart, so it's what routes a message to its tab.
+   */
+  account: string;
   /** The sender's Twitch id -- what a 7TV badge is looked up by. */
   userId: string;
   ts: number;
@@ -84,25 +90,62 @@ export type PermissionGroup = {
   required: boolean;
 };
 
+/**
+ * The account a tab reads as when it has none. Not a broken state: Twitch
+ * serves chat to an anonymous login, which is how this app works before you
+ * ever sign in, and stays a per-tab choice afterwards.
+ */
+export const ANONYMOUS = "";
+
+/** One signed-in account, hand-mirrored from `state::AccountInfo`. */
+export type AccountInfo = {
+  /** Twitch's numeric user id -- what a tab points at, and stable across a rename. */
+  id: string;
+  login: string;
+  /**
+   * What this account's token actually allows, as Twitch reports it -- not
+   * what was asked for. This is what decides whether a command can run, and
+   * it's per account: two logins can differ in what they may do.
+   */
+  scopes: string[];
+};
+
 export type AuthStatus = {
   hasClientId: boolean;
   /**
    * A Client ID the user set by hand, replacing the one compiled into the
-   * build. Null in the normal case, which is the shipped Twitch app.
+   * build. Null in the normal case, which is the shipped Twitch app. One
+   * Client ID covers every account -- it identifies the app, not the user.
    */
   clientIdOverride: string | null;
-  loggedIn: boolean;
-  login: string | null;
+  /** Every signed-in account. Empty is the ordinary signed-out state. */
+  accounts: AccountInfo[];
+  /** Which account a newly opened tab reads as. `ANONYMOUS` for none. */
+  defaultAccount: string;
   /**
-   * What the current token actually allows, as Twitch reports it -- not what
-   * was asked for. Empty when signed out. This is what decides whether a
-   * command can run.
+   * Optional permission group ids the next sign-in will ask for. Shared: it's
+   * what to *request*, where what each account was granted rides on it.
    */
-  scopes: string[];
-  /** Optional permission group ids the next sign-in will ask for. */
   permissionGroups: string[];
   /** Every group there is, for drawing the account panel's checkboxes. */
   permissionCatalog: PermissionGroup[];
+};
+
+/**
+ * One open tab, hand-mirrored from `settings::Tab`.
+ *
+ * The unit the app is built around: the same channel can be open twice under
+ * two accounts, so a channel name no longer identifies a view. `id` does, and
+ * everything kept per view -- messages, unread, scroll position -- is keyed by
+ * it.
+ */
+export type Tab = {
+  id: string;
+  kind: "channel" | "mentions";
+  /** Empty for a mentions tab, which belongs to an account rather than a room. */
+  channel: string;
+  /** The account it reads and sends as, or `ANONYMOUS`. */
+  account: string;
 };
 
 /** Chat text size presets, smallest first. Mirrors `chat_font_size` in Rust. */
@@ -164,17 +207,11 @@ export type Preferences = {
   previewPages: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
-  /** Keep a tab collecting every mention, reply and whisper, from all channels. */
-  mentionsTab: boolean;
-  /** Where that tab sits among its pane's channel tabs. Past the end means last. */
-  mentionsTabIndex: number;
-  /** Which pane holds the mentions tab. There's only one of it, so it needs saying. */
-  mentionsPane: PaneIndex;
   /** Whether the window is split, and along which axis. */
   splitLayout: SplitLayout;
   /** The first pane's share of the split axis, as a fraction. */
   splitRatio: number;
-  /** How many leading channels belong to the first pane; the rest to the second. */
+  /** How many leading tabs belong to the first pane; the rest to the second. */
   splitIndex: number;
   /** Mentions to stay quiet about: `@login` or `#channel`, in one list. */
   mentionIgnores: string[];
@@ -199,12 +236,14 @@ export type DeviceCode = {
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "reconnecting";
 
 export type StatusEvent = {
-  channel: string | null;
-  state: ConnectionState;
+  /** Which account's socket this is about -- there's one per account. */
+  account: string;
+  state: ConnectionState | "closed";
   detail: string | null;
 };
 
 export type ClearEvent = {
+  account: string;
   channel: string;
   login?: string | null;
   messageId?: string | null;
@@ -253,6 +292,8 @@ export type ChannelHit = {
 export type ChannelRole = "broadcaster" | "moderator" | "viewer";
 
 export type RoleEvent = {
+  /** Per account: one of your logins can be a mod here and another not. */
+  account: string;
   channel: string;
   moderator: boolean;
   broadcaster: boolean;
@@ -316,6 +357,8 @@ export type LinkPreview = {
 };
 
 export type ChannelReadyEvent = {
+  /** Whose join finished: a second account in the same room loads its own. */
+  account: string;
   channel: string;
   emoteCount: number;
 };

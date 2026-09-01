@@ -11,7 +11,7 @@ export type SettingsTab = "general" | "account" | "appearance" | "notifications"
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
-  { id: "account", label: "Account" },
+  { id: "account", label: "Accounts" },
   { id: "appearance", label: "Appearance" },
   { id: "emotes", label: "Emotes" },
   { id: "notifications", label: "Notifications" },
@@ -754,7 +754,9 @@ export function SettingsDialog({
               <Section title="Mentions">
                 <Row
                   label="Notify when tagged"
-                  hint={`Plays a sound when someone writes @${auth.login ?? "yourname"}.`}
+                  hint={`Plays a sound when someone writes @${
+                    auth.accounts[0]?.login ?? "yourname"
+                  } -- matched per tab against the account reading it.`}
                 >
                   <Toggle
                     checked={preferences.notifyOnTag}

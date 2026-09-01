@@ -17,6 +17,7 @@ import {
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
+import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
   Badge,
@@ -34,27 +35,18 @@ import type {
   SplitLayout,
   StatusEvent,
   StoredMessage,
+  Tab,
 } from "../types";
 
-/**
- * The one tab that isn't a channel: everything from every channel that names
- * you, replies to you, or was whispered to you. `@` is illegal in a Twitch
- * login, so this key can never collide with a real channel -- which is what
- * lets it share `active`, `unread` and `mentions` with them and behave like an
- * ordinary tab everywhere those are read.
- *
- * It is deliberately *not* in `channels`: that list is the backend's, and a
- * name in it would be a channel to join, part and reorder.
- */
-export const MENTIONS_TAB = "@mentions";
+export { ANONYMOUS };
 
-/** Per-channel backlog cap. Beyond this the oldest messages are dropped. */
+/** Per-tab backlog cap. Beyond this the oldest messages are dropped. */
 const MAX_MESSAGES = 500;
 /** Trim in chunks so we're not reallocating the array on every single message. */
 const TRIM_SLACK = 100;
 /** How many of your own sent messages the up-arrow can walk back through. */
 const MAX_SENT_HISTORY = 100;
-/** Per-channel cap on remembered chatters, oldest dropped first. */
+/** Per-tab cap on remembered chatters, oldest dropped first. */
 const MAX_CHATTERS = 1000;
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -74,9 +66,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   previewTwitch: true,
   previewPages: true,
   singleRowTabs: true,
-  mentionsTab: false,
-  mentionsTabIndex: 0,
-  mentionsPane: 0,
   splitLayout: "none",
   splitRatio: 0.5,
   splitIndex: 0,
@@ -106,12 +95,6 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.emoteCompleteBlacklist = normalizeRules(merged.emoteCompleteBlacklist);
   merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
   merged.blockedUsers = normalizeLogins(merged.blockedUsers);
-  if (!Number.isInteger(merged.mentionsTabIndex) || merged.mentionsTabIndex < 0) {
-    merged.mentionsTabIndex = DEFAULT_PREFERENCES.mentionsTabIndex;
-  }
-  if (merged.mentionsPane !== 0 && merged.mentionsPane !== 1) {
-    merged.mentionsPane = DEFAULT_PREFERENCES.mentionsPane;
-  }
   if (!SPLIT_LAYOUTS.has(merged.splitLayout)) merged.splitLayout = DEFAULT_PREFERENCES.splitLayout;
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);
@@ -159,102 +142,135 @@ let nextKey = 1;
 /** Both panes, for iterating -- there are exactly two, never a tree of them. */
 export const PANES: readonly PaneIndex[] = [0, 1];
 
+/** A tab id, minted here: the view has a key before the backend has heard of it. */
+function newTabId(): string {
+  return crypto.randomUUID?.() ?? `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** The pieces the pane layout is derived from, and all it needs to be derived. */
-type Layout = { channels: string[]; preferences: Preferences };
+type Layout = { tabs: Tab[]; preferences: Preferences };
 
 /**
- * The channels in one pane, in bar order. `splitIndex` is the boundary in the
- * one `channels` list rather than a second list of its own: that list is the
- * backend's record of what's joined and in what order, and keeping the split
- * as a position in it means dragging a tab across the divider is an ordinary
- * move within it -- nothing can end up in both panes, or in neither.
+ * The tabs in one pane, in bar order. `splitIndex` is the boundary in the one
+ * `tabs` list rather than a second list of its own: that list is the backend's
+ * record of what's open and in what order, and keeping the split as a position
+ * in it means dragging a tab across the divider is an ordinary move within it
+ * -- nothing can end up in both panes, or in neither.
  *
  * Unsplit, everything is in the first pane and the second is empty.
  */
-export function paneChannels(layout: Layout, pane: PaneIndex): string[] {
-  if (layout.preferences.splitLayout === "none") return pane === 0 ? layout.channels : [];
-  const at = Math.min(layout.preferences.splitIndex, layout.channels.length);
-  return pane === 0 ? layout.channels.slice(0, at) : layout.channels.slice(at);
-}
-
-/**
- * Every tab in one pane: its channels, with the mentions tab dropped in
- * wherever it was left if this is the pane holding it. An index past the end
- * lands it last, which is what a parted channel or a hand-edited settings file
- * leaves behind.
- */
-export function paneTabs(layout: Layout, pane: PaneIndex): string[] {
-  const list = paneChannels(layout, pane);
-  const { mentionsTab, mentionsTabIndex, mentionsPane, splitLayout } = layout.preferences;
-  // Unsplit there's only one pane to be in, whatever the preference last said.
-  const home = splitLayout === "none" ? 0 : mentionsPane;
-  if (!mentionsTab || home !== pane) return list;
-  const next = list.slice();
-  next.splice(Math.min(mentionsTabIndex, list.length), 0, MENTIONS_TAB);
-  return next;
+export function paneTabs(layout: Layout, pane: PaneIndex): Tab[] {
+  if (layout.preferences.splitLayout === "none") return pane === 0 ? layout.tabs : [];
+  const at = Math.min(layout.preferences.splitIndex, layout.tabs.length);
+  return pane === 0 ? layout.tabs.slice(0, at) : layout.tabs.slice(at);
 }
 
 /** Which pane a tab is in, or `null` for one that isn't open anywhere. */
-export function paneOf(layout: Layout, tab: string): PaneIndex | null {
-  for (const pane of PANES) if (paneTabs(layout, pane).includes(tab)) return pane;
+export function paneOf(layout: Layout, id: string): PaneIndex | null {
+  for (const pane of PANES) {
+    if (paneTabs(layout, pane).some((tab) => tab.id === id)) return pane;
+  }
   return null;
+}
+
+export function tabById(layout: { tabs: Tab[] }, id: string | null): Tab | undefined {
+  return id ? layout.tabs.find((tab) => tab.id === id) : undefined;
+}
+
+/**
+ * The login a tab reads as, or null when it's anonymous.
+ *
+ * What decides whether a message names *you* -- which is a per-tab question
+ * now, since the same message can be a mention in one tab and nothing at all
+ * in the one beside it.
+ */
+export function loginOf(state: { auth: AuthStatus }, account: string | undefined): string | null {
+  if (!account) return null;
+  return state.auth.accounts.find((held) => held.id === account)?.login ?? null;
 }
 
 /**
  * Each pane's active tab, corrected against the tabs it actually holds. Every
  * rearrangement runs through here rather than fixing `active` by hand: a tab
- * dragged across the divider, parted, or swept up by an unsplit leaves the
+ * dragged across the divider, closed, or swept up by an unsplit leaves the
  * pane it was in pointing at something that isn't there any more.
  */
 function settleActive(layout: Layout, preferred: (string | null)[]): [string | null, string | null] {
   const next: (string | null)[] = [preferred[0] ?? null, preferred[1] ?? null];
   for (const pane of PANES) {
     const tabs = paneTabs(layout, pane);
-    if (next[pane] && tabs.includes(next[pane]!)) continue;
-    next[pane] = tabs[0] ?? null;
+    if (next[pane] && tabs.some((tab) => tab.id === next[pane])) continue;
+    next[pane] = tabs[0]?.id ?? null;
   }
   return next as [string | null, string | null];
 }
 
+/**
+ * The worst state any connection is in, which is what the title bar's dot
+ * shows. One socket per account means several answers to "are we connected",
+ * and the one that's down is the one worth showing; with nothing open at all
+ * there's no bad news to report.
+ */
+export function connectionState(state: {
+  connections: Record<string, ConnectionState>;
+}): ConnectionState {
+  const states = Object.values(state.connections);
+  if (states.length === 0) return "connected";
+  for (const wanted of ["disconnected", "reconnecting", "connecting"] as const) {
+    if (states.includes(wanted)) return wanted;
+  }
+  return "connected";
+}
+
 type ChatState = {
-  channels: string[];
+  /** Every open tab, in bar order -- the backend's list, mirrored here. */
+  tabs: Tab[];
   /**
-   * The tab each pane is showing, indexed by `PaneIndex`. Both are "what
-   * you're reading" -- a message arriving in either is one you can see, so
-   * neither counts as unread -- but only `focusedPane` decides where a
-   * whisper is filed and what Ctrl+W closes.
+   * The tab each pane is showing, by id. Both are "what you're reading" -- a
+   * message arriving in either is one you can see, so neither counts as unread
+   * -- but only `focusedPane` decides where a whisper is filed and what Ctrl+W
+   * closes.
    */
   active: [string | null, string | null];
   /** The pane you last clicked in. Always `0` while unsplit. */
   focusedPane: PaneIndex;
+  /**
+   * Messages per tab, not per channel. The same channel open under two
+   * accounts is two streams -- each socket receives its own copy -- and each
+   * tab keeps what its own connection got.
+   */
   messages: Record<string, StoredMessage[]>;
   unread: Record<string, number>;
   /** Of those unread messages, how many name you -- what reddens the badge. */
   mentions: Record<string, number>;
   /**
-   * Who has talked in each channel since launch, for the composer's `@`
-   * completion. Session-only on purpose: Twitch has no "who's in this
-   * channel" for a plain chat client, and a stale name is worse than a
-   * missing one when you're trying to reply to someone.
+   * Who has talked in each tab, for the composer's `@` completion.
+   * Session-only on purpose: Twitch has no "who's in this channel" for a plain
+   * chat client, and a stale name is worse than a missing one when you're
+   * trying to reply to someone.
    */
   chatters: Record<string, Chatters>;
   /** Everything the settings dialog edits, as stored in `settings.json`. */
   preferences: Preferences;
+  /** Whether each tab's own join has finished loading. */
   ready: Record<string, boolean>;
   /**
-   * Channels currently broadcasting. Only known while signed in -- Helix has no
-   * anonymous way to ask -- so an absent entry means "not known to be live",
-   * never a confident "offline".
+   * Channels currently broadcasting. Only known while some account is signed
+   * in -- Helix has no anonymous way to ask -- so an absent entry means "not
+   * known to be live", never a confident "offline". Keyed by channel: who's
+   * live is a property of the room, not of the tab watching it.
    */
   live: Record<string, boolean>;
+  /** Emote count per channel, for the composer's placeholder. */
+  emoteCounts: Record<string, number>;
   /**
-   * What you are in each channel, for the command picker. Absent means viewer
-   * -- either you are one, or the channel's USERSTATE hasn't arrived yet, and
-   * offering too few commands beats offering ones Twitch will refuse.
+   * What you are in each tab, for the command picker. Absent means viewer --
+   * either you are one, or the channel's USERSTATE hasn't arrived yet, and
+   * offering too few commands beats offering ones Twitch will refuse. Per tab
+   * because it's per account: one login can be a mod where another isn't.
    */
   roles: Record<string, ChannelRole>;
-  emoteCounts: Record<string, number>;
-  /** Completable emotes per channel, sorted case-insensitively by name. */
+  /** Completable emotes per tab, sorted case-insensitively by name. */
   emoteEntries: Record<string, EmoteEntry[]>;
   /**
    * 7TV badges by Twitch user id. Kept here rather than on the message
@@ -263,36 +279,34 @@ type ChatState = {
    */
   seventvBadges: Record<string, Badge>;
   /**
-   * Everything that was addressed to you, from every channel, newest last --
-   * what the mentions tab renders. Kept whether or not that tab is open, so
-   * opening it isn't opening an empty pane; a message arrives here as the same
-   * object its channel holds, so a row shown in both is one memoized component
-   * rather than two that happen to look alike.
+   * Everything addressed to each account, from every channel, newest last --
+   * what that account's mentions tab renders. Per account because a mention is
+   * addressed to a login: what names one of yours names only that one.
    *
-   * Replayed backlog never lands here. It would arrive stamped with times
-   * older than what's already in the list, so a channel joined at noon would
-   * file this morning's mentions below this minute's.
+   * Kept whether or not a mentions tab is open, so opening one isn't opening
+   * an empty pane. Replayed backlog never lands here -- it would arrive
+   * stamped with times older than what's already in the list.
    */
-  mentionLog: StoredMessage[];
-  /** Send count per emote name, shared across channels. */
+  mentionLog: Record<string, StoredMessage[]>;
+  /** Send count per emote name, shared across channels and accounts. */
   emoteUses: Record<string, number>;
   /**
-   * What you've sent in each channel, oldest first, for the composer's
-   * up/down history. Kept per channel because what you say in one has no
-   * bearing on what you'd repeat in another.
+   * What you've sent in each tab, oldest first, for the composer's up/down
+   * history. Per tab because what you said as one account in one channel has
+   * no bearing on what you'd repeat as another.
    */
   sentHistory: Record<string, string[]>;
-  connection: ConnectionState;
+  /** Connection state per account id -- one socket each. */
+  connections: Record<string, ConnectionState>;
   connectionDetail: string | null;
   auth: AuthStatus;
   globalEmotes: number;
 
   /**
-   * Show a tab, in the pane that holds it -- and focus that pane, since
-   * that's the one you just asked to read. An unopened channel (a name
-   * clicked in the mentions tab) opens in the focused pane.
+   * Show a tab, in the pane that holds it -- and focus that pane, since that's
+   * the one you just asked to read.
    */
-  setActive: (channel: string, pane?: PaneIndex) => void;
+  setActive: (id: string, pane?: PaneIndex) => void;
   /** Remember which pane you're working in. Clicking anywhere inside one does it. */
   focusPane: (pane: PaneIndex) => void;
   /**
@@ -300,7 +314,7 @@ type ChatState = {
    * within one bar. The index is read after the tab is lifted out, which is
    * what a drop onto a given tab means.
    */
-  moveTab: (tab: string, pane: PaneIndex, index: number) => void;
+  moveTab: (id: string, pane: PaneIndex, index: number) => void;
   /** Divide the window, putting the new empty pane first (left/top) or second. */
   split: (layout: Exclude<SplitLayout, "none">, newPaneFirst: boolean) => void;
   /** Turn an existing split from side-by-side to stacked, or back. */
@@ -311,16 +325,23 @@ type ChatState = {
   removeSplit: () => void;
   /** Where the divider sits, as the first pane's share of the split axis. */
   setSplitRatio: (ratio: number) => void;
-  join: (channel: string) => Promise<void>;
-  part: (channel: string) => Promise<void>;
-  reorderChannels: (channels: string[]) => void;
-  sendMessage: (channel: string, text: string, replyToId?: string, replyTo?: ReplyInfo) => Promise<void>;
   /**
-   * Run a slash command and print what it reported into the channel. Throws
-   * on failure, so the composer can keep your text and show why.
+   * Open a tab and switch to it. `account` defaults to the one new tabs are
+   * set to use; the same channel under a *different* account is a new tab
+   * rather than a duplicate, which is the point of the whole thing.
    */
-  runCommand: (channel: string, input: string) => Promise<void>;
-  loadEmoteIndex: (channel: string) => Promise<void>;
+  openTab: (kind: Tab["kind"], channel: string, account?: string) => Promise<void>;
+  /** Close a tab, and forget everything that was only ever about that view. */
+  closeTab: (id: string) => Promise<void>;
+  /** Read (and send) as a different account, keeping the tab and its messages. */
+  setTabAccount: (id: string, account: string) => Promise<void>;
+  sendMessage: (id: string, text: string, replyToId?: string, replyTo?: ReplyInfo) => Promise<void>;
+  /**
+   * Run a slash command and print what it reported into the tab. Throws on
+   * failure, so the composer can keep your text and show why.
+   */
+  runCommand: (id: string, input: string) => Promise<void>;
+  loadEmoteIndex: (id: string) => Promise<void>;
   refreshAuth: () => Promise<void>;
   setAuth: (auth: AuthStatus) => void;
   /** Merge a change into the preferences and persist the result. */
@@ -334,8 +355,6 @@ type ChatState = {
   /** Add or drop a login on the blocked list. */
   setUserBlocked: (login: string, blocked: boolean) => void;
   toggleMuted: () => void;
-  /** Open the mentions tab and switch to it. Already open: just switch. */
-  openMentionsTab: () => void;
   ingest: (batch: ChatMessage[]) => void;
   clear: (event: ClearEvent) => void;
   bootstrap: () => Promise<void>;
@@ -346,9 +365,9 @@ type ChatState = {
  * names are case-sensitive, so only words matching one exactly count -- and
  * only known emotes, which keeps ordinary words out of the persisted map.
  */
-function noteEmoteUses(channel: string, text: string) {
+function noteEmoteUses(tab: Tab, text: string) {
   const state = useChat.getState();
-  const entries = state.emoteEntries[channel];
+  const entries = state.emoteEntries[tab.id];
   if (!entries?.length) return;
 
   const used = emotesIn(text, new Set(entries.map((entry) => entry.name)));
@@ -357,23 +376,23 @@ function noteEmoteUses(channel: string, text: string) {
   const emoteUses = { ...state.emoteUses };
   for (const name of used) emoteUses[name] = (emoteUses[name] ?? 0) + 1;
   useChat.setState({ emoteUses });
-  if (IS_TAURI) void api.recordEmoteUses(channel, used);
+  if (IS_TAURI) void api.recordEmoteUses(tab.account, tab.channel, used);
 }
 
 /**
- * Append a sent message to its channel's history. Repeating yourself doesn't
- * add an entry -- walking back through a run of identical messages would just
- * be pressing up several times to get to the same text.
+ * Append a sent message to its tab's history. Repeating yourself doesn't add
+ * an entry -- walking back through a run of identical messages would just be
+ * pressing up several times to get to the same text.
  */
-function noteSent(channel: string, text: string) {
+function noteSent(id: string, text: string) {
   useChat.setState((state) => {
-    const existing = state.sentHistory[channel] ?? [];
+    const existing = state.sentHistory[id] ?? [];
     if (existing[existing.length - 1] === text) return {};
     const next = existing.concat(text);
     return {
       sentHistory: {
         ...state.sentHistory,
-        [channel]: next.length > MAX_SENT_HISTORY ? next.slice(next.length - MAX_SENT_HISTORY) : next,
+        [id]: next.length > MAX_SENT_HISTORY ? next.slice(next.length - MAX_SENT_HISTORY) : next,
       },
     };
   });
@@ -392,58 +411,93 @@ function trimChatters(chatters: Chatters): Chatters {
 }
 
 /**
- * Write a rearranged pair of tab lists back to the three places they came
- * from: the channel order (the backend's), the boundary between the panes,
- * and the mentions tab's home and index. Only what actually changed is
- * written, so an in-pane drag doesn't touch the split and a drag across it
- * doesn't rewrite an order that hasn't moved.
+ * Which tabs a message belongs in.
+ *
+ * Normally exactly one: a channel tab is unique in (channel, account), and the
+ * backend stamps every message with the account whose socket received it. A
+ * message with no channel of its own -- a whisper, or a notice from the socket
+ * itself -- goes to the tab of that account you're reading, the same way a
+ * whisper has always landed in front of you rather than nowhere.
  */
-function commitTabs(lists: [string[], string[]]) {
-  const state = useChat.getState();
-  const split = state.preferences.splitLayout !== "none";
-  const channelLists = lists.map((list) => list.filter((tab) => tab !== MENTIONS_TAB));
-  const channels = split ? channelLists[0].concat(channelLists[1]) : channelLists[0];
-  if (
-    channels.length !== state.channels.length ||
-    channels.some((name, index) => name !== state.channels[index])
-  ) {
-    state.reorderChannels(channels);
+function targetsFor(state: ChatState, message: ChatMessage): string[] {
+  if (message.channel) {
+    return state.tabs
+      .filter(
+        (tab) =>
+          tab.kind === "channel" &&
+          tab.channel === message.channel &&
+          tab.account === message.account,
+      )
+      .map((tab) => tab.id);
   }
 
-  const patch: Partial<Preferences> = {};
-  if (split && channelLists[0].length !== state.preferences.splitIndex) {
-    patch.splitIndex = channelLists[0].length;
-  }
-  const home: PaneIndex = lists[1].includes(MENTIONS_TAB) ? 1 : 0;
-  const at = lists[home].indexOf(MENTIONS_TAB);
-  if (at >= 0) {
-    if (split && home !== state.preferences.mentionsPane) patch.mentionsPane = home;
-    if (at !== state.preferences.mentionsTabIndex) patch.mentionsTabIndex = at;
-  }
-  if (Object.keys(patch).length > 0) state.updatePreferences(patch);
+  const mine = state.tabs.filter(
+    (tab) => tab.kind === "channel" && tab.account === message.account,
+  );
+  const focused = state.active[state.focusedPane];
+  const here = mine.find((tab) => tab.id === focused) ?? mine[0];
+  return here ? [here.id] : [];
 }
 
 /**
- * Put a freshly joined channel in the pane you were working in. The backend
- * appends it to `channels`, which is the *second* pane's end, so joining from
- * the first one is a move back across the divider. Either way the panes are
- * settled afterwards: a pane that was empty is now showing its first tab.
+ * Write a rearranged pair of tab lists back to the two places they came from:
+ * the tab order (the backend's) and the boundary between the panes. Only what
+ * actually changed is written, so an in-pane drag doesn't touch the split and a
+ * drag across it doesn't rewrite an order that hasn't moved.
  */
-function placeJoined(name: string, before: string[]) {
+function commitTabs(lists: [Tab[], Tab[]]) {
   const state = useChat.getState();
-  if (!name || before.includes(name)) return;
-  if (state.preferences.splitLayout !== "none" && state.focusedPane === 0) {
-    const lists: [string[], string[]] = [paneTabs(state, 0), paneTabs(state, 1)];
-    lists[1].splice(lists[1].indexOf(name), 1);
-    lists[0].push(name);
-    commitTabs(lists);
+  const split = state.preferences.splitLayout !== "none";
+  const tabs = split ? lists[0].concat(lists[1]) : lists[0];
+
+  if (tabs.length !== state.tabs.length || tabs.some((tab, at) => tab.id !== state.tabs[at]?.id)) {
+    useChat.setState({ tabs });
+    if (IS_TAURI) void api.reorderTabs(tabs.map((tab) => tab.id));
   }
-  const settled = useChat.getState();
-  useChat.setState({ active: settleActive(settled, settled.active) });
+  if (split && lists[0].length !== state.preferences.splitIndex) {
+    useChat.getState().updatePreferences({ splitIndex: lists[0].length });
+  }
+}
+
+/**
+ * Put a freshly opened tab in the pane you were working in, and show it. The
+ * backend appends it, which is the *second* pane's end, so opening one from the
+ * first is a move back across the divider.
+ */
+function placeNewTab(id: string) {
+  const state = useChat.getState();
+  if (state.preferences.splitLayout !== "none" && state.focusedPane === 0) {
+    const lists: [Tab[], Tab[]] = [paneTabs(state, 0), paneTabs(state, 1)];
+    const at = lists[1].findIndex((tab) => tab.id === id);
+    if (at >= 0) {
+      lists[0].push(lists[1].splice(at, 1)[0]);
+      commitTabs(lists);
+    }
+  }
+  useChat.getState().setActive(id);
+}
+
+/** Everything kept about one tab and nothing else, dropped when it closes. */
+function forgetTab(state: ChatState, id: string) {
+  const drop = <T,>(map: Record<string, T>) => {
+    const next = { ...map };
+    delete next[id];
+    return next;
+  };
+  return {
+    messages: drop(state.messages),
+    unread: drop(state.unread),
+    mentions: drop(state.mentions),
+    chatters: drop(state.chatters),
+    ready: drop(state.ready),
+    roles: drop(state.roles),
+    emoteEntries: drop(state.emoteEntries),
+    sentHistory: drop(state.sentHistory),
+  };
 }
 
 export const useChat = create<ChatState>((set) => ({
-  channels: [],
+  tabs: [],
   active: [null, null],
   focusedPane: 0,
   messages: {},
@@ -453,36 +507,35 @@ export const useChat = create<ChatState>((set) => ({
   preferences: DEFAULT_PREFERENCES,
   ready: {},
   live: {},
-  roles: {},
   emoteCounts: {},
+  roles: {},
   emoteEntries: {},
   seventvBadges: {},
-  mentionLog: [],
+  mentionLog: {},
   emoteUses: {},
   sentHistory: {},
-  connection: "connecting",
+  connections: {},
   connectionDetail: null,
   auth: {
     hasClientId: false,
     clientIdOverride: null,
-    loggedIn: false,
-    login: null,
-    scopes: [],
+    accounts: [],
+    defaultAccount: ANONYMOUS,
     permissionGroups: [],
     permissionCatalog: [],
   },
   globalEmotes: 0,
 
-  setActive: (channel, pane) =>
+  setActive: (id, pane) =>
     set((state) => {
-      const target = pane ?? paneOf(state, channel) ?? state.focusedPane;
+      const target = pane ?? paneOf(state, id) ?? state.focusedPane;
       const active = state.active.slice() as [string | null, string | null];
-      active[target] = channel;
+      active[target] = id;
       return {
         active,
         focusedPane: target,
-        unread: { ...state.unread, [channel]: 0 },
-        mentions: { ...state.mentions, [channel]: 0 },
+        unread: { ...state.unread, [id]: 0 },
+        mentions: { ...state.mentions, [id]: 0 },
       };
     }),
 
@@ -491,24 +544,27 @@ export const useChat = create<ChatState>((set) => ({
       if (state.focusedPane === pane || state.preferences.splitLayout === "none") return {};
       // Reading a pane clears what you hadn't looked at in it, the same way
       // clicking its tab does -- the messages are in front of you either way.
-      const channel = state.active[pane];
-      if (!channel) return { focusedPane: pane };
+      const id = state.active[pane];
+      if (!id) return { focusedPane: pane };
       return {
         focusedPane: pane,
-        unread: { ...state.unread, [channel]: 0 },
-        mentions: { ...state.mentions, [channel]: 0 },
+        unread: { ...state.unread, [id]: 0 },
+        mentions: { ...state.mentions, [id]: 0 },
       };
     }),
 
-  moveTab: (tab, pane, index) => {
+  moveTab: (id, pane, index) => {
     const state = useChat.getState();
-    const lists: [string[], string[]] = [paneTabs(state, 0), paneTabs(state, 1)];
-    const from = PANES.find((candidate) => lists[candidate].includes(tab));
+    const lists: [Tab[], Tab[]] = [paneTabs(state, 0), paneTabs(state, 1)];
+    const from = PANES.find((candidate) => lists[candidate].some((tab) => tab.id === id));
     if (from === undefined) return;
-    lists[from].splice(lists[from].indexOf(tab), 1);
+    const [moved] = lists[from].splice(
+      lists[from].findIndex((tab) => tab.id === id),
+      1,
+    );
     // The index is into the list with the tab already lifted out, which is
     // what dropping *onto* a tab means: it takes that tab's place.
-    lists[pane].splice(Math.max(0, Math.min(index, lists[pane].length)), 0, tab);
+    lists[pane].splice(Math.max(0, Math.min(index, lists[pane].length)), 0, moved);
     commitTabs(lists);
 
     const settled = useChat.getState();
@@ -516,8 +572,8 @@ export const useChat = create<ChatState>((set) => ({
     // Dragging a tab into the other pane is asking to read it there, so it
     // arrives shown and focused; the pane it left falls back to a neighbour.
     const preferred = settled.active.slice();
-    preferred[pane] = tab;
-    preferred[from] = settled.active[from] === tab ? null : settled.active[from];
+    preferred[pane] = id;
+    preferred[from] = settled.active[from] === id ? null : settled.active[from];
     set({ active: settleActive(settled, preferred), focusedPane: pane });
   },
 
@@ -525,9 +581,8 @@ export const useChat = create<ChatState>((set) => ({
     const state = useChat.getState();
     state.updatePreferences({
       splitLayout: layout,
-      // Everything joined stays together in the pane that isn't the new one.
-      splitIndex: newPaneFirst ? 0 : state.channels.length,
-      mentionsPane: newPaneFirst ? 1 : 0,
+      // Everything open stays together in the pane that isn't the new one.
+      splitIndex: newPaneFirst ? 0 : state.tabs.length,
     });
     const pane: PaneIndex = newPaneFirst ? 0 : 1;
     const preferred: (string | null)[] = [null, null];
@@ -544,11 +599,12 @@ export const useChat = create<ChatState>((set) => ({
   swapPanes: () => {
     const state = useChat.getState();
     if (state.preferences.splitLayout === "none") return;
-    const lists: [string[], string[]] = [paneTabs(state, 1), paneTabs(state, 0)];
-    commitTabs(lists);
+    commitTabs([paneTabs(state, 1), paneTabs(state, 0)]);
     // The divider moves with the contents: a pane that was wide stays wide
     // around the tabs it was made wide for.
-    useChat.getState().updatePreferences({ splitRatio: clampRatio(1 - state.preferences.splitRatio) });
+    useChat
+      .getState()
+      .updatePreferences({ splitRatio: clampRatio(1 - state.preferences.splitRatio) });
     const settled = useChat.getState();
     set({
       active: settleActive(settled, [state.active[1], state.active[0]]),
@@ -559,16 +615,7 @@ export const useChat = create<ChatState>((set) => ({
   removeSplit: () => {
     const state = useChat.getState();
     if (state.preferences.splitLayout === "none") return;
-    // The merged bar is the two in order, so the mentions tab keeps its place
-    // relative to the tabs around it rather than jumping back to where it sat
-    // before the window was ever split.
-    const merged = paneTabs(state, 0).concat(paneTabs(state, 1));
-    const at = merged.indexOf(MENTIONS_TAB);
-    state.updatePreferences({
-      splitLayout: "none",
-      mentionsPane: 0,
-      ...(at >= 0 ? { mentionsTabIndex: at } : {}),
-    });
+    state.updatePreferences({ splitLayout: "none" });
     const settled = useChat.getState();
     set({
       // You keep reading what you were reading; the other pane's tab is still
@@ -580,140 +627,170 @@ export const useChat = create<ChatState>((set) => ({
 
   setSplitRatio: (ratio) => useChat.getState().updatePreferences({ splitRatio: clampRatio(ratio) }),
 
-  join: async (channel) => {
-    const before = useChat.getState().channels;
-    if (!IS_TAURI) {
-      const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
-      if (!/^[a-z0-9_]{3,25}$/.test(name)) {
-        throw new Error(`"${channel}" is not a valid Twitch channel name`);
-      }
-      if (before.includes(name)) return;
-      set((state) => ({
-        channels: [...state.channels, name],
-        ready: { ...state.ready, [name]: true },
-      }));
-      placeJoined(name, before);
+  openTab: async (kind, channel, account) => {
+    const state = useChat.getState();
+    const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
+    if (kind === "channel" && !/^[a-z0-9_]{3,25}$/.test(name)) {
+      throw new Error(`"${channel}" is not a valid Twitch channel name`);
+    }
+
+    const tab: Tab = {
+      id: newTabId(),
+      kind,
+      channel: kind === "mentions" ? "" : name,
+      account: account ?? state.auth.defaultAccount,
+    };
+
+    // The same channel twice as the same account would be two identical views
+    // of one stream. Switch to the one already open instead.
+    const existing = state.tabs.find(
+      (open) =>
+        open.kind === tab.kind && open.channel === tab.channel && open.account === tab.account,
+    );
+    if (existing) {
+      useChat.getState().setActive(existing.id);
       return;
     }
 
-    const channels = await api.joinChannel(channel);
-    set({ channels });
-    placeJoined(channels[channels.length - 1], before);
-  },
-
-  part: async (channel) => {
-    // Closing the mentions tab isn't leaving anything -- it's the one tab with
-    // no channel behind it. Routed through here so the tab's X and Ctrl+W
-    // reach it the same way they reach a real tab.
-    if (channel === MENTIONS_TAB) {
-      useChat.getState().updatePreferences({ mentionsTab: false });
+    const tabs = IS_TAURI ? await api.addTab(tab) : [...state.tabs, tab];
+    set((current) => ({
+      tabs,
+      // Nothing to wait for without a backend, so mock tabs open ready.
+      ...(IS_TAURI ? {} : { ready: { ...current.ready, [tab.id]: true } }),
+    }));
+    // The backend has the last word on whether it opened -- it refuses the
+    // duplicates this checked for a moment ago, and something else could have
+    // opened one in between. Showing a tab that isn't there would leave the
+    // pane pointing at nothing.
+    if (!tabs.some((open) => open.id === tab.id)) {
       const settled = useChat.getState();
       set({ active: settleActive(settled, settled.active) });
       return;
     }
+    placeNewTab(tab.id);
+  },
 
-    const name = IS_TAURI ? channel : channel.trim().replace(/^[#@]/, "").toLowerCase();
-    // Before the channel goes: which side of the divider it was on decides
-    // whether the boundary has to come back by one to stay pointing between
-    // the same two tabs.
-    const leaving = paneOf(useChat.getState(), name);
+  closeTab: async (id) => {
+    const tabs = IS_TAURI
+      ? await api.closeTab(id)
+      : useChat.getState().tabs.filter((tab) => tab.id !== id);
 
-    const channels = IS_TAURI
-      ? await api.partChannel(channel)
-      : useChat.getState().channels.filter((c) => c !== name);
-
-    set((state) => {
-      const messages = { ...state.messages };
-      const sentHistory = { ...state.sentHistory };
-      const mentions = { ...state.mentions };
-      const chatters = { ...state.chatters };
-      delete messages[name];
-      delete sentHistory[name];
-      delete mentions[name];
-      delete chatters[name];
-      return { channels, messages, sentHistory, mentions, chatters };
-    });
-
-    const { preferences } = useChat.getState();
-    if (leaving === 0 && preferences.splitLayout !== "none") {
-      useChat.getState().updatePreferences({
-        splitIndex: Math.max(0, Math.min(preferences.splitIndex - 1, channels.length)),
-      });
-    }
+    set((state) => ({ tabs, ...forgetTab(state, id) }));
     const settled = useChat.getState();
     set({ active: settleActive(settled, settled.active) });
   },
 
-  // Applied optimistically (the tab bar is already showing the dragged
-  // order) -- for a real backend, fire the persist call without waiting on it.
-  reorderChannels: (channels) => {
-    set({ channels });
-    if (IS_TAURI) void api.reorderChannels(channels);
+  setTabAccount: async (id, account) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab || tab.account === account) return;
+
+    const tabs = IS_TAURI
+      ? await api.setTabAccount(id, account)
+      : state.tabs.map((open) => (open.id === id ? { ...open, account } : open));
+
+    set({ tabs });
+    // Refused, because that account already has this channel open -- the tab
+    // is untouched, and so is everything hanging off it.
+    if (tabs.find((open) => open.id === id)?.account !== account) return;
+
+    // The messages already here were said in this channel and are just as true
+    // read as anyone, so they stay. What doesn't: which of Twitch's emotes are
+    // completable, and what this login may do in this room -- both belonged to
+    // the account that just left.
+    set({
+      roles: { ...state.roles, [id]: "viewer" },
+      emoteEntries: { ...state.emoteEntries, [id]: [] },
+      ready: { ...state.ready, [id]: !IS_TAURI },
+    });
+    void useChat.getState().loadEmoteIndex(id);
   },
 
-  sendMessage: async (channel, text, replyToId, replyTo) => {
+  sendMessage: async (id, text, replyToId, replyTo) => {
+    const tab = tabById(useChat.getState(), id);
+    if (!tab) return;
+
     if (!IS_TAURI) {
       const { buildOwnMockMessage } = await import("../dev/mockData");
-      useChat.getState().ingest([buildOwnMockMessage(channel, text, replyTo)]);
-      noteEmoteUses(channel, text);
-      noteSent(channel, text);
+      const login = loginOf(useChat.getState(), tab.account) ?? "you";
+      useChat.getState().ingest([buildOwnMockMessage(tab, login, text, replyTo)]);
+      noteEmoteUses(tab, text);
+      noteSent(id, text);
       return;
     }
-    await api.sendMessage(channel, text, replyToId);
+    await api.sendMessage(tab.account, tab.channel, text, replyToId);
     // Only after Twitch accepts it: a message that never went out shouldn't
     // reshuffle the completion order, and a rejected one stays in the composer
     // rather than becoming a history entry you'd have to walk back to.
-    noteEmoteUses(channel, text);
-    noteSent(channel, text);
+    noteEmoteUses(tab, text);
+    noteSent(id, text);
   },
 
   /**
    * Twitch stopped taking chat commands over IRC in 2023, so each one is a
-   * Helix call the backend makes -- except `/help`, which is answered from the
-   * catalog the picker already has and never leaves the app.
+   * Helix call the backend makes -- as this tab's account, whose token decides
+   * what it may do -- except `/help`, which is answered from the catalog the
+   * picker already has and never leaves the app.
    */
-  runCommand: async (channel, input) => {
+  runCommand: async (id, input) => {
     const parsed = splitCommand(input);
     if (!parsed) throw new Error("That isn't a command");
 
     const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab) return;
+
     let lines: string[];
     if (parsed.name === "help") {
-      lines = helpLines(parsed.args, state.auth);
+      lines = helpLines(parsed.args, state.auth, tab.account);
     } else if (IS_TAURI) {
-      lines = [await api.runChatCommand(channel, input)];
+      lines = [await api.runChatCommand(tab.account, tab.channel, input)];
     } else {
       const mock = await import("../dev/mockData");
       lines = [mock.mockCommandResult(input)];
     }
 
-    state.ingest(lines.map((line) => localNotice(channel, line)));
+    state.ingest(lines.map((line) => localNotice(tab, line)));
     // Only once it worked, and for the same reason a sent message is: a
     // command that was refused stays in the composer to be fixed, and
     // shouldn't also be sitting one up-arrow away.
-    noteSent(channel, input);
+    noteSent(id, input);
   },
 
   /**
-   * Pull the channel's completable emotes. Cheap to repeat -- it's re-run when
-   * a channel finishes loading, which also covers signing in, since Twitch's
-   * own emotes only become fetchable once there's a token.
+   * Pull a tab's completable emotes. Cheap to repeat -- it's re-run when the
+   * tab finishes loading, which also covers signing in and changing the tab's
+   * account, since Twitch's own emotes belong to the token that asked.
    */
-  loadEmoteIndex: async (channel) => {
+  loadEmoteIndex: async (id) => {
+    const tab = tabById(useChat.getState(), id);
+    if (!tab || tab.kind !== "channel") return;
     const index = IS_TAURI
-      ? await api.emoteIndex(channel)
+      ? await api.emoteIndex(tab.account, tab.channel)
       : await import("../dev/mockData").then((mock) => mock.mockEmoteIndex());
     set((state) => ({
-      emoteEntries: { ...state.emoteEntries, [channel]: index.entries },
+      emoteEntries: { ...state.emoteEntries, [id]: index.entries },
       // Counts are global, and the backend's copy is the persisted one.
       emoteUses: index.uses,
     }));
   },
 
   refreshAuth: async () => set({ auth: await api.authStatus() }),
-  // Roles belong to the signed-in user, so signing out drops them rather than
-  // leaving the last account's moderator commands on offer.
-  setAuth: (auth) => set(auth.loggedIn ? { auth } : { auth, roles: {} }),
+
+  /**
+   * Roles belong to a token, so an account going away drops what it could do.
+   * The tabs it was reading stay open and fall back to anonymous -- which the
+   * backend has already done to its own list by the time this lands.
+   */
+  setAuth: (auth) =>
+    set((state) => {
+      const held = new Set(auth.accounts.map((account) => account.id));
+      const roles = { ...state.roles };
+      for (const tab of state.tabs) {
+        if (tab.account !== ANONYMOUS && !held.has(tab.account)) delete roles[tab.id];
+      }
+      return { auth, roles };
+    }),
 
   updatePreferences: (patch) => {
     const preferences = normalize({ ...useChat.getState().preferences, ...patch });
@@ -752,25 +829,6 @@ export const useChat = create<ChatState>((set) => ({
   toggleMuted: () =>
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
 
-  openMentionsTab: () => {
-    const state = useChat.getState();
-    useChat.getState().updatePreferences({
-      mentionsTab: true,
-      // Where joining a channel would have put it, in the pane you're working
-      // in. Only on the way in: a tab reopened after being dragged somewhere
-      // should come back where it was, but the first time it has no
-      // remembered place.
-      ...(state.preferences.mentionsTab
-        ? {}
-        : {
-            mentionsPane: state.focusedPane,
-            mentionsTabIndex: paneChannels(state, state.focusedPane).length,
-          }),
-    });
-    const { mentionsPane, splitLayout } = useChat.getState().preferences;
-    useChat.getState().setActive(MENTIONS_TAB, splitLayout === "none" ? 0 : mentionsPane);
-  },
-
   ingest: (batch) => {
     if (batch.length === 0) return;
 
@@ -781,26 +839,19 @@ export const useChat = create<ChatState>((set) => ({
     let mentioned = false;
 
     set((state) => {
-      // A whisper belongs to no channel -- Twitch delivers it outside chat --
-      // so it goes wherever you're reading. With nothing open there's no view
-      // to put it in, and it's dropped rather than filed under "".
-      const routed = batch.flatMap((message) => {
-        if (message.kind !== "whisper") return [message];
-        const reading = state.active[state.focusedPane] ?? state.active.find(Boolean);
-        return reading ? [{ ...message, channel: reading }] : [];
-      });
-
-      // Keyed once, up front: a message that lands in both its channel and the
+      // Keyed once, up front: a message that lands in both its tab and a
       // mentions tab is the same object in both, so a row shown in each is one
       // memoized component rather than two that happen to look alike.
-      const stamped: StoredMessage[] = routed.map((message) => ({ ...message, key: nextKey++ }));
+      const stamped: StoredMessage[] = batch.map((message) => ({ ...message, key: nextKey++ }));
 
-      // Group by channel so each channel's array is rebuilt once per batch.
+      // Group by tab so each tab's array is rebuilt once per batch.
       const grouped = new Map<string, StoredMessage[]>();
       for (const message of stamped) {
-        const list = grouped.get(message.channel) ?? [];
-        list.push(message);
-        grouped.set(message.channel, list);
+        for (const id of targetsFor(state, message)) {
+          const list = grouped.get(id) ?? [];
+          list.push(message);
+          grouped.set(id, list);
+        }
       }
 
       const { mentionIgnores, blockedUsers } = state.preferences;
@@ -817,30 +868,33 @@ export const useChat = create<ChatState>((set) => ({
       const mentions = { ...state.mentions };
       const chatters = { ...state.chatters };
 
-      for (const [channel, incoming] of grouped) {
-        // A channel's chatter map is only rebuilt when someone new speaks --
-        // which is rare after the first minute, and a busy channel would
-        // otherwise copy the whole map on every batch.
-        let seen = chatters[channel];
+      for (const [id, incoming] of grouped) {
+        const tab = tabById(state, id);
+        const login = loginOf(state, tab?.account);
+
+        // A tab's chatter map is only rebuilt when someone new speaks -- which
+        // is rare after the first minute, and a busy channel would otherwise
+        // copy the whole map on every batch.
+        let seen = chatters[id];
         let added = false;
         for (const message of incoming) {
-          const login = message.login.toLowerCase();
+          const who = message.login.toLowerCase();
           // A whisper's sender isn't in the channel it landed in, so they
           // don't belong in its `@` completion.
-          if (!login || message.kind === "notice" || message.kind === "whisper") continue;
-          if (login === state.auth.login?.toLowerCase()) continue;
-          if (seen?.[login]) continue;
-          seen = { ...(seen ?? {}), [login]: message.displayName || message.login };
+          if (!who || message.kind === "notice" || message.kind === "whisper") continue;
+          if (who === login?.toLowerCase()) continue;
+          if (seen?.[who]) continue;
+          seen = { ...(seen ?? {}), [who]: message.displayName || message.login };
           added = true;
         }
-        if (added && seen) chatters[channel] = trimChatters(seen);
+        if (added && seen) chatters[id] = trimChatters(seen);
 
-        const existing = messages[channel] ?? [];
+        const existing = messages[id] ?? [];
         let next = existing.concat(incoming);
         if (next.length > MAX_MESSAGES + TRIM_SLACK) {
           next = next.slice(next.length - MAX_MESSAGES);
         }
-        messages[channel] = next;
+        messages[id] = next;
 
         // A backlog replayed on join isn't news. It renders, and its chatters
         // count for `@` completion, but nothing about it is an event: no ping,
@@ -848,21 +902,21 @@ export const useChat = create<ChatState>((set) => ({
         const fresh = incoming.filter((message) => !message.historical);
 
         const { notifyOnTag, notifyOnName, notifyActiveTab, muted } = state.preferences;
+        // Either pane counts as looking at it: a message you can see land
+        // isn't news, whichever half of the window it landed in.
+        const watching = state.active.includes(id);
         // A whisper always pings, unlike a mention in the channel you're
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
         if (!muted && fresh.some((message) => message.kind === "whisper" && heard(message))) {
           mentioned = true;
         }
-        // The channel you're looking at stays silent unless you ask for it:
-        // you can already see the mention land.
-        // Either pane counts as looking at it: a message you can see land
-        // isn't news, whichever half of the window it landed in.
-        const watching = state.active.includes(channel);
+        // The tab you're looking at stays silent unless you ask for it: you
+        // can already see the mention land.
         const audible = !muted && (!watching || notifyActiveTab);
         const naming = fresh.filter((message) => {
           if (!heard(message)) return false;
-          const kind = mentionKind(message, state.auth.login);
+          const kind = mentionKind(message, login);
           if (!kind) return false;
           // The badge and the highlight count every mention; only the sound
           // asks whether you wanted to hear about this kind of one.
@@ -871,37 +925,46 @@ export const useChat = create<ChatState>((set) => ({
         });
 
         // Counted like unread is, and for the same reason: it's a tally of
-        // what you haven't looked at, so the channel you're reading has none.
+        // what you haven't looked at, so the tab you're reading has none.
         if (!watching && fresh.length > 0) {
-          unread[channel] = (unread[channel] ?? 0) + fresh.length;
+          unread[id] = (unread[id] ?? 0) + fresh.length;
           if (naming.length > 0) {
-            mentions[channel] = (mentions[channel] ?? 0) + naming.length;
+            mentions[id] = (mentions[id] ?? 0) + naming.length;
           }
         }
       }
 
-      // The mentions tab, taken from the whole batch in one pass rather than
-      // per channel -- it spans all of them by definition. A whisper qualifies
-      // without being read: it was sent to you and to nobody else.
-      const addressed = stamped.filter(
-        (message) =>
-          !message.historical &&
-          heard(message) &&
-          (message.kind === "whisper" || isAboutYou(message, state.auth.login)),
-      );
+      // The mentions logs, taken from the whole batch in one pass rather than
+      // per tab -- they span every channel by definition, and they're per
+      // account because what names one of your logins names only that one.
+      const mentionLog = { ...state.mentionLog };
+      const byAccount = new Map<string, StoredMessage[]>();
+      for (const message of stamped) {
+        if (message.historical || !heard(message)) continue;
+        const login = loginOf(state, message.account);
+        // A whisper qualifies without being read: it was sent to this account
+        // and to nobody else.
+        if (message.kind !== "whisper" && !isAboutYou(message, login)) continue;
+        const list = byAccount.get(message.account) ?? [];
+        list.push(message);
+        byAccount.set(message.account, list);
+      }
 
-      let mentionLog = state.mentionLog;
-      if (addressed.length > 0) {
-        mentionLog = mentionLog.concat(addressed);
-        if (mentionLog.length > MAX_MESSAGES + TRIM_SLACK) {
-          mentionLog = mentionLog.slice(mentionLog.length - MAX_MESSAGES);
+      for (const [account, addressed] of byAccount) {
+        let log = (mentionLog[account] ?? []).concat(addressed);
+        if (log.length > MAX_MESSAGES + TRIM_SLACK) {
+          log = log.slice(log.length - MAX_MESSAGES);
         }
-        // Counted the way a channel's tab is: a tally of what you haven't
-        // looked at. Everything in here names you, so its badge is always the
-        // rose one -- both counters move together.
-        if (!state.active.includes(MENTIONS_TAB)) {
-          unread[MENTIONS_TAB] = (unread[MENTIONS_TAB] ?? 0) + addressed.length;
-          mentions[MENTIONS_TAB] = (mentions[MENTIONS_TAB] ?? 0) + addressed.length;
+        mentionLog[account] = log;
+
+        // Counted the way a channel tab is: a tally of what you haven't looked
+        // at. Everything in here names you, so its badge is always the rose
+        // one -- both counters move together.
+        for (const tab of state.tabs) {
+          if (tab.kind !== "mentions" || tab.account !== account) continue;
+          if (state.active.includes(tab.id)) continue;
+          unread[tab.id] = (unread[tab.id] ?? 0) + addressed.length;
+          mentions[tab.id] = (mentions[tab.id] ?? 0) + addressed.length;
         }
       }
 
@@ -913,72 +976,75 @@ export const useChat = create<ChatState>((set) => ({
     if (mentioned) playMentionSound();
   },
 
-  clear: ({ channel, login, messageId }) => {
+  clear: ({ account, channel, login, messageId }) => {
     set((state) => {
-      const existing = state.messages[channel];
-      if (!existing) return {};
-
       const hit = (message: StoredMessage) =>
         messageId ? message.id === messageId : login ? message.login === login : false;
       const strike = (message: StoredMessage) =>
         hit(message) ? { ...message, deleted: true } : message;
 
-      // The mentions tab holds its own reference to the same messages, so a
+      // Every tab on this channel *as this account*: a deletion is a fact
+      // about the room, but it arrives on one socket, and the other account's
+      // copy of the same message is a different object with its own key.
+      const messages = { ...state.messages };
+      for (const tab of state.tabs) {
+        if (tab.kind !== "channel" || tab.channel !== channel || tab.account !== account) continue;
+        const existing = messages[tab.id];
+        if (existing) messages[tab.id] = existing.map(strike);
+      }
+
+      // The mentions log holds its own reference to the same messages, so a
       // deletion has to reach both -- otherwise a timed-out mention stays
       // standing in the one place you'd go looking for it.
-      return {
-        messages: { ...state.messages, [channel]: existing.map(strike) },
-        mentionLog: state.mentionLog.map((message) =>
+      const mentionLog = { ...state.mentionLog };
+      const log = mentionLog[account];
+      if (log) {
+        mentionLog[account] = log.map((message) =>
           message.channel === channel ? strike(message) : message,
-        ),
-      };
+        );
+      }
+
+      return { messages, mentionLog };
     });
   },
 
   bootstrap: async () => {
     if (!IS_TAURI) {
-      const { MOCK_CHANNELS, buildInitialMessages, mockAuthStatus, mockSevenTvBadges } =
-        await import("../dev/mockData");
+      const { mockTabs, buildInitialMessages, mockAuthStatus, mockSevenTvBadges } = await import(
+        "../dev/mockData"
+      );
       const preferences = readMockPreferences();
+      const tabs = mockTabs();
       set({
-        channels: MOCK_CHANNELS,
-        active: settleActive({ channels: MOCK_CHANNELS, preferences }, [null, null]),
-        ready: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, true])),
-        emoteCounts: Object.fromEntries(MOCK_CHANNELS.map((c) => [c, 886])),
-        live: { [MOCK_CHANNELS[0]]: true, [MOCK_CHANNELS[2]]: true },
-        // One channel of each, so the picker's filtering is visible in mock.
-        roles: {
-          [MOCK_CHANNELS[0]]: "moderator",
-          [MOCK_CHANNELS[1]]: "broadcaster",
-          [MOCK_CHANNELS[2]]: "viewer",
-        },
-        connection: "connected",
-        globalEmotes: 45,
-        // `login` is set (despite `loggedIn: false`, matching real signed-out
-        // state everywhere else) so the "replying to you" highlight has an
-        // identity to match against during design iteration.
+        tabs,
         auth: mockAuthStatus(),
+        active: settleActive({ tabs, preferences }, [null, null]),
+        ready: Object.fromEntries(tabs.map((tab) => [tab.id, true])),
+        emoteCounts: Object.fromEntries(tabs.map((tab) => [tab.channel, 886])),
+        live: { [tabs[0].channel]: true },
+        // One tab of each, so the command picker's filtering is visible.
+        roles: { [tabs[0].id]: "moderator", [tabs[1].id]: "broadcaster" },
+        connections: Object.fromEntries(tabs.map((tab) => [tab.account, "connected" as const])),
+        globalEmotes: 45,
         seventvBadges: mockSevenTvBadges(),
         preferences,
       });
-      useChat.getState().ingest(buildInitialMessages());
+      useChat.getState().ingest(buildInitialMessages(tabs));
       return;
     }
 
-    const [channels, auth, preferences] = await Promise.all([
-      api.listChannels(),
+    const [tabs, auth, preferences] = await Promise.all([
+      api.listTabs(),
       api.authStatus(),
       api.preferences(),
     ]);
     const settings = normalize(preferences);
     set((state) => ({
-      channels,
+      tabs,
       auth,
       preferences: settings,
-      // Each pane opens on its own first tab -- which, with no channels but a
-      // mentions tab, is that tab: it's the whole app then, and it should open
-      // on it rather than on the join-a-channel screen behind it.
-      active: settleActive({ channels, preferences: settings }, state.active),
+      // Each pane opens on its own first tab.
+      active: settleActive({ tabs, preferences: settings }, state.active),
     }));
   },
 }));
@@ -991,14 +1057,14 @@ export const useChat = create<ChatState>((set) => ({
  * pinning and the "jump to present" pill are all exercisable while iterating
  * on design with `npm run dev`.
  */
-export async function subscribeToBackend() {
+export async function subscribeToBackend(): Promise<() => void> {
   if (!IS_TAURI) {
     const { randomMockMessage } = await import("../dev/mockData");
     const interval = window.setInterval(() => {
-      const channels = useChat.getState().channels;
-      if (channels.length === 0) return;
-      const channel = channels[Math.floor(Math.random() * channels.length)];
-      useChat.getState().ingest([randomMockMessage(channel)]);
+      const tabs = useChat.getState().tabs.filter((tab) => tab.kind === "channel");
+      if (tabs.length === 0) return;
+      const tab = tabs[Math.floor(Math.random() * tabs.length)];
+      useChat.getState().ingest([randomMockMessage(tab)]);
     }, 1400);
     return () => window.clearInterval(interval);
   }
@@ -1008,10 +1074,15 @@ export async function subscribeToBackend() {
       useChat.getState().ingest(event.payload);
     }),
 
+    // One socket per account, so this says whose. A closed one is dropped
+    // rather than remembered as disconnected: it isn't down, it's gone.
     listen<StatusEvent>("chat://status", (event) => {
-      useChat.setState({
-        connection: event.payload.state,
-        connectionDetail: event.payload.detail,
+      const { account, state, detail } = event.payload;
+      useChat.setState((current) => {
+        const connections = { ...current.connections };
+        if (state === "closed") delete connections[account];
+        else connections[account] = state;
+        return { connections, connectionDetail: detail };
       });
     }),
 
@@ -1020,11 +1091,17 @@ export async function subscribeToBackend() {
     }),
 
     listen<ChannelReadyEvent>("chat://channel-ready", (event) => {
-      useChat.setState((state) => ({
-        ready: { ...state.ready, [event.payload.channel]: true },
-        emoteCounts: { ...state.emoteCounts, [event.payload.channel]: event.payload.emoteCount },
-      }));
-      void useChat.getState().loadEmoteIndex(event.payload.channel);
+      const { account, channel, emoteCount } = event.payload;
+      const state = useChat.getState();
+      const ready = { ...state.ready };
+      const ids: string[] = [];
+      for (const tab of state.tabs) {
+        if (tab.kind !== "channel" || tab.channel !== channel || tab.account !== account) continue;
+        ready[tab.id] = true;
+        ids.push(tab.id);
+      }
+      useChat.setState({ ready, emoteCounts: { ...state.emoteCounts, [channel]: emoteCount } });
+      for (const id of ids) void useChat.getState().loadEmoteIndex(id);
     }),
 
     listen<Record<string, Badge>>("chat://seventv-badges", (event) => {
@@ -1035,23 +1112,27 @@ export async function subscribeToBackend() {
 
     listen<{ globalEmotes: number }>("chat://assets", (event) => {
       useChat.setState({ globalEmotes: event.payload.globalEmotes });
-      // Global assets can land after a channel is already ready, so any index
+      // Global assets can land after a tab is already ready, so any index
       // built before this is missing Twitch's global emotes -- rebuild them.
       const state = useChat.getState();
-      for (const channel of Object.keys(state.emoteEntries)) {
-        void state.loadEmoteIndex(channel);
+      for (const id of Object.keys(state.emoteEntries)) {
+        void state.loadEmoteIndex(id);
       }
     }),
 
     // Sent on join and whenever it changes -- see `ChannelRole` in the parser.
     listen<RoleEvent>("chat://role", (event) => {
-      const { channel, moderator, broadcaster } = event.payload;
-      useChat.setState((state) => ({
-        roles: {
-          ...state.roles,
-          [channel]: broadcaster ? "broadcaster" : moderator ? "moderator" : "viewer",
-        },
-      }));
+      const { account, channel, moderator, broadcaster } = event.payload;
+      useChat.setState((state) => {
+        const roles = { ...state.roles };
+        for (const tab of state.tabs) {
+          if (tab.kind !== "channel" || tab.channel !== channel || tab.account !== account) {
+            continue;
+          }
+          roles[tab.id] = broadcaster ? "broadcaster" : moderator ? "moderator" : "viewer";
+        }
+        return { roles };
+      });
     }),
 
     listen<AuthStatus>("chat://auth", (event) => {

@@ -262,26 +262,45 @@ function groupFor(scope: string, auth: AuthStatus) {
 }
 
 /**
+ * What one account's token allows. Scopes are granted per token and can't be
+ * escalated afterwards, so this is asked per tab: the same command can be
+ * available in one tab and not in the one beside it.
+ */
+export function scopesOf(auth: AuthStatus, account: string): string[] {
+  return auth.accounts.find((held) => held.id === account)?.scopes ?? [];
+}
+
+/**
  * Why a command can't run right now, or null if it can.
  *
  * The granted scopes are checked before the sign-in state on purpose: they're
  * the actual answer, and checking them first is what lets mock mode exercise
  * the picker's unlocked rows without pretending to be signed in.
  */
-export function commandProblem(command: ChatCommand, auth: AuthStatus): string | null {
+export function commandProblem(
+  command: ChatCommand,
+  auth: AuthStatus,
+  account: string,
+): string | null {
   if (!command.scope) return null;
-  if (auth.scopes.includes(command.scope)) return null;
-  if (!auth.loggedIn) return `Sign in to use /${command.name}.`;
+  const scopes = scopesOf(auth, account);
+  if (scopes.includes(command.scope)) return null;
+  if (scopes.length === 0) return `Give this tab an account to use /${command.name}.`;
 
   const group = groupFor(command.scope, auth);
   const label = group ? `"${group.label}"` : command.scope;
-  return `/${command.name} needs the ${label} permission. Turn it on in Settings, under Account, then sign in again.`;
+  return `/${command.name} needs the ${label} permission. Turn it on in Settings, under Accounts, then sign this account in again.`;
 }
 
 /** The short marker a locked row shows, rather than its whole explanation. */
-export function problemLabel(command: ChatCommand, auth: AuthStatus): string | null {
-  if (!command.scope || auth.scopes.includes(command.scope)) return null;
-  return auth.loggedIn ? "needs permission" : "sign in";
+export function problemLabel(
+  command: ChatCommand,
+  auth: AuthStatus,
+  account: string,
+): string | null {
+  const scopes = scopesOf(auth, account);
+  if (!command.scope || scopes.includes(command.scope)) return null;
+  return scopes.length > 0 ? "needs permission" : "sign in";
 }
 
 /**
@@ -291,7 +310,7 @@ export function problemLabel(command: ChatCommand, auth: AuthStatus): string | n
  * command grouped by the permission that unlocks it, which is also the answer
  * to "why can't I run this" for a group that hasn't been granted.
  */
-export function helpLines(query: string, auth: AuthStatus): string[] {
+export function helpLines(query: string, auth: AuthStatus, account: string): string[] {
   const asked = query.trim().replace(/^\//, "");
   if (asked) {
     const command = findCommand(asked);
@@ -302,7 +321,7 @@ export function helpLines(query: string, auth: AuthStatus): string[] {
       lines.push(`Also: ${command.aliases.map((name) => `/${name}`).join(", ")}`);
     }
     if (command.broadcasterOnly) lines.push("Only works in your own channel.");
-    const problem = commandProblem(command, auth);
+    const problem = commandProblem(command, auth, account);
     if (problem) lines.push(problem);
     return lines;
   }
@@ -318,8 +337,9 @@ export function helpLines(query: string, auth: AuthStatus): string[] {
     if (covered.length === 0) continue;
     // "Granted" is per group rather than per scope: Twitch hands them out
     // together, so one being present means the group was approved.
-    const granted = group.scopes.some((scope) => auth.scopes.includes(scope));
-    const suffix = granted ? "" : " -- not granted yet, see Settings, under Account";
+    const held = scopesOf(auth, account);
+    const granted = group.scopes.some((scope) => held.includes(scope));
+    const suffix = granted ? "" : " -- not granted yet, see Settings, under Accounts";
     lines.push(`${group.label}${suffix}: ${names(covered)}`);
   }
   lines.push("Type /help <command> for one command's arguments.");

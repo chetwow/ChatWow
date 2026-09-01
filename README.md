@@ -31,11 +31,31 @@ Signing in is one click: **Sign in** in the title bar, then approve the code in 
 it opens. No developer console, no setup beyond your normal Twitch login, and no password is
 ever typed into this app.
 
+### More than one account
+
+You can sign in more than once, and **every tab reads and sends as one of your accounts**.
+Settings -> Accounts lists them: add another with **Add another account**, mark which one new
+tabs should use, or sign one out. Signing an account out doesn't close its tabs -- they stay
+open and keep reading, without a composer, until you give them an account again.
+
+To change a tab's account, **right-click the tab** (or its message box) and pick one. The menu
+also offers **Anonymous**, which reads without sending, and that's the same list every tab
+starts from.
+
+Because a tab picks the account rather than the app, the same channel can be open twice --
+once as each of you. Both are live at the same time, each with its own composer and its own
+unread count, and a message that names one of your logins highlights only in that one's tab. The
+tab bar says which account each tab is on as soon as there's more than one to choose from.
+
+Permissions and the Client ID below are shared by every account: they're what each sign-in asks
+Twitch for, not something one account holds. What Twitch actually *granted* is per account, so
+an account signed in before you ticked a box won't have it until you sign it in again.
+
 ### Permissions
 
 Twitch asks for permissions once, on its consent screen, and there's no way to add more later
 without signing in again -- so you choose what to ask for *before* you sign in, in
-Settings -> Account.
+Settings -> Accounts.
 
 | Group | What it's for |
 | --- | --- |
@@ -49,20 +69,22 @@ you're already signed into, so the panel offers you the button to sign in again.
 moderator permissions doesn't make you a moderator anywhere: Twitch still checks that channel by
 channel.
 
-If you'd rather use your own Twitch app's Client ID, Settings -> Account takes one. It's there
-for the day the built-in one is rate-limited or suspended; changing it signs you out, since a
-Twitch token belongs to one specific app.
+If you'd rather use your own Twitch app's Client ID, Settings -> Accounts takes one. It's there
+for the day the built-in one is rate-limited or suspended; changing it signs every account out,
+since a Twitch token belongs to one specific app.
 
 ## Channels and tabs
 
 `Ctrl/Cmd+T` (or the `+` button) joins a channel, `Ctrl/Cmd+W` leaves the one you're reading,
 and tabs reorder by dragging. A tab shows a dot while it's still loading, a red one while the
 channel is live, and an unread count once you look away -- in rose rather than purple when some
-of those messages name you.
+of those messages name you. With more than one account signed in, each tab also says which one
+it's reading as; the join dialog picks that, and right-clicking the tab changes it.
 
-There's one tab that isn't a channel. Open the join dialog with nothing typed and it offers
-**Mentions** as well -- a tab collecting every message that names you, every reply to something
-you said, and every whisper, from all your channels at once. Each row is chipped with the
+There's one kind of tab that isn't a channel. Open the join dialog with nothing typed and it
+offers **Mentions** as well -- a tab collecting every message that names you, every reply to
+something you said, and every whisper, from all your channels at once. It belongs to an account
+like any other tab, so with two signed in you can have one of each. Each row is chipped with the
 channel it came from; click that chip to go there. It has no composer, since there's no one
 channel a message typed into it would belong to. Otherwise it's an ordinary tab: drag it
 anywhere in the row, close it like the rest, and it comes back where you left it holding what
@@ -210,7 +232,8 @@ The gear in the title bar opens:
 
 - **General** — recent message history on join, the four link-preview switches, and the list of
   blocked people
-- **Account** — sign in and out, choose permissions, set a Client ID
+- **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
+  Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, and whether
   tabs scroll on one row or wrap onto several
 - **Emotes** — which emote services to use, and the hidden-emote lists

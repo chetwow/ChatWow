@@ -15,7 +15,7 @@ const DIVIDER = 5;
  * doesn't need an account.
  */
 function EmptyPane({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => void }) {
-  const loggedIn = useChat((state) => state.auth.loggedIn);
+  const loggedIn = useChat((state) => state.auth.accounts.length > 0);
   return (
     <div className="flex flex-1 items-center justify-center gap-2">
       <button
@@ -95,11 +95,7 @@ function Pane({
     >
       <TabBar pane={pane} onAdd={onAdd} />
       {active ? (
-        <ChatView
-          key={`${pane}:${active}`}
-          channel={active}
-          capturesTyping={typingPane === pane}
-        />
+        <ChatView key={active} id={active} capturesTyping={typingPane === pane} />
       ) : (
         <EmptyPane onAdd={onAdd} onSignIn={onSignIn} />
       )}

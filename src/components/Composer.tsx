@@ -9,10 +9,11 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { useChat } from "../store/chat";
+import { loginOf, useChat } from "../store/chat";
 import { matchChatters } from "../lib/chatterComplete";
 import { EmotePicker } from "./EmotePicker";
 import { CommandHint, CommandPicker } from "./CommandPicker";
+import { AccountMenu } from "./AccountMenu";
 import { IS_TAURI } from "../lib/tauri";
 import { messageText } from "../lib/messageText";
 import { loadEmoji, searchEmoji, type Emoji } from "../lib/emoji";
@@ -35,7 +36,7 @@ import {
   splitCommand,
   type CommandMatch,
 } from "../lib/commands";
-import type { StoredMessage } from "../types";
+import { ANONYMOUS, type StoredMessage } from "../types";
 
 function ReplyBar({ message, onCancel }: { message: StoredMessage; onCancel: () => void }) {
   return (
@@ -62,29 +63,36 @@ function ReplyBar({ message, onCancel }: { message: StoredMessage; onCancel: () 
 }
 
 export function Composer({
-  channel,
+  id,
   capturesTyping = true,
   replyTo,
   onCancelReply,
 }: {
-  channel: string;
+  /** The tab being typed into -- which decides both the channel and the account. */
+  id: string;
   /** Whether typing anywhere in the window lands here -- see the effect below. */
   capturesTyping?: boolean;
   replyTo?: StoredMessage | null;
   onCancelReply?: () => void;
 }) {
+  const tab = useChat((state) => state.tabs.find((open) => open.id === id));
+  const channel = tab?.channel ?? "";
+  const account = tab?.account ?? ANONYMOUS;
   const sendMessage = useChat((state) => state.sendMessage);
   const runCommand = useChat((state) => state.runCommand);
   const auth = useChat((state) => state.auth);
-  const ready = useChat((state) => state.ready[channel]);
-  const emoteEntries = useChat((state) => state.emoteEntries[channel]);
+  const login = useChat((state) => loginOf(state, account));
+  const ready = useChat((state) => state.ready[id]);
+  const emoteEntries = useChat((state) => state.emoteEntries[id]);
   const emoteUses = useChat((state) => state.emoteUses);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
-  const sentHistory = useChat((state) => state.sentHistory[channel]);
-  const chatters = useChat((state) => state.chatters[channel]);
-  // Absent until this channel's USERSTATE lands, which is the safe default:
-  // the picker offers fewer commands rather than ones Twitch would refuse.
-  const role = useChat((state) => state.roles[channel] ?? "viewer");
+  const sentHistory = useChat((state) => state.sentHistory[id]);
+  const chatters = useChat((state) => state.chatters[id]);
+  // Absent until this tab's USERSTATE lands, which is the safe default: the
+  // picker offers fewer commands rather than ones Twitch would refuse.
+  const role = useChat((state) => state.roles[id] ?? "viewer");
+  /** Where the account picker is open, from a right-click on the input. */
+  const [accountMenu, setAccountMenu] = useState<{ x: number; y: number } | null>(null);
   const loadEmoteIndex = useChat((state) => state.loadEmoteIndex);
   const [value, setValue] = useState("");
   /** Mirrors the input's caret, so the `:` search knows which word it's in. */
@@ -131,9 +139,10 @@ export function Composer({
     applyText(text, text.length);
   };
 
-  // Real builds need a signed-in user to chat; mock mode never is signed in,
-  // so it would otherwise be impossible to exercise the composer's design.
-  const disabled = IS_TAURI && !auth.loggedIn;
+  // Sending needs an account, and it's this tab's account that has to have
+  // one -- a tab reading anonymously can't speak, whatever the tab beside it
+  // is signed in as. Mock mode holds no real token, so it never disables.
+  const disabled = IS_TAURI && account === ANONYMOUS;
 
   // Ready to type in as soon as it appears -- but only in the pane you're
   // working in. A composer mounting in the *other* half of a split window
@@ -153,8 +162,8 @@ export function Composer({
   // emotes after a sign-in; this covers switching to a channel that was
   // already ready before the composer mounted.
   useEffect(() => {
-    if (ready && !emoteEntries) void loadEmoteIndex(channel);
-  }, [channel, ready, emoteEntries, loadEmoteIndex]);
+    if (ready && !emoteEntries) void loadEmoteIndex(id);
+  }, [id, ready, emoteEntries, loadEmoteIndex]);
 
   // React resets the caret to the end of a controlled input when its value
   // changes, so a completion inserted mid-line has to put it back.
@@ -274,7 +283,7 @@ export function Composer({
       }
       // Checked here as well as in the picker: a command can be typed straight
       // out, and a refusal that names the missing permission beats Twitch's.
-      const problem = IS_TAURI ? commandProblem(command, auth) : null;
+      const problem = IS_TAURI ? commandProblem(command, auth, account) : null;
       if (problem) {
         setError(problem);
         return;
@@ -283,7 +292,7 @@ export function Composer({
       busy.current = true;
       setError(null);
       try {
-        await runCommand(channel, text);
+        await runCommand(id, text);
         reset();
       } catch (cause) {
         // The text stays put: the usual cause is an argument to fix.
@@ -301,7 +310,7 @@ export function Composer({
     busy.current = true;
     setError(null);
     try {
-      await sendMessage(channel, text, replyTo?.id, replyInfo);
+      await sendMessage(id, text, replyTo?.id, replyInfo);
       reset();
       onCancelReply?.();
     } catch (cause) {
@@ -546,6 +555,7 @@ export function Composer({
         <CommandPicker
           matches={commandMatches}
           auth={auth}
+          account={account}
           selected={commandHighlighted}
           onSelect={setCommandSelected}
           onPick={(match: CommandMatch) => pickCommand(match.name)}
@@ -571,13 +581,34 @@ export function Composer({
           // search always knows which word the caret is actually in.
           onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={onKeyDown}
+          // The other half of the tab's right-click: this is the tab speaking,
+          // so it's a place you'd reasonably ask "as whom?" and change it.
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setAccountMenu({ x: event.clientX, y: event.clientY });
+          }}
           disabled={disabled}
-          placeholder={disabled ? "Sign in to chat" : `Message #${channel}`}
+          placeholder={
+            disabled
+              ? "Right-click to send as an account"
+              : login
+                ? `Message #${channel} as ${login}`
+                : `Message #${channel}`
+          }
           spellCheck={false}
           autoComplete="off"
           className="chat-text selectable w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors focus:border-accent/60 placeholder:text-ink-faint disabled:cursor-not-allowed"
         />
       </div>
+
+      {accountMenu && (
+        <AccountMenu
+          tabId={id}
+          x={accountMenu.x}
+          y={accountMenu.y}
+          onClose={() => setAccountMenu(null)}
+        />
+      )}
     </div>
   );
 }
