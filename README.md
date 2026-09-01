@@ -117,11 +117,15 @@ comes back the way you left it next time you open the app.
 
 ## Talking
 
-Type and press Enter. Right-click a message for Copy and Reply; a reply shows what it's
-answering above the composer, and Escape cancels it. `/me` sends a message in your name color
-instead of after your name, italicised unless you'd rather it wasn't.
+Type and press Enter. You send as the account the tab is on -- the message box says which, once
+you have more than one signed in -- and a tab with no account reads without sending until you
+give it one.
 
-`↑` and `↓` in an empty composer walk back and forward through what you've sent in that channel.
+Right-click a message for Copy and Reply; a reply shows what it's answering above the composer,
+and Escape cancels it. `/me` sends a message in your name color instead of after your name,
+italicised unless you'd rather it wasn't.
+
+`↑` and `↓` in an empty composer walk back and forward through what you've sent in that tab.
 
 ### Commands
 
@@ -130,18 +134,20 @@ completes, `Enter` runs, `Esc` closes. Once you're past the name, a bar keeps th
 front of you.
 
 It only lists what you can actually run where you're typing -- no moderator commands unless
-you're a moderator in that channel, no broadcaster commands unless the channel is yours. A
-command you're only missing a *permission* for stays listed and says so, since that one you can
-fix in Settings. `/help` lists everything.
+you're a moderator in that channel, no broadcaster commands unless the channel is yours. All of
+that is asked of the tab's *account*, so the same channel open twice can offer one of you
+commands it won't offer the other. A command you're only missing a *permission* for stays listed
+and says so, since that one you can fix in Settings. `/help` lists everything.
 
 Two work differently from Twitch's own chat: `/mods` and `/vips` only work in your own channel,
 because Twitch's public API has no way to ask about anyone else's.
 
 ### Whispers
 
-`/w name message` sends one. Incoming whispers appear in whichever channel you're reading,
-marked with a WHISPER chip so they don't read as someone in that channel talking, and they
-always ping unless you're muted.
+`/w name message` sends one, from the tab's account. Incoming whispers appear in whichever
+channel you're reading *as the account they were sent to*, marked with a WHISPER chip so they
+don't read as someone in that channel talking, and they always ping unless you're muted. They
+also collect in that account's mentions tab, if it has one.
 
 ## Emotes
 
@@ -210,10 +216,14 @@ Each kind has its own switch in Settings -> General, since they cost different t
 ## Mentions and pings
 
 A message naming you -- `@yourname` or just your name -- is highlighted, and plays a short ping.
+"You" is per tab: it's the name of the account that tab reads as, so with the same channel open
+twice a message naming one of your logins lights up in that tab alone.
+
 Settings -> Notifications keeps `@` tags and bare-name uses as separate toggles, plus one for
 whether the channel you're already reading should ping at all (off by default -- you can see it
 land). The speaker button in the title bar mutes the lot without disturbing those toggles;
-highlighting and unread counts carry on regardless.
+highlighting and unread counts carry on regardless. Those toggles, and the two lists below, are
+shared by every account.
 
 Right-click anyone's message for two ways to hear less from them. **Ignore mentions from
 <name>** leaves them able to talk to you but stops the app telling you about it: no sound, no
@@ -262,15 +272,15 @@ each kind of preview has its own switch.
 - `@` + `Tab` — complete a chatter's name only, inserted as `@name, `
 - `:` — open the emote and emoji search; `↑`/`↓` to move, `Tab`/`Enter` to take, `Esc` to close
 - `/` — open the command picker, same keys
-- `↑`/`↓` — step back and forward through your sent messages in this channel
+- `↑`/`↓` — step back and forward through your sent messages in this tab
 - `Esc` — close a chatter's card, or cancel a reply
 
 On macOS the window closes with its own button or `Cmd+Q`, since `Cmd+W` closes a tab here.
 
 ## Not supported yet
 
-A dedicated whisper view (they land in the channel you're reading), and searching chat
-history.
+A dedicated whisper view (they land in the channel you're reading, in the account they were sent
+to), and searching chat history.
 
 ## Working on it
 

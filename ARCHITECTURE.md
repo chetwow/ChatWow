@@ -46,10 +46,14 @@ emote resolution and renderer as the live socket, so a replayed message is indis
 one that just arrived except for the flag. That flag matters: a backlog isn't news, so it never
 pings, reddens a tab or counts as unread, however recently it was said.
 
-Two details it's easy to get wrong. The fetch happens *before* the channel is marked ready, so
+Two details it's easy to get wrong. The fetch happens *before* the session is marked ready, so
 live messages keep buffering and the backlog can be placed above them rather than under them.
 And the history runs up to now while the buffer starts partway through it, so the two overlap by
 however long the fetches took -- Twitch's message ids settle that exactly.
+
+It's fetched per *session*, not per channel: a second account opening a channel the first is
+already in is a fresh join with its own backlog, even though the room's emotes and badges are
+already in hand ([Accounts and tabs](#accounts-and-tabs)).
 
 Worth knowing: it's one volunteer's server, so a failure is a non-event (no backlog, not a broken
 join), and asking it about a channel tells it you joined that channel -- the one thing this app
@@ -69,6 +73,11 @@ badge, and reply-quote resolution identical to everything else.
 
 Replies thread through Helix's `reply_parent_message_id`, and Twitch's own `reply-parent-*` tags
 on the resulting `PRIVMSG` are what render the "Replying to ..." quote on both ends.
+
+The sender is the *tab's* account rather than "the" account -- which composer you typed into is
+what decides who says it, and with a channel open twice that's the only thing that does. The
+echo comes back on that account's own IRC connection, stamped with it, so it lands in the tab it
+was sent from and not in the one beside it.
 
 ## Chat commands
 
@@ -97,20 +106,32 @@ fix; a successful one prints what it did as a notice.
 like any other text.
 
 `/mods` and `/vips` only work in your own channel, unlike Twitch's own chat: Helix's Get
-Moderators and Get VIPs both require the `broadcaster_id` to match the user in the token, and
+Moderators and Get VIPs both require the `broadcaster_id` to match the user in the tab's token, and
 there's no public endpoint for anyone else's list. Twitch's web client reads it from an internal
 API this app can't use.
 
 ## Whispers
 
-Whispers arrive on a second socket: Twitch doesn't deliver them over IRC at all, so
+Whispers arrive on their own socket: Twitch doesn't deliver them over IRC at all, so
 [`src-tauri/src/twitch/eventsub.rs`](src-tauri/src/twitch/eventsub.rs) holds an EventSub
 WebSocket subscribed to `user.whisper.message` (the *Your own account* permission covers it) and
-feeds the same batching sink the chat connection uses. EventSub sends the sender and the text and
+feeds the same batching sink the chat connections use. A whisper is addressed to one account, so
+there's one of these per account that can carry one, and the message is stamped with whose it is
+on the way out. EventSub sends the sender and the text and
 nothing else -- no emote ranges, no badges, no color -- so a whisper resolves 7TV globals, links
 and mentions from its text, the name gets the usual palette color, and there are no badges to
-draw. It carries no channel either, so Rust sends an empty one and the store files it under
-whichever channel you're reading -- only the frontend knows which that is.
+draw. It carries no channel either, so Rust sends an empty one and the store files it under whichever
+channel of *that account* you're reading -- only the frontend knows which that is -- as well as
+into that account's mentions log.
+
+The restart signal is owned by the supervisor rather than by each socket: one `Notify` wakes one
+waiter, so several sockets can't share it. A subscription belongs to the token that made it, so a
+token change drops every socket and brings back the ones still wanted. What must *not* happen is
+restarting them when nothing changed -- re-validating a good token on startup rewrites its scopes
+and login, which is worth persisting but leaves the old subscription behind on Twitch's side, and
+three of those is the limit for one type and condition. Past that Twitch refuses and whispers
+stop arriving, silently. `restore_session` keeps `changed` and `credentials_changed` apart for
+exactly this reason; it was a real bug.
 
 A whisper always pings unless you're muted, since unlike a mention in the channel you're already
 reading, it arrived from outside the room.
@@ -124,6 +145,13 @@ The groups are defined in [`src-tauri/src/auth.rs`](src-tauri/src/auth.rs)
 what decides whether a command can run. Those two are deliberately separate values on
 `AuthStatus`: a UI that reads the ticked boxes as capability will claim commands work that
 Twitch will refuse.
+
+They're separate in a second way now. What to *ask* for is one list for the whole app
+(`permission_groups`), because it's a property of the next sign-in; what was *granted* rides on
+each account (`Account::scopes`), because it's a property of a token. So an account signed in
+before a box was ticked simply doesn't have it, the accounts panel names which accounts hold
+each group rather than answering yes or no, and every scope check takes an account -- two tabs on
+one channel can honestly offer different commands.
 
 Granting moderator scopes doesn't make anyone a moderator -- Twitch still checks that, channel
 by channel, on every call.
@@ -146,16 +174,17 @@ To build against a different Twitch app -- testing, or a fork:
 TWITCH_CLIENT_ID=your_client_id npm run tauri build
 ```
 
-The runtime override under Settings -> Account exists for the case the built-in one can't cover:
+The runtime override under Settings -> Accounts exists for the case the built-in one can't cover:
 the shipped Twitch app being suspended or rate-limited, where the alternative would be waiting
 for a new release. It's stored under its own settings key, so an override only ever exists
 because someone deliberately set one in this build -- a file left behind by an earlier build
-can't silently redirect the app. Changing it clears the session, since Twitch issues a token
-against one specific Client ID and one held across a switch reads as a broken session rather
-than a signed-out one.
+can't silently redirect the app. One Client ID covers every account -- it identifies the *app*,
+not the user -- so changing it signs all of them out: Twitch issues a token against one specific
+Client ID, and one held across a switch reads as a broken session rather than a signed-out one.
+The tabs stay, anonymous, as they do whenever an account goes away.
 
 No client secret is ever needed or stored. Tokens live in `settings.json` under the app's
-config directory and are refreshed automatically.
+config directory, one entry per account, and are refreshed automatically.
 
 ## Mentions
 
@@ -228,7 +257,8 @@ different scope -- `@login` is "don't tell me when this person names me", `#chan
 tell me about mentions in this room". The prefix is both the scope and what you type to add one;
 a bare word is read as a person, which is the case worth defaulting to. A channel rule
 deliberately doesn't silence whispers: a whisper's channel is only wherever you happened to be
-reading when it arrived.
+reading when it arrived. Both lists are shared by every account, like every other preference --
+someone you don't want to hear from isn't someone you want to hear from as your other login.
 
 An ignored mention loses everything a mention has -- the ping, the count, the rose highlight, and
 its place in the mentions tab. It stays an ordinary message in its channel, because the person
@@ -250,7 +280,14 @@ add-channel button, and re-runs that from a `ResizeObserver`. That makes a tab's
 load-bearing: anything that changes it on hover (or when a channel finishes loading, or goes
 live) re-triggers the observer mid-transition, corrupts the measurement, and flickers a tab
 between rows. Hence the fixed-size slots -- the close button shares the unread badge's, the
-status dot's is reserved whether or not a dot is in it.
+status dot's is reserved whether or not a dot is in it. A tab also names the account it reads as
+once there's more than one to choose from, which does change its width -- but only when the
+account changes, never on hover, so the measurement is never corrupted mid-transition.
+
+Right-clicking a tab (or the composer, which is the same tab speaking) opens
+[AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab. It's
+a control's menu rather than a message's, so it doesn't close when chat scrolls underneath --
+see `closeOnScroll` on `ContextMenu`, which the split menu needs for the same reason.
 
 The single-row mode ([src/components/TabBar.tsx](src/components/TabBar.tsx), behind the
 `singleRowTabs` preference, and the default) skips that measurement entirely and clears any
@@ -288,8 +325,9 @@ from. `AppState::wanted` reduces it to "which account needs to be in which chann
 differ, drops sockets nothing wants any more, and forgets the sessions and channel data that
 went with them. Every tab change ends there, so nothing else has to reason about connections.
 
-Two sockets rather than one because **IRC authenticates per connection** -- the login *is* the
-connection, and there is no way to read as two accounts on one. Whispers are the same story for
+One socket per account rather than one for the app, because **IRC authenticates per
+connection** -- the login *is* the connection, and there is no way to read as two accounts on
+one. Whispers are the same story for
 the same reason: `user.whisper.message` is a subscription made with one token, so there's an
 EventSub socket per account too. Every message the backend renders is stamped with the account
 whose socket received it (`ChatMessage::account`), and that stamp is what routes it to a tab:
@@ -437,15 +475,17 @@ familiar faces keep theirs.
 ## User cards
 
 Clicking a name opens [UserCard.tsx](src/components/UserCard.tsx). Its top half is fetched, its
-bottom half is free -- the messages that chatter has already sent in this channel, filtered out of
-the store. That log is one channel only: the same name in two tabs is two conversations.
+bottom half is free -- the messages that chatter has already sent in this tab, filtered out of
+the store. That log is one tab only: the same name in two tabs is two conversations.
 
 The fetched half needs two services, because Twitch only answers one of it.
 
 *Who they are* -- avatar and account age -- is Helix `GET /users`, which needs a token but no
-scope. Signed out there is no token at all (a public client with no secret can't mint an app
-token either), so the same two fields come from ivr.fi instead; the same fallback catches an
-expired token, since something else can answer the question.
+scope. Any account's token answers it identically, so this goes through `any_credentials` rather
+than the tab's own account: a card opened in an anonymous tab still shows an avatar as long as
+something is signed in. With nothing signed in there is no token at all (a public client with no
+secret can't mint an app token either), so the same two fields come from ivr.fi instead; the same
+fallback catches an expired token, since something else can answer the question.
 
 *Follow age and cumulative sub months* aren't in Helix at all. `Get Users Follows` was removed in
 2023, and both replacements are scoped to you: `/channels/followed` needs the user id in the token
@@ -570,8 +610,11 @@ the same reason the emote blacklists do.
 
 ## Emote completion and search
 
-Both entry points -- `Tab` and the `:` picker -- are fed by the same per-channel index (7TV
-global and channel sets, plus Twitch's global and channel emotes from Helix).
+Both entry points -- `Tab` and the `:` picker -- are fed by the same index, built per *tab*: the
+7TV global and channel sets, which belong to the room, plus Twitch's global and channel emotes
+for that tab's account, which don't. Subscriber emotes are the reason for the split -- what one
+of your logins can send isn't what another can -- so the same channel open twice offers two
+different completion lists, and changing a tab's account rebuilds its own.
 
 The `:` picker ranks an exact prefix above a coincidental substring hit, so a name that merely
 contains what you typed is reachable without burying the one that starts with it. Emoji join the
@@ -588,7 +631,9 @@ Both order their *emote* matches by how often you've sent each one, falling back
 (chatter names are only ever alphabetical -- there are no counts to rank them by). Counts are per
 emote name across every channel, kept in `settings.json` by Rust while the frontend applies the
 ordering at match time, which is what keeps Tab and the picker synchronous -- neither waits on
-IPC mid-keystroke. Every emote in a sent message counts, not just the completed ones.
+IPC mid-keystroke. Every emote in a sent message counts, not just the completed ones. The counts
+are shared across accounts as well as channels: what you reach for is what you reach for,
+whoever you're typing as.
 
 Twitch's own emotes are fetched from Helix purely to populate this index. They're deliberately
 kept out of the maps that render incoming messages: an incoming message's `emotes` tag already
@@ -619,7 +664,7 @@ kind. BTTV needs no such care: it serves png, gif and webp from the same path.
 
 ## Settings
 
-Preferences live in `settings.json` next to the tokens and channel list -- `Preferences` in
+Preferences live in `settings.json` next to the accounts and the tab list -- `Preferences` in
 [src-tauri/src/settings.rs](src-tauri/src/settings.rs), mirrored by the `Preferences` type in
 [src/types.ts](src/types.ts), read at startup and written whole on every change. Rust
 deliberately doesn't validate the values: the store normalizes an unknown one back to the
@@ -643,7 +688,7 @@ caps were being inherited into whole sentences.
 | Path | Purpose |
 | --- | --- |
 | `src-tauri/src/irc/parse.rs` | IRCv3 line + tag parser |
-| `src-tauri/src/irc/client.rs` | WebSocket connection, reconnect, per-channel asset loading |
+| `src-tauri/src/irc/client.rs` | A socket per account: reconnect, `sync`, per-session asset loading |
 | `src-tauri/src/irc/history.rs` | The recent-messages backlog fetched on join |
 | `src-tauri/src/render.rs` | Emote ranges, overlay folding, badge and segment resolution |
 | `src-tauri/src/color.rs` | Twitch default color palette + dark-background readability lift |
@@ -655,11 +700,12 @@ caps were being inherited into whole sentences.
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
-| `src-tauri/src/twitch/eventsub.rs` | The whisper socket |
+| `src-tauri/src/twitch/eventsub.rs` | The whisper socket, one per account |
 | `src-tauri/src/usercard.rs` | The card behind a name: Helix profile, ivr.fi follow and subs |
 | `src-tauri/src/linkinfo.rs` | Link previews: the fetch, the meta scan, the YouTube fields |
 | `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
+| `src-tauri/src/state.rs` | Accounts, connections, per-room data and per-session state |
 | `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
 | `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |

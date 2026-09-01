@@ -53,10 +53,13 @@ message stream instead of calling `invoke`. Use this loop for pure UI/CSS work; 
 dynamically imported so it never ships in a production bundle — if you add mock data, keep it
 behind that same dynamic `import()`.
 
-Mock mode sets `auth.login` to `you` while leaving `loggedIn` false, so the reply-to-you and
-mention highlights have an identity to match against; some mock drafts tag `@you` and use the
-bare name deliberately. Preferences fall back to `localStorage` there, since there's no backend
-to write `settings.json`.
+Mock mode signs in two accounts, `you` and `you_alt`, and opens four tabs -- including the same
+channel under both, which is the case the multi-account work exists for. That gives the
+reply-to-you and mention highlights an identity to match against (some mock drafts tag `@you` and
+use the bare name deliberately) *and* a second identity they must not match, so a mention landing
+in the wrong tab is visible without signing in to Twitch. The two accounts hold different scopes,
+so the command picker's locked rows are exercisable too. Preferences fall back to `localStorage`
+there, since there's no backend to write `settings.json`.
 
 ## Non-obvious constraints (read before touching related code)
 
