@@ -127,6 +127,19 @@ fix; a successful one prints what it did as a notice.
 `/me` is the exception: it's a message rather than a command and goes out through the send path
 like any other text.
 
+### Whispers
+
+`/w` sends one, and incoming ones show up in whichever channel you're reading, marked with a
+WHISPER chip so they don't read as someone in that channel talking. They arrive on a second
+socket: Twitch doesn't deliver whispers over IRC at all, so
+[`src-tauri/src/twitch/eventsub.rs`](src-tauri/src/twitch/eventsub.rs) holds an EventSub
+WebSocket subscribed to `user.whisper.message` (the *Your own account* permission covers it) and
+feeds the same batching sink the chat connection uses. EventSub sends the sender and the text and
+nothing else -- no emote ranges, no badges, no color -- so a whisper resolves 7TV globals, links
+and mentions from its text, the name gets the usual palette color, and there are no badges to
+draw. A whisper always pings unless you're muted, since unlike a mention in the channel you're
+already reading, it arrived from outside the room.
+
 `/mods` and `/vips` only work in your own channel, unlike Twitch's own chat: Helix's Get
 Moderators and Get VIPs both require the `broadcaster_id` to match the user in the token, and
 there's no public endpoint for anyone else's list. Twitch's web client reads it from an internal
@@ -282,5 +295,5 @@ mode has no backend to write to and falls back to `localStorage`.
 
 ## Not supported yet
 
-BTTV/FFZ emotes, receiving whispers (`/w` sends; replies arrive on Twitch, not here), and
+BTTV/FFZ emotes, a dedicated whisper view (they land in the channel you're reading), and
 searching chat history.

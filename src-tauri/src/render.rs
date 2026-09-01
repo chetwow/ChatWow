@@ -68,7 +68,7 @@ pub struct ChatMessage {
     pub segments: Vec<Segment>,
     pub is_action: bool,
     pub is_first_message: bool,
-    /// "chat" | "system" | "notice"
+    /// "chat" | "system" | "notice" | "whisper"
     pub kind: String,
     pub system_message: Option<String>,
     pub reply_to: Option<ReplyInfo>,
@@ -373,6 +373,39 @@ pub fn build_usernotice(
         is_first_message: false,
         kind: "system".to_string(),
         system_message: msg.tag("system-msg").map(|s| s.to_string()),
+        reply_to: None,
+    }
+}
+
+/// An incoming whisper.
+///
+/// It belongs to no channel: EventSub delivers it outside chat entirely, so
+/// `channel` is left empty and the frontend files it under whichever channel
+/// you're reading. There are no badges and no color -- EventSub sends neither,
+/// so the name falls back to the same palette hash an uncolored chatter gets --
+/// and no emote ranges either, so only what the text itself resolves to (7TV
+/// globals, links, mentions) comes through.
+pub fn whisper(
+    id: &str,
+    login: &str,
+    display_name: &str,
+    text: &str,
+    ts: i64,
+    emotes: &EmoteLookup,
+) -> ChatMessage {
+    ChatMessage {
+        id: id.to_string(),
+        channel: String::new(),
+        ts,
+        color: color::resolve(None, login),
+        login: login.to_string(),
+        display_name: display_name.to_string(),
+        badges: Vec::new(),
+        segments: build_segments(text, None, emotes),
+        is_action: false,
+        is_first_message: false,
+        kind: "whisper".to_string(),
+        system_message: None,
         reply_to: None,
     }
 }

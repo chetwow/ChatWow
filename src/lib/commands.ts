@@ -155,7 +155,7 @@ export const COMMANDS: ChatCommand[] = [
     name: "w",
     aliases: ["whisper"],
     args: "<user> <message>",
-    summary: "Whisper someone. Their replies arrive on Twitch, not here.",
+    summary: "Whisper someone. Replies land in whichever channel you're reading.",
     scope: "user:manage:whispers",
   },
   {

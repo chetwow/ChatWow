@@ -51,6 +51,13 @@ impl Auth {
         self.client_id_override.as_deref().or(crate::auth::BUILT_IN_CLIENT_ID)
     }
 
+    /// Whether the token carries a scope. Answered from the token rather than
+    /// from which permission groups are ticked: a group turned on after signing
+    /// in isn't granted until the next one.
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|held| held == scope)
+    }
+
     /// Client id + token, present only when we can call Helix.
     pub fn credentials(&self) -> Option<(String, String)> {
         match (self.client_id(), &self.access_token) {
@@ -124,6 +131,10 @@ pub struct AppState {
     /// Kicks the live poller off its interval, so a channel you just joined
     /// gets its dot now rather than up to a poll period later.
     pub live_poll: tokio::sync::Notify,
+    /// Tells the whisper socket its credentials changed: it drops the
+    /// connection and comes back with the new token, or idles here when
+    /// there's no longer one to listen with.
+    pub eventsub_restart: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -147,6 +158,7 @@ impl AppState {
             auth: RwLock::new(Auth::default()),
             live: RwLock::new(HashSet::new()),
             live_poll: tokio::sync::Notify::new(),
+            eventsub_restart: tokio::sync::Notify::new(),
         }
     }
 

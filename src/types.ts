@@ -46,7 +46,12 @@ export type ChatMessage = {
   segments: Segment[];
   isAction: boolean;
   isFirstMessage: boolean;
-  kind: "chat" | "system" | "notice";
+  /**
+   * `whisper` arrives outside chat entirely (EventSub, not IRC) and so has no
+   * channel of its own -- the store files it under whichever one you're
+   * reading. See `render::whisper` in Rust.
+   */
+  kind: "chat" | "system" | "notice" | "whisper";
   systemMessage: string | null;
   replyTo: ReplyInfo | null;
 };

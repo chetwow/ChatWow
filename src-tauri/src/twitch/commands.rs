@@ -487,9 +487,7 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                     Some(json!({ "message": message })),
                 )
                 .await?;
-            // Received whispers aren't shown anywhere yet, so say where this
-            // went rather than implying a conversation you can read here.
-            Ok(format!("Whispered {login}. Replies arrive on Twitch, not here."))
+            Ok(format!("Whispered {login}."))
         }
 
         _ => bail!("Unknown command: /{name}"),

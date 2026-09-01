@@ -145,6 +145,7 @@ async fn restore_session(app: AppHandle, state: Shared) {
                 persist(&app, &state);
                 let _ = app.emit("chat://auth", state.auth_status());
                 state.send(IrcCommand::Reconnect);
+                state.eventsub_restart.notify_one();
             }
         }
     }
@@ -214,6 +215,7 @@ fn set_client_id_override(
     }
 
     clear_session(&state);
+    state.eventsub_restart.notify_one();
     state.auth.write().client_id_override = next;
     persist(&app, &state);
     state.send(IrcCommand::Reconnect);
@@ -433,8 +435,10 @@ async fn poll_device_auth(
             }
             tauri::async_runtime::spawn(client::load_global_assets(app.clone(), shared));
             state.send(IrcCommand::Reconnect);
-            // We can ask about live status now that there's a token.
+            // We can ask about live status now that there's a token, and the
+            // whisper socket has one to subscribe with.
             state.live_poll.notify_one();
+            state.eventsub_restart.notify_one();
 
             Ok(json!({ "status": "granted", "login": validation.login }))
         }
@@ -444,8 +448,10 @@ async fn poll_device_auth(
 #[tauri::command]
 fn logout(app: AppHandle, state: State<'_, Shared>) -> AuthStatus {
     clear_session(&state);
-    // Whether we can ask about live status at all just changed.
+    // Whether we can ask about live status -- or listen for whispers -- at all
+    // just changed.
     state.live_poll.notify_one();
+    state.eventsub_restart.notify_one();
     persist(&app, &state);
     state.send(IrcCommand::Reconnect);
     state.auth_status()
@@ -659,6 +665,12 @@ pub fn run() {
 
             tauri::async_runtime::spawn(restore_session(handle.clone(), Arc::clone(&shared)));
             tauri::async_runtime::spawn(poll_live(handle.clone(), Arc::clone(&shared)));
+            // Whispers arrive on their own socket -- Twitch doesn't send them
+            // over IRC -- but through the same sink, so they batch with chat.
+            tauri::async_runtime::spawn(twitch::eventsub::run(
+                Arc::clone(&shared),
+                sink.clone(),
+            ));
             tauri::async_runtime::spawn(client::run(
                 handle.clone(),
                 Arc::clone(&shared),

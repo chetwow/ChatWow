@@ -79,6 +79,14 @@ to write `settings.json`.
   Every command is a Helix call with its own scope
   ([src-tauri/src/twitch/commands.rs](src-tauri/src/twitch/commands.rs)). Don't "simplify" any of
   this back into the send path. `/me` genuinely is a message (a CTCP ACTION) and stays there.
+- **Whispers don't come over IRC.** Twitch delivers them through EventSub only, so
+  [src-tauri/src/twitch/eventsub.rs](src-tauri/src/twitch/eventsub.rs) runs a second WebSocket
+  subscribed to `user.whisper.message`. Don't go looking for a `WHISPER` IRC command to handle --
+  there isn't one any more. The event carries the sender and the text and nothing else, so a
+  whisper has no badges, no color and no emote ranges; `render::whisper` resolves what the text
+  alone can give and leaves the rest empty. It has no channel either: Rust sends `channel: ""`
+  and the store files it under whichever channel you're reading, since only the frontend knows
+  which that is.
 - **Whether you can moderate a channel is only knowable from your own `USERSTATE`.** There's no
   Helix endpoint for "am I a mod in someone else's channel", so `ChannelRole`
   ([src-tauri/src/irc/parse.rs](src-tauri/src/irc/parse.rs)) reads the `mod` tag and the badges
@@ -214,5 +222,5 @@ to write `settings.json`.
 
 ## Out of scope
 
-BTTV/FFZ emotes, *receiving* whispers (`/w` sends), searching chat history — see
+BTTV/FFZ emotes, a dedicated whisper view, searching chat history — see
 [README.md](README.md#not-supported-yet) for current status before adding these.

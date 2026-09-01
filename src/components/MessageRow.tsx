@@ -283,6 +283,7 @@ function MessageRowInner({
         "msg-row rise group relative flex gap-1.5 px-1.5 py-[3px] leading-[1.45] hover:bg-surface-hover",
         message.deleted ? "opacity-40" : "",
         message.kind === "system" ? "border-l-2 border-accent bg-accent/[0.07]" : "",
+        message.kind === "whisper" ? "border-l-2 border-fuchsia-400/70 bg-fuchsia-400/[0.06]" : "",
         message.isFirstMessage ? "border-l-2 border-emerald-400/70 bg-emerald-400/[0.05]" : "",
         aboutYou ? "border-l-2 border-rose-400/70 bg-rose-400/[0.06]" : "",
       ].join(" ")}
@@ -300,6 +301,14 @@ function MessageRowInner({
 
         {message.segments.length > 0 || message.kind === "chat" ? (
           <>
+            {message.kind === "whisper" && (
+              // Whispers land in whichever channel you're reading, so the row
+              // has to say what it is -- otherwise it reads as someone in this
+              // channel talking.
+              <span className="mr-1 rounded bg-fuchsia-400/20 px-1 align-[1px] text-[10px] font-semibold uppercase tracking-wide text-fuchsia-200">
+                whisper
+              </span>
+            )}
             {message.badges.map((badge) => (
               <BadgeView key={badge.id} badge={badge} />
             ))}

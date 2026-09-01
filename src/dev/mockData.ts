@@ -209,11 +209,39 @@ function toMessage(draft: Draft, channel: string, ts: number): ChatMessage {
 }
 
 /** The initial backlog shown as soon as mock mode starts. */
+/**
+ * A whisper, shaped the way `render::whisper` sends one: no channel of its own
+ * (the store files it under whichever you're reading), no badges, and text
+ * resolved against the global emote set alone.
+ */
+function mockWhisper(): ChatMessage {
+  return {
+    id: "whisper-1",
+    channel: "",
+    ts: Date.now(),
+    login: "forsen",
+    displayName: "Forsen",
+    color: "#5cd1a3",
+    badges: [],
+    segments: [{ kind: "text", text: "did you see that clip" }],
+    isAction: false,
+    isFirstMessage: false,
+    kind: "whisper",
+    systemMessage: null,
+    replyTo: null,
+  };
+}
+
 export function buildInitialMessages(): ChatMessage[] {
   const now = Date.now();
-  return MOCK_CHANNELS.flatMap((channel, channelIndex) =>
-    DRAFTS.map((draft, index) => toMessage(draft, channel, now + channelIndex * DRAFTS.length + index)),
-  );
+  return [
+    ...MOCK_CHANNELS.flatMap((channel, channelIndex) =>
+      DRAFTS.map((draft, index) =>
+        toMessage(draft, channel, now + channelIndex * DRAFTS.length + index),
+      ),
+    ),
+    mockWhisper(),
+  ];
 }
 
 /** One more message, for the periodic mock "chat activity" while iterating. */

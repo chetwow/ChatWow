@@ -418,9 +418,17 @@ export const useChat = create<ChatState>((set) => ({
     let mentioned = false;
 
     set((state) => {
+      // A whisper belongs to no channel -- Twitch delivers it outside chat --
+      // so it goes wherever you're reading. With nothing open there's no view
+      // to put it in, and it's dropped rather than filed under "".
+      const routed = batch.flatMap((message) => {
+        if (message.kind !== "whisper") return [message];
+        return state.active ? [{ ...message, channel: state.active }] : [];
+      });
+
       // Group by channel so each channel's array is rebuilt once per batch.
       const grouped = new Map<string, StoredMessage[]>();
-      for (const message of batch) {
+      for (const message of routed) {
         const list = grouped.get(message.channel) ?? [];
         list.push({ ...message, key: nextKey++ });
         grouped.set(message.channel, list);
@@ -439,7 +447,9 @@ export const useChat = create<ChatState>((set) => ({
         let added = false;
         for (const message of incoming) {
           const login = message.login.toLowerCase();
-          if (!login || message.kind === "notice") continue;
+          // A whisper's sender isn't in the channel it landed in, so they
+          // don't belong in its `@` completion.
+          if (!login || message.kind === "notice" || message.kind === "whisper") continue;
           if (login === state.auth.login?.toLowerCase()) continue;
           if (seen?.[login]) continue;
           seen = { ...(seen ?? {}), [login]: message.displayName || message.login };
@@ -455,6 +465,10 @@ export const useChat = create<ChatState>((set) => ({
         messages[channel] = next;
 
         const { notifyOnTag, notifyOnName, notifyActiveTab, muted } = state.preferences;
+        // A whisper always pings, unlike a mention in the channel you're
+        // already reading: it arrived from outside the room, so there's no
+        // reason to assume you were watching for it. Muting still silences it.
+        if (!muted && incoming.some((message) => message.kind === "whisper")) mentioned = true;
         // The channel you're looking at stays silent unless you ask for it:
         // you can already see the mention land.
         const audible = !muted && (channel !== state.active || notifyActiveTab);
