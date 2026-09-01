@@ -80,6 +80,8 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   const join = useChat((state) => state.join);
   const channels = useChat((state) => state.channels);
   const loggedIn = useChat((state) => state.auth.loggedIn);
+  const mentionsTab = useChat((state) => state.preferences.mentionsTab);
+  const openMentionsTab = useChat((state) => state.openMentionsTab);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,6 +97,18 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
 
   const query = value.trim();
   const canSearch = IS_TAURI ? loggedIn : true;
+
+  /**
+   * The other kind of tab, offered here because this is the dialog you reach
+   * for when you want one. Only while the input is empty: once you're typing a
+   * channel name it's in the way, and the search results take the space.
+   */
+  const offerMentions = !mentionsTab && query.length === 0;
+
+  const openMentions = () => {
+    openMentionsTab();
+    onClose();
+  };
 
   useEffect(() => {
     setActive(-1);
@@ -159,6 +173,9 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     if (event.key === "Escape") return onClose();
 
     if (event.key === "Enter") {
+      // Nothing typed and the mentions row on offer: it's the only thing on
+      // screen to take, and Enter on an empty box otherwise does nothing.
+      if (offerMentions) return openMentions();
       const hit = active >= 0 ? hits[active] : null;
       return void submit(hit ? hit.login : value);
     }
@@ -173,12 +190,12 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-modal
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[18vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[18vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-[420px] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
+        className="w-[min(420px,100%)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
       >
         <div className="flex items-center gap-2 border-b border-line px-3">
           <span className="text-[15px] text-ink-faint">#</span>
@@ -205,6 +222,26 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {offerMentions && (
+          <div className="p-1">
+            <button
+              type="button"
+              onClick={openMentions}
+              className="flex w-full items-center gap-2 rounded-md bg-surface-hover px-2 py-1.5 text-left"
+            >
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rose-400/15 text-[12px] font-semibold text-rose-300">
+                @
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] text-ink">Mentions</span>
+                <span className="block truncate text-[11px] text-ink-faint">
+                  Every mention, reply and whisper, from all channels at once
+                </span>
+              </span>
+            </button>
+          </div>
+        )}
+
         {hits.length > 0 && (
           <div className="scroller max-h-[260px] overflow-y-auto p-1">
             {hits.map((hit, index) => (
@@ -221,7 +258,12 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
-          {!canSearch ? (
+          {offerMentions ? (
+            <>
+              Press <kbd className="rounded bg-line px-1">Enter</kbd> for a mentions tab, or type a
+              channel name
+            </>
+          ) : !canSearch ? (
             // Helix has no unauthenticated channel search, so this is a real
             // limit rather than something to paper over -- but typing a name
             // still works, which is worth saying in the same breath.

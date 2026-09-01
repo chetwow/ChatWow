@@ -144,6 +144,8 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
+  /** Keep a tab collecting every mention, reply and whisper, from all channels. */
+  mentionsTab: boolean;
   /** The title bar's quick mute, which leaves the two toggles above alone. */
   muted: boolean;
   /** Emotes drawn as their underlined name instead of their image. */

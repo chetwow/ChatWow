@@ -3,7 +3,7 @@ import { MessageRow, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
-import { useChat, type BlacklistKind } from "../store/chat";
+import { MENTIONS_TAB, useChat, type BlacklistKind } from "../store/chat";
 import { messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
 import type { EmoteRule, StoredMessage } from "../types";
@@ -12,8 +12,16 @@ import type { EmoteRule, StoredMessage } from "../types";
 const PIN_THRESHOLD = 40;
 
 export function ChatView({ channel }: { channel: string }) {
-  const messages = useChat((state) => state.messages[channel]);
+  // The one tab with no channel behind it reads from the cross-channel log
+  // instead. Everything below -- scroll pinning, the context menu, user cards
+  // -- is the same view either way; only the source and the composer differ.
+  const isMentions = channel === MENTIONS_TAB;
+  const channelMessages = useChat((state) => state.messages[channel]);
+  const mentionLog = useChat((state) => state.mentionLog);
+  const messages = isMentions ? mentionLog : channelMessages;
   const ready = useChat((state) => state.ready[channel]);
+  const channels = useChat((state) => state.channels);
+  const setActive = useChat((state) => state.setActive);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -112,10 +120,24 @@ export function ChatView({ channel }: { channel: string }) {
       login: message.login,
       displayName: message.displayName,
       color: message.color,
+      // The message's own channel, not the view's: in the mentions tab those
+      // differ, and the follow and subscription lines are about the channel
+      // the message was said in.
+      channel: message.channel,
       anchor: event.currentTarget.getBoundingClientRect(),
     });
   }, []);
   const closeCard = useCallback(() => setCard(null), []);
+
+  // The chip on a mentions-tab row: go to where it was said. A channel you've
+  // since left has nothing to switch to, so it stays put rather than
+  // selecting a tab that isn't there.
+  const goToChannel = useCallback(
+    (target: string) => {
+      if (channels.includes(target)) setActive(target);
+    },
+    [channels, setActive],
+  );
 
   /**
    * The blacklist half of the menu, appended below Copy/Reply so an emote-heavy
@@ -174,7 +196,9 @@ export function ChatView({ channel }: { channel: string }) {
             void navigator.clipboard.writeText(menu.message.systemMessage ?? messageText(menu.message));
           },
         },
-        ...(menu.message.kind === "chat"
+        // No composer in the mentions tab, so there'd be nowhere for the reply
+        // to go -- the row's channel chip is the way back to one.
+        ...(menu.message.kind === "chat" && !isMentions
           ? [{ label: "Reply", onSelect: () => setReplyTo(menu.message) }]
           : []),
         ...(menu.emote ? emoteOptions(menu.emote) : []),
@@ -192,10 +216,18 @@ export function ChatView({ channel }: { channel: string }) {
           {!messages?.length && (
             <div className="flex h-full flex-col items-center justify-center gap-1 text-ink-faint">
               <div className="text-[13px]">
-                {ready ? `Waiting for messages in #${channel}` : `Connecting to #${channel}...`}
+                {isMentions
+                  ? "Nothing addressed to you yet"
+                  : ready
+                    ? `Waiting for messages in #${channel}`
+                    : `Connecting to #${channel}...`}
               </div>
               <div className="text-[11px]">
-                {ready ? "Quiet in here." : "Loading emotes and badges."}
+                {isMentions
+                  ? "Mentions, replies and whispers from every channel land here."
+                  : ready
+                    ? "Quiet in here."
+                    : "Loading emotes and badges."}
               </div>
             </div>
           )}
@@ -207,6 +239,7 @@ export function ChatView({ channel }: { channel: string }) {
                 message={message}
                 onContextMenu={openMenu}
                 onNameClick={openCard}
+                onChannelClick={isMentions ? goToChannel : undefined}
               />
             ))}
           </div>
@@ -228,16 +261,15 @@ export function ChatView({ channel }: { channel: string }) {
         {/* Keyed by who it's about: clicking a second name reuses this slot, and
             without a key the card would keep the first person's fetched data. */}
         {card && (
-          <UserCard
-            key={`${channel}|${card.login}`}
-            target={card}
-            channel={channel}
-            onClose={closeCard}
-          />
+          <UserCard key={`${card.channel}|${card.login}`} target={card} onClose={closeCard} />
         )}
       </div>
 
-      <Composer channel={channel} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      {/* Nothing to send to: the mentions tab spans every channel, so there's
+          no one room a message typed here would belong to. */}
+      {!isMentions && (
+        <Composer channel={channel} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      )}
     </div>
   );
 }

@@ -60,6 +60,11 @@ pub struct Preferences {
     /// default: wrapping keeps every tab in sight, but it also lets the tab
     /// bar grow to several rows deep and take that height off the chat.
     pub single_row_tabs: bool,
+    /// Keep a tab collecting every mention, reply and whisper from all
+    /// channels at once. Off by default: it's a tab you ask for, not one you
+    /// find yourself with. Nothing else here changes with it -- the log is
+    /// kept either way, so opening the tab isn't opening an empty one.
+    pub mentions_tab: bool,
     /// The title bar's quick mute. Silences the ping without touching the two
     /// toggles above, so unmuting restores exactly what you had.
     pub muted: bool,
@@ -86,6 +91,7 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             single_row_tabs: true,
+            mentions_tab: false,
             muted: false,
             emote_blacklist: Vec::new(),
             emote_complete_blacklist: Vec::new(),

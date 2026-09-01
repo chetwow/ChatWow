@@ -7,6 +7,7 @@ overlays included), user badges, and everyone's real name color.
 - Tabs for as many channels as you like, on one scrolling row or wrapped onto several
 - Recent messages on join, so a channel is never a blank pane
 - Mention highlighting, per-channel unread counts, and an optional ping
+- An optional tab collecting every mention, reply and whisper from all channels at once
 - Twitch's slash commands from a `/` picker that only offers what you can run
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
 - A card behind every name: account age, follow age, sub months, and what they've said
@@ -57,6 +58,13 @@ Twitch token belongs to one specific app.
 and tabs reorder by dragging. A tab shows a dot while it's still loading, a red one while the
 channel is live, and an unread count once you look away -- in rose rather than purple when some
 of those messages name you.
+
+There's one tab that isn't a channel. Open the join dialog with nothing typed and it offers
+**Mentions** as well -- a tab collecting every message that names you, every reply to something
+you said, and every whisper, from all your channels at once. Each row is chipped with the
+channel it came from; click that chip to go there. It has no composer, since there's no one
+channel a message typed into it would belong to. Close it like any other tab, and it comes back
+holding what arrived while it was shut.
 
 Tabs stay on one row and scroll sideways when there are more than fit, with the join button
 pinned to the right. If a channel that's mentioned you scrolls out of sight, the edge it's past
@@ -162,7 +170,7 @@ clicked and the channel you clicked it in; that one only happens when you open a
 ## Shortcuts
 
 - `Ctrl/Cmd+T` — join a channel (`Ctrl+K` does the same)
-- `Ctrl/Cmd+W` — leave the channel you're reading
+- `Ctrl/Cmd+W` — leave the channel you're reading, or close the mentions tab
 - `Tab` — complete the word you're typing to an emote or a chatter; again to cycle, `Shift+Tab`
   to go back
 - `@` + `Tab` — complete a chatter's name only, inserted as `@name, `

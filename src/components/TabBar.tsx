@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
-import { useChat } from "../store/chat";
+import { MENTIONS_TAB, useChat } from "../store/chat";
 
 /** Matches the row's gap-x-1. */
 const TAB_GAP = 4;
@@ -18,6 +18,17 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   const reorderChannels = useChat((state) => state.reorderChannels);
   // One scrolling row, or as many wrapped rows as the tabs need.
   const singleRow = useChat((state) => state.preferences.singleRowTabs);
+  const mentionsTab = useChat((state) => state.preferences.mentionsTab);
+
+  /**
+   * Every tab, in bar order -- the mentions tab pinned first when it's open,
+   * then the channels. Measurement, wrapping and the scrolled-off-edge check
+   * all run over this rather than `channels`, so the extra tab takes part in
+   * the layout like any other; only dragging tells them apart.
+   */
+  const tabList = mentionsTab ? [MENTIONS_TAB, ...channels] : channels;
+  /** Bar index -> `channels` index. The one the backend's list knows about. */
+  const channelOffset = mentionsTab ? 1 : 0;
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -65,12 +76,12 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
     let rowWidth = 0;
     let rowHasTabs = false;
 
-    channels.forEach((channel, index) => {
+    tabList.forEach((channel, index) => {
       const tabWidth = tabRefs.current.get(channel)?.offsetWidth ?? 0;
       // The last tab must also leave room for the add button right after it
       // on the same row -- otherwise the button would be the one bumped to
       // a new row, alone, instead of joining this tab there.
-      const isLastTab = index === channels.length - 1;
+      const isLastTab = index === tabList.length - 1;
       const reserve = isLastTab ? addButtonSpace : 0;
       const gap = rowHasTabs ? TAB_GAP : 0;
       // offsetWidth rounds to whole pixels while the real layout is done in
@@ -113,7 +124,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Recompute whenever the channel list itself changes shape (join, part,
   // drag-reorder) -- this can change bucketing even when no individual tab's
   // rendered width changed.
-  useLayoutEffect(recompute, [channels, singleRow]);
+  useLayoutEffect(recompute, [channels, mentionsTab, singleRow]);
 
   // Recompute whenever a tab (or the row, or the add button) actually
   // changes size -- an unread count gaining a digit, a window resize. (The
@@ -162,7 +173,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
     const box = scroller.getBoundingClientRect();
     let left = false;
     let right = false;
-    for (const channel of channels) {
+    for (const channel of tabList) {
       // Same condition as the badge itself: reading a channel clears its
       // mentions, and the active tab shows no badge to be missing.
       if (channel === active || (mentions[channel] ?? 0) === 0) continue;
@@ -183,14 +194,14 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Which channels are waiting on you, as a value that only changes when the
   // answer does -- `mentions` itself is a fresh object on every batch of
   // messages, which would re-measure the row a dozen times a second.
-  const mentionKey = channels
+  const mentionKey = tabList
     .filter((channel) => channel !== active && (mentions[channel] ?? 0) > 0)
     .join(" ");
 
   useLayoutEffect(() => {
     checkRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mentionKey, channels, singleRow]);
+  }, [mentionKey, channels, mentionsTab, singleRow]);
 
   // The row scrolling isn't the only way a badge crosses an edge: resizing the
   // window moves the right one under the tabs.
@@ -237,7 +248,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // can get a top border -- without it, a wrapped row reads as a continuation
   // of the one above instead of a visually distinct line of tabs.
   let rowIndex = 0;
-  const rowIndexByTabIndex = channels.map((_, index) => {
+  const rowIndexByTabIndex = tabList.map((_, index) => {
     const current = rowIndex;
     if (breakAfter.has(index)) rowIndex += 1;
     return current;
@@ -246,8 +257,13 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
   // Shared by both modes -- only the container around them differs, and the
   // break spacers below are inert in single-row mode because `recompute`
   // leaves `breakAfter` empty there.
-  const tabs = channels.map((channel, index) => {
+  const tabs = tabList.map((channel, index) => {
     const isActive = channel === active;
+    // The mentions tab is pinned first and stays put: there's nothing to
+    // reorder it against, and the backend's list -- which is what a reorder
+    // writes -- has never heard of it.
+    const isMentions = channel === MENTIONS_TAB;
+    const channelIndex = index - channelOffset;
     const count = unread[channel] ?? 0;
     // Only the badge's colors change, never its size -- see the slot
     // comment below for why a tab's width has to stay put.
@@ -266,9 +282,9 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
               tabRefs.current.delete(channel);
             }
           }}
-          draggable
+          draggable={!isMentions}
           onDragStart={(event) => {
-            setDragIndex(index);
+            setDragIndex(channelIndex);
             event.dataTransfer.effectAllowed = "move";
           }}
           onDragEnter={allowDrop}
@@ -278,7 +294,9 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
             // shuffling the DOM under the cursor while the drag is still
             // in progress -- the actual move happens once, on release.
             event.preventDefault();
-            if (dragIndex !== null) moveTab(dragIndex, index);
+            // Dropping onto the pinned tab just ends the drag -- moving a
+            // channel "before" it would be a position that doesn't exist.
+            if (dragIndex !== null && !isMentions) moveTab(dragIndex, channelIndex);
             setDragIndex(null);
           }}
           onDragEnd={() => setDragIndex(null)}
@@ -286,14 +304,14 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
           className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
             isActive ? "bg-surface text-ink" : "text-ink-dim hover:bg-surface-hover hover:text-ink"
           } ${rowIndexByTabIndex[index] > 0 ? "border-t border-line" : ""} ${
-            dragIndex === index ? "opacity-50" : ""
+            !isMentions && dragIndex === channelIndex ? "opacity-50" : ""
           }`}
         >
           {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
 
           <span className="font-medium">
-            <span className="text-ink-faint">#</span>
-            {channel}
+            <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
+            {isMentions ? "mentions" : channel}
           </span>
 
           {/* The slot is always here, whether or not there's a dot in it.
@@ -303,7 +321,9 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
               mid-transition -- same reason the close button shares the
               badge's slot below. */}
           <span className="grid h-1.5 w-1.5 shrink-0 place-items-center">
-            {!ready[channel] ? (
+            {/* Nothing to load and nothing to be live: the mentions tab keeps
+                the slot only so it's the same shape as its neighbours. */}
+            {isMentions ? null : !ready[channel] ? (
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
             ) : live[channel] ? (
               <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
@@ -330,7 +350,7 @@ export function TabBar({ onAdd }: { onAdd: () => void }) {
                 event.stopPropagation();
                 void part(channel);
               }}
-              aria-label={`Leave ${channel}`}
+              aria-label={isMentions ? "Close the mentions tab" : `Leave ${channel}`}
               // Square, and pinned to the right of the slot rather than
               // filling or centring in it. The slot has to stay as wide as
               // "99+" for the badge it shares, but the X shouldn't inherit

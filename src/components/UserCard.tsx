@@ -38,6 +38,12 @@ export type UserCardTarget = {
   login: string;
   displayName: string;
   color: string;
+  /**
+   * The channel the clicked message was said in -- not necessarily the one
+   * being viewed, since the mentions tab mixes several. The follow and
+   * subscription lines are about this pair, and so is the log below them.
+   */
+  channel: string;
   /** The clicked name's box, which the card hangs off. */
   anchor: DOMRect;
 };
@@ -109,16 +115,8 @@ function SubLine({ history }: { history: NonNullable<UserCardData["history"]> })
  * floor doesn't fit, the log is the part that gives -- it's the only section
  * that can shrink without losing anything, having a scrollbar already.
  */
-export function UserCard({
-  target,
-  channel,
-  onClose,
-}: {
-  target: UserCardTarget;
-  channel: string;
-  onClose: () => void;
-}) {
-  const { login, displayName, color, anchor } = target;
+export function UserCard({ target, onClose }: { target: UserCardTarget; onClose: () => void }) {
+  const { login, displayName, color, channel, anchor } = target;
   const ref = useRef<HTMLDivElement>(null);
   const log = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<UserCardData | null>(

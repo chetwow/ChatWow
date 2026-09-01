@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
 import { useChat } from "../store/chat";
-import { mentionsYou } from "../lib/mentions";
+import { isAboutYou, repliesToYou } from "../lib/mentions";
 import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
 import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
@@ -289,10 +289,17 @@ function MessageRowInner({
   message,
   onContextMenu,
   onNameClick,
+  onChannelClick,
 }: {
   message: StoredMessage;
   onContextMenu?: (event: MouseEvent, message: StoredMessage) => void;
   onNameClick?: (event: MouseEvent, message: StoredMessage) => void;
+  /**
+   * Given only where rows from several channels are mixed together -- the
+   * mentions tab. Its presence is what draws the channel chip, since in a
+   * channel's own view the chip would say the same thing on every row.
+   */
+  onChannelClick?: (channel: string) => void;
 }) {
   const time = timeOf(message.ts);
   const myLogin = useChat((state) => state.auth.login);
@@ -302,12 +309,11 @@ function MessageRowInner({
   // `EmoteView` subscribes to the blacklist itself.
   const italicActions = useChat((state) => state.preferences.italicActions);
   const showTimestamps = useChat((state) => state.preferences.showTimestamps);
-  const isReplyToYou = Boolean(
-    message.replyTo && myLogin && message.replyTo.login.toLowerCase() === myLogin.toLowerCase(),
-  );
+  const isReplyToYou = repliesToYou(message, myLogin);
   // Being named reads the same as being replied to -- both are chat talking to
-  // you -- so they share one highlight rather than competing for the row.
-  const aboutYou = isReplyToYou || mentionsYou(message, myLogin);
+  // you -- so they share one highlight rather than competing for the row. The
+  // mentions tab collects exactly what this is true of.
+  const aboutYou = isAboutYou(message, myLogin);
   const handleContextMenu = onContextMenu
     ? (event: MouseEvent) => {
         event.preventDefault();
@@ -370,6 +376,19 @@ function MessageRowInner({
               <span className="mr-1 rounded bg-fuchsia-400/20 px-1 align-[1px] text-[10px] font-semibold uppercase tracking-wide text-fuchsia-200">
                 whisper
               </span>
+            )}
+            {/* A whisper's channel is only wherever you happened to be reading
+                when it arrived, so labelling it would be inventing a room it
+                was said in. The WHISPER chip already says what it is. */}
+            {onChannelClick && message.kind !== "whisper" && message.channel && (
+              <button
+                type="button"
+                onClick={() => onChannelClick(message.channel)}
+                title={`Go to #${message.channel}`}
+                className="mr-1 cursor-pointer rounded bg-line/70 px-1 align-[1px] text-[10px] font-semibold text-ink-faint transition-colors hover:text-ink"
+              >
+                #{message.channel}
+              </button>
             )}
             {message.badges.map((badge) => (
               <BadgeView key={badge.id} badge={badge} />

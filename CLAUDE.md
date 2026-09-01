@@ -213,6 +213,15 @@ to write `settings.json`.
   [src/components/ChatView.tsx](src/components/ChatView.tsx) observes the rows' wrapper with a
   `ResizeObserver` and re-pins once the real height lands; keep that if you touch the scroller or
   the row CSS.
+- **The mentions tab is a sentinel key, not a channel.** `MENTIONS_TAB` (`"@mentions"`, in
+  [src/store/chat.ts](src/store/chat.ts)) shares `active`, `unread` and `mentions` with the real
+  channels -- `@` is illegal in a Twitch login, so it can't collide -- which is what makes it
+  behave like an ordinary tab without a parallel set of state. It must never enter `channels`:
+  that array is the backend's, and anything in it is something to join, part and reorder. The tab
+  bar therefore measures over its own `tabList`, and `part` routes the sentinel to closing the
+  tab instead of leaving a channel. Its messages are appended to `mentionLog` in `ingest` as the
+  *same objects* their channel gets, so anything that rewrites a stored message (`clear`) has to
+  rewrite both copies or the two views disagree.
 - **A tab's rendered width must never change on hover** ([src/components/TabBar.tsx](src/components/TabBar.tsx)).
   The tab bar computes its own row-wrap breaks in JS (measuring each tab, reserving room for the
   add-channel button) and re-runs that via a `ResizeObserver` on real size changes. If hovering a

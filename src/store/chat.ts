@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { IS_TAURI } from "../lib/tauri";
 import { emotesIn } from "../lib/emoteComplete";
 import type { Chatters } from "../lib/chatterComplete";
-import { mentionKind } from "../lib/mentions";
+import { isAboutYou, mentionKind } from "../lib/mentions";
 import { normalizeRules, withRule, withoutRule } from "../lib/emoteBlacklist";
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
@@ -25,6 +25,18 @@ import type {
   StatusEvent,
   StoredMessage,
 } from "../types";
+
+/**
+ * The one tab that isn't a channel: everything from every channel that names
+ * you, replies to you, or was whispered to you. `@` is illegal in a Twitch
+ * login, so this key can never collide with a real channel -- which is what
+ * lets it share `active`, `unread` and `mentions` with them and behave like an
+ * ordinary tab everywhere those are read.
+ *
+ * It is deliberately *not* in `channels`: that list is the backend's, and a
+ * name in it would be a channel to join, part and reorder.
+ */
+export const MENTIONS_TAB = "@mentions";
 
 /** Per-channel backlog cap. Beyond this the oldest messages are dropped. */
 const MAX_MESSAGES = 500;
@@ -48,6 +60,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   singleRowTabs: true,
+  mentionsTab: false,
   muted: false,
   emoteBlacklist: [],
   emoteCompleteBlacklist: [],
@@ -134,6 +147,18 @@ type ChatState = {
    * stored message is immutable -- `MessageRow` subscribes to this instead.
    */
   seventvBadges: Record<string, Badge>;
+  /**
+   * Everything that was addressed to you, from every channel, newest last --
+   * what the mentions tab renders. Kept whether or not that tab is open, so
+   * opening it isn't opening an empty pane; a message arrives here as the same
+   * object its channel holds, so a row shown in both is one memoized component
+   * rather than two that happen to look alike.
+   *
+   * Replayed backlog never lands here. It would arrive stamped with times
+   * older than what's already in the list, so a channel joined at noon would
+   * file this morning's mentions below this minute's.
+   */
+  mentionLog: StoredMessage[];
   /** Send count per emote name, shared across channels. */
   emoteUses: Record<string, number>;
   /**
@@ -167,6 +192,8 @@ type ChatState = {
   /** Drop a rule from one of the emote blacklists. */
   removeEmoteRule: (list: BlacklistKind, rule: EmoteRule) => void;
   toggleMuted: () => void;
+  /** Open the mentions tab and switch to it. Already open: just switch. */
+  openMentionsTab: () => void;
   ingest: (batch: ChatMessage[]) => void;
   clear: (event: ClearEvent) => void;
   bootstrap: () => Promise<void>;
@@ -236,6 +263,7 @@ export const useChat = create<ChatState>((set) => ({
   emoteCounts: {},
   emoteEntries: {},
   seventvBadges: {},
+  mentionLog: [],
   emoteUses: {},
   sentHistory: {},
   connection: "connecting",
@@ -285,6 +313,17 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   part: async (channel) => {
+    // Closing the mentions tab isn't leaving anything -- it's the one tab with
+    // no channel behind it. Routed through here so the tab's X and Ctrl+W
+    // reach it the same way they reach a real tab.
+    if (channel === MENTIONS_TAB) {
+      useChat.getState().updatePreferences({ mentionsTab: false });
+      set((state) =>
+        state.active === MENTIONS_TAB ? { active: state.channels[0] ?? null } : {},
+      );
+      return;
+    }
+
     if (!IS_TAURI) {
       const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
       set((state) => {
@@ -424,6 +463,11 @@ export const useChat = create<ChatState>((set) => ({
   toggleMuted: () =>
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
 
+  openMentionsTab: () => {
+    useChat.getState().updatePreferences({ mentionsTab: true });
+    useChat.getState().setActive(MENTIONS_TAB);
+  },
+
   ingest: (batch) => {
     if (batch.length === 0) return;
 
@@ -442,11 +486,16 @@ export const useChat = create<ChatState>((set) => ({
         return state.active ? [{ ...message, channel: state.active }] : [];
       });
 
+      // Keyed once, up front: a message that lands in both its channel and the
+      // mentions tab is the same object in both, so a row shown in each is one
+      // memoized component rather than two that happen to look alike.
+      const stamped: StoredMessage[] = routed.map((message) => ({ ...message, key: nextKey++ }));
+
       // Group by channel so each channel's array is rebuilt once per batch.
       const grouped = new Map<string, StoredMessage[]>();
-      for (const message of routed) {
+      for (const message of stamped) {
         const list = grouped.get(message.channel) ?? [];
-        list.push({ ...message, key: nextKey++ });
+        list.push(message);
         grouped.set(message.channel, list);
       }
 
@@ -512,7 +561,31 @@ export const useChat = create<ChatState>((set) => ({
         }
       }
 
-      return { messages, unread, mentions, chatters };
+      // The mentions tab, taken from the whole batch in one pass rather than
+      // per channel -- it spans all of them by definition. A whisper qualifies
+      // without being read: it was sent to you and to nobody else.
+      const addressed = stamped.filter(
+        (message) =>
+          !message.historical &&
+          (message.kind === "whisper" || isAboutYou(message, state.auth.login)),
+      );
+
+      let mentionLog = state.mentionLog;
+      if (addressed.length > 0) {
+        mentionLog = mentionLog.concat(addressed);
+        if (mentionLog.length > MAX_MESSAGES + TRIM_SLACK) {
+          mentionLog = mentionLog.slice(mentionLog.length - MAX_MESSAGES);
+        }
+        // Counted the way a channel's tab is: a tally of what you haven't
+        // looked at. Everything in here names you, so its badge is always the
+        // rose one -- both counters move together.
+        if (state.active !== MENTIONS_TAB) {
+          unread[MENTIONS_TAB] = (unread[MENTIONS_TAB] ?? 0) + addressed.length;
+          mentions[MENTIONS_TAB] = (mentions[MENTIONS_TAB] ?? 0) + addressed.length;
+        }
+      }
+
+      return { messages, unread, mentions, chatters, mentionLog };
     });
 
     // Muting, and the toggles above, only take the sound -- the highlight and
@@ -525,16 +598,20 @@ export const useChat = create<ChatState>((set) => ({
       const existing = state.messages[channel];
       if (!existing) return {};
 
-      const next = existing.map((message) => {
-        const hit = messageId
-          ? message.id === messageId
-          : login
-            ? message.login === login
-            : false;
-        return hit ? { ...message, deleted: true } : message;
-      });
+      const hit = (message: StoredMessage) =>
+        messageId ? message.id === messageId : login ? message.login === login : false;
+      const strike = (message: StoredMessage) =>
+        hit(message) ? { ...message, deleted: true } : message;
 
-      return { messages: { ...state.messages, [channel]: next } };
+      // The mentions tab holds its own reference to the same messages, so a
+      // deletion has to reach both -- otherwise a timed-out mention stays
+      // standing in the one place you'd go looking for it.
+      return {
+        messages: { ...state.messages, [channel]: existing.map(strike) },
+        mentionLog: state.mentionLog.map((message) =>
+          message.channel === channel ? strike(message) : message,
+        ),
+      };
     });
   },
 
@@ -572,11 +649,14 @@ export const useChat = create<ChatState>((set) => ({
       api.authStatus(),
       api.preferences(),
     ]);
+    const settings = normalize(preferences);
     set((state) => ({
       channels,
       auth,
-      preferences: normalize(preferences),
-      active: state.active ?? channels[0] ?? null,
+      preferences: settings,
+      // With no channels but a mentions tab, that tab is the whole app -- it
+      // should open on it rather than on the join-a-channel screen behind it.
+      active: state.active ?? channels[0] ?? (settings.mentionsTab ? MENTIONS_TAB : null),
     }));
   },
 }));

@@ -169,6 +169,46 @@ more often than every 1.5s.
 Mentions are counted per channel alongside unread, and a tab holding any turns its unread badge
 from accent to rose. The badge only changes color, never size -- see below.
 
+`isAboutYou` in [src/lib/mentions.ts](src/lib/mentions.ts) is the single answer to "is chat
+talking to me": named, or replied to, and never your own message. The row highlight and the
+mentions tab below both read it, so a message can't be one and not the other.
+
+## The mentions tab
+
+An optional tab that isn't a channel: everything addressed to you, from everywhere, in one list.
+Opened from the join dialog (which offers it whenever it isn't already open and nothing has been
+typed) and persisted as the `mentionsTab` preference, so it survives a restart.
+
+Its key is `MENTIONS_TAB` -- the string `@mentions`. `@` is illegal in a Twitch login, so the
+sentinel can never collide with a real channel, which is what lets it share `active`, `unread`
+and `mentions` with the channels and behave like an ordinary tab everywhere those are read:
+selecting it clears its counts, its badge is drawn by the same code, `Ctrl+W` closes it through
+the same `part` call. It is deliberately *not* in `channels` -- that list is the backend's, and a
+name in it would be something to join, part and reorder.
+
+The messages live in `mentionLog`, appended in `ingest` from the same pass that files them into
+their channels, and kept whether or not the tab is open -- opening it shouldn't open an empty
+pane. A message enters the log as the same object (same `key`) its channel holds, so a row shown
+in both places is one memoized component rather than two that happen to look alike. A deletion
+has to reach both copies, which is why `clear` rewrites the log as well: a timed-out mention left
+standing in the one place you'd go looking for it is worse than not having the tab.
+
+Replayed backlog never lands there. It arrives stamped older than what's already in the list, so
+a channel joined at noon would file this morning's mentions below this minute's -- and the same
+rule already keeps it from pinging or counting as unread.
+
+The tab bar folds the sentinel into `tabList` and measures, wraps and scroll-checks over that
+rather than `channels`, so the extra tab takes part in the layout like any other. Only dragging
+tells them apart: it's pinned first and isn't draggable, and a drop onto it is ignored, since the
+reorder it would write goes to a backend list that has never heard of it.
+
+[ChatView.tsx](src/components/ChatView.tsx) renders it with the same scroller, context menu and
+user cards as a channel; only the source and the composer differ. There's no composer because
+there's no one channel to send to -- the row's channel chip is the way back to one -- and Reply
+is dropped from the context menu for the same reason. The user card takes its channel from the
+clicked *message* rather than the view, which is what keeps the follow and subscription lines
+about the channel the message was actually said in.
+
 ## Tabs
 
 The tab bar computes its own row wrapping in JS, measuring each tab and reserving room for the

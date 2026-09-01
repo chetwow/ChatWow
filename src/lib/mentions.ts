@@ -48,7 +48,27 @@ export function mentionKind(message: ChatMessage, login: string | null): Mention
   return name.test(text) ? "name" : null;
 }
 
-/** Whether the message names you at all -- what the row highlight keys off. */
+/** Whether the message names you at all. */
 export function mentionsYou(message: ChatMessage, login: string | null): boolean {
   return mentionKind(message, login) !== null;
+}
+
+/** Whether the message is a reply to something you said. */
+export function repliesToYou(message: ChatMessage, login: string | null): boolean {
+  return Boolean(
+    login && message.replyTo && message.replyTo.login.toLowerCase() === login.toLowerCase(),
+  );
+}
+
+/**
+ * Chat talking *to* you, either way round -- what the row highlight keys off,
+ * and what the mentions tab collects. Being named and being replied to read
+ * the same, so they share one answer rather than competing for the row.
+ *
+ * Never your own message, for the reason `mentionKind` gives: replying to
+ * yourself isn't someone addressing you.
+ */
+export function isAboutYou(message: ChatMessage, login: string | null): boolean {
+  if (!login || message.login.toLowerCase() === login.toLowerCase()) return false;
+  return repliesToYou(message, login) || mentionsYou(message, login);
 }
