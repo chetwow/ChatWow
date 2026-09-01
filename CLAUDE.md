@@ -1,15 +1,21 @@
 # CLAUDE.md
 
 Guidance for Claude Code when working in this repo. Keep this file short — put anything
-derivable from the code itself in the code, not here. See [README.md](README.md) for
-architecture and setup that's user-facing rather than agent-facing.
+derivable from the code itself in the code, not here.
+
+**Two other docs, and they don't overlap.** [ARCHITECTURE.md](ARCHITECTURE.md) is the long
+form of everything below: how the pieces fit, and the reasoning behind the decisions this file
+only states. Read it before changing anything structural, and keep it current when you do.
+[README.md](README.md) is for the person *using* the app — no file paths, no internals, no
+reasoning; nothing there is written for an agent.
 
 ## What this is
 
 A Tauri 2 + React 19 desktop Twitch chat client. Rust owns the IRC connection, 7TV/Helix
 fetching, and message resolution; React only renders pre-resolved data. Don't move parsing or
-resolution logic into the frontend — see [README.md](README.md#architecture) for why that
-boundary is where it is before changing it.
+resolution logic into the frontend — see
+[ARCHITECTURE.md](ARCHITECTURE.md#the-rustreact-boundary) for why that boundary is where it is
+before changing it.
 
 ## Commands
 
@@ -214,7 +220,7 @@ to write `settings.json`.
   picker, and what they're used for (can I run this?) depends on the granted scopes, which change
   on sign-in without anything being rebuilt. Rust deliberately keeps no scope table -- it calls
   Helix and surfaces Twitch's own refusal -- so the two can only disagree in the safe direction.
-  Adding a command means both files, plus a line in the README's command section.
+  Adding a command means both files.
 - The bundle identifier is `io.github.chetwow.chatwow`. Leave it alone unless the move is
   deliberate -- changing it relocates the app config dir and orphans the stored tokens,
   channels and preferences, for every install rather than just yours.
