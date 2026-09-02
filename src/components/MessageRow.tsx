@@ -8,14 +8,9 @@ import { mentionIgnored, userBlocked } from "../lib/ignores";
 import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
 import { imagePreviewUrl, linkHost, linkKind, type LinkKind } from "../lib/links";
+import { messageTime } from "../lib/messageText";
 import { cachedLinkPreview, loadLinkPreview } from "../lib/linkPreviews";
 import type { Badge, LinkPreview, ReplyInfo, Segment, StoredMessage } from "../types";
-
-function timeOf(ts: number) {
-  if (!ts) return "";
-  const date = new Date(ts);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
 
 function BadgeView({ badge }: { badge: Badge }) {
   if (!badge.url) {
@@ -420,7 +415,7 @@ function MessageRowInner({
    */
   onChannelClick?: (channel: string) => void;
 }) {
-  const time = timeOf(message.ts);
+  const time = messageTime(message.ts);
   // Who "you" are for this row: the account whose connection received it, not
   // the app's -- the same message in the tab beside this one may name nobody.
   const myLogin = useChat((state) => loginOf(state, message.account));

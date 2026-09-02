@@ -132,9 +132,11 @@ you only ever use one -- and a tab with no account reads without sending until y
 Twitch caps a message at 500 characters. Past that the box outlines in red and says how far
 over you are, and Enter won't send until it fits.
 
-Right-click a message for Copy and Reply; a reply shows what it's answering above the composer,
-and Escape cancels it. `/me` sends a message in your name color instead of after your name,
-italicised unless you'd rather it wasn't.
+Right-click a message for Copy and Reply. *Copy* takes the message on its own, or just the part
+you've selected if you selected any; *Copy message* takes it the way it reads on screen -- with
+the name in front, and the time too if you have timestamps on. A reply shows what it's answering
+above the composer, and Escape cancels it. `/me` sends a message in your name color instead of
+after your name, italicised unless you'd rather it wasn't.
 
 `↑` and `↓` in an empty composer walk back and forward through what you've sent in that tab.
 

@@ -12,7 +12,7 @@ import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
 import { loginOf, useChat, type BlacklistKind } from "../store/chat";
-import { messageText } from "../lib/messageText";
+import { messageLine, messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
 import { ignoreForChannel, ignoreForUser, mentionIgnored } from "../lib/ignores";
 import type { EmoteRule, StoredMessage } from "../types";
@@ -49,9 +49,22 @@ export function ChatView({
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
-  const [menu, setMenu] = useState<
-    { x: number; y: number; message: StoredMessage; emote: EmoteTarget | null } | null
-  >(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    message: StoredMessage;
+    emote: EmoteTarget | null;
+    /**
+     * What was selected when the menu opened, if anything. Read then rather
+     * than when Copy is clicked: pressing a menu button collapses the
+     * selection, so by the time the handler runs there is nothing left to
+     * read.
+     */
+    selection: string;
+  } | null>(null);
+  // Whether a copied line carries the time: what's on the clipboard should be
+  // what was on the screen.
+  const showTimestamps = useChat((state) => state.preferences.showTimestamps);
   const blacklist = useChat((state) => state.preferences.emoteBlacklist);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const addEmoteRule = useChat((state) => state.addEmoteRule);
@@ -149,7 +162,13 @@ export function ChatView({
     // The emote comes off the event's target rather than a prop: `MessageRow`
     // is memoized, so anything threaded down would cost the whole backlog a
     // re-render every time this callback's identity changed.
-    setMenu({ x: event.clientX, y: event.clientY, message, emote: emoteAt(event.target) });
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      message,
+      emote: emoteAt(event.target),
+      selection: (window.getSelection()?.toString() ?? "").trim(),
+    });
   }, []);
 
   // Stable for the same reason `openMenu` is. The card hangs off the name's own
@@ -280,9 +299,23 @@ export function ChatView({
   const menuOptions: ContextMenuOption[] = menu
     ? [
         {
-          label: "Copy",
+          // Selecting part of a message and then copying the whole thing is
+          // never what was meant, so a selection wins -- and the label says so,
+          // since the two are a click apart and the difference is invisible
+          // once it's on the clipboard.
+          label: menu.selection ? "Copy selection" : "Copy",
           onSelect: () => {
-            void navigator.clipboard.writeText(menu.message.systemMessage ?? messageText(menu.message));
+            void navigator.clipboard.writeText(
+              menu.selection || (menu.message.systemMessage ?? messageText(menu.message)),
+            );
+          },
+        },
+        {
+          // The same text as it reads on screen: who said it, and the time if
+          // the reader has timestamps on.
+          label: "Copy message",
+          onSelect: () => {
+            void navigator.clipboard.writeText(messageLine(menu.message, showTimestamps));
           },
         },
         // No composer in the mentions tab, so there'd be nowhere for the reply
