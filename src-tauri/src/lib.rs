@@ -11,7 +11,7 @@ mod twitch;
 mod linkinfo;
 mod usercard;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -520,7 +520,7 @@ async fn poll_live(app: AppHandle, state: Shared) {
 
         // Signed out we can't ask, so nothing is claimed live. Clearing matters
         // on sign-out: stale dots would otherwise sit there indefinitely.
-        let live = match credentials {
+        let live = match credentials.clone() {
             Some((client_id, token)) if !logins.is_empty() => {
                 match twitch::streams::fetch_live(&state.http, &client_id, &token, &logins).await {
                     Ok(live) => live,
@@ -544,7 +544,45 @@ async fn poll_live(app: AppHandle, state: Shared) {
         if changed {
             let _ = app.emit("chat://live", live.iter().collect::<Vec<_>>());
         }
+
+        fetch_channel_avatars(&app, &state, credentials, &logins).await;
     }
+}
+
+/// Fill in the owner avatar for any open channel we don't have one for.
+///
+/// Rides along with the live poll because it wants exactly the same three
+/// things -- a token, the open channels, and a wake-up on join and on sign-in
+/// -- but it asks about far less: a login is looked up once and kept, since a
+/// streamer's profile picture doesn't change on the timescale a chat client
+/// runs for. Signed out there's no token and nothing is asked, which leaves
+/// the tabs drawing no picture rather than a wrong one.
+async fn fetch_channel_avatars(
+    app: &AppHandle,
+    state: &Shared,
+    credentials: Option<(String, String)>,
+    logins: &[String],
+) {
+    let Some((client_id, token)) = credentials else { return };
+    let missing: Vec<String> = {
+        let known = state.channel_avatars.read();
+        logins.iter().filter(|login| !known.contains_key(*login)).cloned().collect()
+    };
+    if missing.is_empty() {
+        return;
+    }
+
+    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token: &token };
+    let Ok(found) = twitch::users::fetch_avatars(&helix, &missing).await else { return };
+    if found.is_empty() {
+        return;
+    }
+    let all = {
+        let mut avatars = state.channel_avatars.write();
+        avatars.extend(found);
+        avatars.clone()
+    };
+    let _ = app.emit("chat://channel-avatars", all);
 }
 
 /// Channel suggestions for the join dialog.
@@ -804,6 +842,16 @@ fn list_tabs(state: State<'_, Shared>) -> Vec<Tab> {
     state.tabs.read().clone()
 }
 
+/// The owner avatars fetched so far, for the tab bar to start from.
+///
+/// `chat://channel-avatars` only fires when the map changes, so a frontend
+/// that started after the first fetch would otherwise have nothing until the
+/// next channel was opened.
+#[tauri::command]
+fn channel_avatars(state: State<'_, Shared>) -> HashMap<String, String> {
+    state.channel_avatars.read().clone()
+}
+
 /// Open a tab. The id is the frontend's -- it mints one when it opens the view,
 /// so the view has a key from the first frame rather than after a round trip --
 /// and everything else is validated here.
@@ -825,11 +873,12 @@ fn add_tab(
     }
     let account = resolve_account(&state, &account);
 
+    let avatar_mode = Some(stamped_avatar_mode(&state, &account));
     let tab = match kind.as_str() {
-        "mentions" => Tab { id, kind, channel: String::new(), account },
+        "mentions" => Tab { id, kind, channel: String::new(), account, avatar_mode },
         _ => {
             let channel = normalize_channel(&channel)?;
-            Tab { id, kind: "channel".to_string(), channel, account }
+            Tab { id, kind: "channel".to_string(), channel, account, avatar_mode }
         }
     };
 
@@ -891,6 +940,50 @@ fn set_tab_account(
         if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id) {
             tab.account = account;
         }
+    }
+    tabs_changed(&app, &state)
+}
+
+/// What a tab opening now gets for the picture behind its name.
+///
+/// The preference is a rule for *new* tabs rather than something every tab
+/// re-reads, so it's resolved once, here, and stamped on the tab -- including
+/// `otherAccount`, which is a question about the account the tab is being
+/// opened as and has a plain answer at that moment.
+fn stamped_avatar_mode(state: &AppState, account: &str) -> String {
+    let mode = state.preferences.read().new_tab_avatar_mode.clone();
+    if mode != "otherAccount" {
+        return mode;
+    }
+    if account == state.auth.read().default_account {
+        "none".to_string()
+    } else {
+        "account".to_string()
+    }
+}
+
+/// Change which picture one tab draws behind its name.
+///
+/// Per tab because the useful answer differs tab by tab: the channel's face
+/// where you're reading one stream, your own where the same channel is open
+/// twice under two logins. The value isn't checked here -- an unknown one
+/// falls back in the frontend, exactly like `chat_font_size`.
+#[tauri::command]
+fn set_tab_avatar_mode(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    id: String,
+    mode: String,
+) -> Vec<Tab> {
+    {
+        let mut tabs = state.tabs.write();
+        let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id) else {
+            return tabs.clone();
+        };
+        if tab.avatar_mode.as_deref() == Some(mode.as_str()) {
+            return tabs.clone();
+        }
+        tab.avatar_mode = Some(mode);
     }
     tabs_changed(&app, &state)
 }
@@ -1101,7 +1194,16 @@ pub fn run() {
                     data.entry(tab.channel.clone()).or_default();
                 }
             }
-            *shared.tabs.write() = saved.tabs;
+            {
+                // Tabs saved before this field existed. Stamped once, on the
+                // way in, so nothing downstream has to know the difference
+                // between "chose this" and "never chose".
+                let mut tabs = saved.tabs;
+                for tab in tabs.iter_mut().filter(|tab| tab.avatar_mode.is_none()) {
+                    tab.avatar_mode = Some(stamped_avatar_mode(&shared, &tab.account));
+                }
+                *shared.tabs.write() = tabs;
+            }
 
             // 7TV answers "who has which badge" one user at a time, so chatters
             // queue here and go out in batches.
@@ -1149,6 +1251,8 @@ pub fn run() {
             add_tab,
             close_tab,
             set_tab_account,
+            set_tab_avatar_mode,
+            channel_avatars,
             reorder_tabs,
             send_message,
             preferences,

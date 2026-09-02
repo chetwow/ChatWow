@@ -29,14 +29,28 @@ const NYMN_AVATAR =
   "https://static-cdn.jtvnw.net/jtv_user_pictures/aa24a66f-6cb9-48da-8bcc-80cbf725f99e-profile_image-600x600.png";
 
 /**
- * Two accounts, so the multi-account paths -- a tab per account, the same
+ * Owner avatars for the mock channels, so the tab background's `owner` mode
+ * has something to draw. Only two of the three: a channel nobody has fetched
+ * a face for is the ordinary case (just joined, or signed out) and the tab
+ * has to look right in it.
+ */
+export const MOCK_CHANNEL_AVATARS: Record<string, string> = {
+  [MOCK_CHANNELS[0]]: NYMN_AVATAR,
+  [MOCK_CHANNELS[2]]: FORSEN_AVATAR,
+};
+
+/**
+ * Three accounts, so the multi-account paths -- a tab per account, the same
  * channel open twice, the account picker on a tab and on the composer -- are
- * all exercisable without signing in to Twitch.
+ * all exercisable without signing in to Twitch. Two have tabs; the third is
+ * signed in and idle.
  */
 export const MOCK_ACCOUNTS: AccountInfo[] = [
   { id: "1", login: "you", scopes: [], avatarUrl: FORSEN_AVATAR },
-  // No avatar, so the accounts list's monogram fallback is exercised too.
-  { id: "2", login: "you_alt", scopes: [], avatarUrl: "" },
+  { id: "2", login: "you_alt", scopes: [], avatarUrl: NYMN_AVATAR },
+  // Signed in, no tabs and no picture -- the accounts list's monogram and its
+  // "No tabs" row, and the one account a tab's picture can't come from.
+  { id: "3", login: "you_spare", scopes: [], avatarUrl: "" },
 ];
 
 /**
@@ -46,10 +60,11 @@ export const MOCK_ACCOUNTS: AccountInfo[] = [
  */
 export function mockTabs(): Tab[] {
   return [
-    { id: "mock-tab-1", kind: "channel", channel: MOCK_CHANNELS[0], account: "1" },
-    { id: "mock-tab-2", kind: "channel", channel: MOCK_CHANNELS[1], account: "1" },
-    { id: "mock-tab-3", kind: "channel", channel: MOCK_CHANNELS[2], account: "2" },
-    { id: "mock-tab-4", kind: "channel", channel: MOCK_CHANNELS[0], account: "2" },
+    // Three of the modes across four tabs, since a tab carries its own now.
+    { id: "mock-tab-1", kind: "channel", channel: MOCK_CHANNELS[0], account: "1", avatarMode: "account" },
+    { id: "mock-tab-2", kind: "channel", channel: MOCK_CHANNELS[1], account: "1", avatarMode: "none" },
+    { id: "mock-tab-3", kind: "channel", channel: MOCK_CHANNELS[2], account: "2", avatarMode: "owner" },
+    { id: "mock-tab-4", kind: "channel", channel: MOCK_CHANNELS[0], account: "2", avatarMode: "account" },
   ];
 }
 
@@ -713,6 +728,7 @@ export function mockAuthStatus(): AuthStatus {
     accounts: [
       { ...MOCK_ACCOUNTS[0], scopes: granted },
       { ...MOCK_ACCOUNTS[1], scopes: basics },
+      MOCK_ACCOUNTS[2],
     ],
     defaultAccount: MOCK_ACCOUNTS[0].id,
     permissionGroups: ["moderation"],

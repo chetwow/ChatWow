@@ -61,6 +61,15 @@ pub struct Tab {
     pub channel: String,
     /// Which account this tab reads (and sends) as. `ANONYMOUS` for none.
     pub account: String,
+    /// Which picture this tab draws behind its name: `none`, `owner` (the
+    /// channel's) or `account` (the one it reads as). The tab's own answer,
+    /// not a preference read at render time -- `new_tab_avatar_mode` decides
+    /// only what a *new* tab is stamped with, and a tab keeps what it was
+    /// given until its right-click menu says otherwise. `None` is a tab from
+    /// a build before this existed, stamped on the next load. Not validated
+    /// here -- see the note on `chat_font_size`.
+    #[serde(default)]
+    pub avatar_mode: Option<String>,
 }
 
 impl Tab {
@@ -120,6 +129,18 @@ pub struct Preferences {
     /// default -- with two accounts signed in it's the only thing that keeps
     /// saying which one a tab speaks as once the placeholder is typed over.
     pub show_composer_avatar: bool,
+    /// What a newly opened tab is stamped with for the picture behind its
+    /// name: `none`, `owner` (the channel's), `account` (the one it reads as)
+    /// or `otherAccount` -- that, but only when the new tab isn't on the
+    /// default account, which resolves to one of the other two the moment a
+    /// tab is made. Only new tabs: changing this leaves the open ones alone,
+    /// each of which carries its own `Tab::avatar_mode`.
+    pub new_tab_avatar_mode: String,
+    /// How strongly that picture is drawn, 0 to 1. A setting because the right
+    /// answer depends on the avatar: a dark one at the default is nearly
+    /// invisible where a bright one is plenty. Clamped in the frontend, which
+    /// is also what draws it.
+    pub tab_avatar_opacity: f64,
     /// Show the picture on hover when a link points straight at an image.
     /// On by default, but a setting because it's fetched from whatever host a
     /// chatter linked -- hovering tells that host you're here, which nothing
@@ -189,6 +210,8 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             show_composer_avatar: true,
+            new_tab_avatar_mode: "owner".to_string(),
+            tab_avatar_opacity: 0.4,
             preview_images: true,
             preview_youtube: true,
             preview_twitch: true,
@@ -290,6 +313,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             kind: "channel".to_string(),
             channel: channel.clone(),
             account: account.clone(),
+            avatar_mode: None,
         })
         .collect();
 
@@ -316,6 +340,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             kind: "mentions".to_string(),
             channel: String::new(),
             account,
+            avatar_mode: None,
         },
     );
     if at <= split {

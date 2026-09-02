@@ -151,7 +151,23 @@ export type Tab = {
   channel: string;
   /** The account it reads and sends as, or `ANONYMOUS`. */
   account: string;
+  /**
+   * This tab's own answer to which picture sits behind its name. Stamped from
+   * `newTabAvatarMode` when the tab is opened and its own from then on, so
+   * changing that preference leaves the open tabs where they were.
+   */
+  avatarMode: TabAvatarMode;
 };
+
+/** Which picture a tab draws behind its name. */
+export type TabAvatarMode = "none" | "owner" | "account";
+
+/**
+ * What a *new* tab is stamped with. The three a tab can hold, plus the rule
+ * `otherAccount`: your picture only where the tab isn't on your default
+ * account, which resolves to one of the other three as the tab is opened.
+ */
+export type NewTabAvatarMode = TabAvatarMode | "otherAccount";
 
 /** Chat text size presets, smallest first. Mirrors `chat_font_size` in Rust. */
 export type ChatFontSize = "small" | "medium" | "large" | "larger";
@@ -204,6 +220,10 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Show the sending account's picture beside the message box. */
   showComposerAvatar: boolean;
+  /** What a newly opened tab draws behind its name. Only new ones. */
+  newTabAvatarMode: NewTabAvatarMode;
+  /** How strongly that picture is drawn, 0 to 1. */
+  tabAvatarOpacity: number;
   /** Show the picture on hover when a link points straight at an image. */
   previewImages: boolean;
   /** Show a YouTube video's channel, duration, date and counts on hover. */

@@ -199,6 +199,10 @@ pub struct AppState {
     /// to, so they're no more shared than a channel's are.
     pub twitch_global_emotes: RwLock<HashMap<String, Vec<TwitchEmote>>>,
     pub global_badges: RwLock<BadgeMap>,
+    /// Each open channel's owner avatar, by login. Room-scoped like the emote
+    /// sets, but fetched by the live poll rather than on join: it needs a
+    /// token, and being signed out is a state a channel can be joined in.
+    pub channel_avatars: RwLock<HashMap<String, String>>,
     /// 7TV badges by Twitch user id, for the chatters we've resolved so far.
     /// Sent to the frontend as they land rather than baked into a message:
     /// they arrive after the message that prompted the lookup, and the ones
@@ -250,6 +254,7 @@ impl AppState {
             global_emotes: RwLock::new(HashMap::new()),
             twitch_global_emotes: RwLock::new(HashMap::new()),
             global_badges: RwLock::new(BadgeMap::new()),
+            channel_avatars: RwLock::new(HashMap::new()),
             seventv_badges: RwLock::new(HashMap::new()),
             seventv_badges_asked: RwLock::new(HashSet::new()),
             badge_lookups: RwLock::new(None),
@@ -533,6 +538,7 @@ mod tests {
             kind: "channel".to_string(),
             channel: channel.to_string(),
             account: account.to_string(),
+            avatar_mode: None,
         }
     }
 
@@ -616,6 +622,7 @@ mod tests {
             kind: "mentions".to_string(),
             channel: String::new(),
             account: "333".to_string(),
+            avatar_mode: None,
         });
 
         let wanted = state.wanted();

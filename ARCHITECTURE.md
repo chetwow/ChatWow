@@ -303,12 +303,39 @@ live) re-triggers the observer mid-transition, corrupts the measurement, and fli
 between rows. Hence the fixed-size slots -- the close button shares the unread badge's, the
 status dot's is reserved whether or not a dot is in it.
 
-A tab deliberately doesn't say which account it reads as. The row is scanned for channel names,
-and a second word on every tab costs more room than it buys -- the question is answered where
-it's asked instead: the right-click menu ticks the current account, and the composer names the
-one it sends as twice over, in its placeholder and in the avatar beside it. The avatar is the
-half that survives typing, which is what it's for -- with the same channel open under two
-accounts the tabs look alike, and the placeholder is gone by the second character.
+A tab deliberately doesn't say which account it reads as *in words*. The row is scanned for
+channel names, and a second word on every tab costs more room than it buys -- the question is
+answered where it's asked instead: the right-click menu ticks the current account, and the
+composer names the one it sends as twice over, in its placeholder and in the avatar beside it.
+The avatar is the half that survives typing, which is what it's for -- with the same channel
+open under two accounts the tabs look alike, and the placeholder is gone by the second
+character.
+
+A picture is the exception, because it costs no words and no width: a tab can draw one behind
+its name, faintly (`tab_avatar_opacity`, 40% by default -- a setting because how visible a
+given opacity looks depends entirely on the avatar behind it) and absolutely positioned, centred
+on the text. Out of flow is the
+whole trick -- `offsetWidth` is what the row-wrap measurement reads, so a picture in the layout
+would move the breaks, and one that arrived late would move them again.
+
+Which picture is the tab's own property (`Tab::avatar_mode`), not a preference read at render
+time: `none`, `owner` (the channel's) or `account` (the one it reads as), changed from the tab's
+right-click menu. The preference (`new_tab_avatar_mode`) is a rule for *new* tabs only, and
+`stamped_avatar_mode` ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) applies it once, as the tab
+is opened -- so changing the setting never rearranges what's already open, and a tab you've
+pointed at something stays pointed there. It carries a fourth value the tabs can't, `otherAccount`:
+your picture unless the new tab is on your default account, which is a question with a plain
+answer at the moment a tab is made and none at all afterwards, once the tab's account can change
+under it. Tabs restored from a build without the field are stamped the same way on the way in,
+so nothing downstream distinguishes "chose this" from "never chose".
+
+Owner avatars are fetched by the live poll ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) rather
+than on join, because they want exactly what it already has -- a token, the open channels, and a
+wake-up on both a join and a sign-in -- while asking for far less: Get Users answers about a
+hundred logins in one call, and a login is asked about once and kept, a streamer's picture not
+being something that changes while a chat client is open. Signed out there's no token, so
+nothing is asked and the tabs draw nothing, the same degradation as the live dots and badge art.
+They're keyed by channel like the emote sets, since the face belongs to the room.
 
 Right-clicking a tab (or the composer, which is the same tab speaking) opens
 [AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab.

@@ -8,6 +8,7 @@
 
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 use super::helix::Helix;
 
@@ -45,6 +46,10 @@ struct UsersResponse {
 
 #[derive(Deserialize)]
 struct HelixUser {
+    /// Only read by `fetch_avatars`, which asks about many people at once and
+    /// has to map each answer back to the name it asked about.
+    #[serde(default)]
+    login: String,
     #[serde(default)]
     profile_image_url: String,
     #[serde(default)]
@@ -68,6 +73,38 @@ pub async fn fetch_profile(helix: &Helix<'_>, login: &str) -> Result<Profile> {
     let parsed: UsersResponse = serde_json::from_value(response)
         .map_err(|error| anyhow!("unexpected Twitch user response: {error}"))?;
     profile_from(parsed).ok_or_else(|| anyhow!("There's no Twitch user named \"{login}\""))
+}
+
+/// Helix takes up to 100 `login` parameters per call to Get Users.
+const MAX_LOGINS: usize = 100;
+
+/// Every login's profile picture, for the picture a tab draws behind its name.
+///
+/// One call for every open channel rather than one per channel: the same
+/// endpoint `fetch_profile` reads for one person answers about a hundred at a
+/// time. A login Twitch doesn't know, or has no picture for, simply isn't in
+/// the map -- the caller draws nothing, which is also what being signed out
+/// gets you, since Get Users needs a token this app can only have from a
+/// signed-in account.
+pub async fn fetch_avatars(
+    helix: &Helix<'_>,
+    logins: &[String],
+) -> Result<HashMap<String, String>> {
+    let mut avatars = HashMap::new();
+    for chunk in logins.chunks(MAX_LOGINS) {
+        let query: Vec<(&str, &str)> =
+            chunk.iter().map(|login| ("login", login.as_str())).collect();
+        let response = helix.get("users", &query).await?;
+        let parsed: UsersResponse = serde_json::from_value(response)
+            .map_err(|error| anyhow!("unexpected Twitch user response: {error}"))?;
+        for user in parsed.data {
+            if user.login.is_empty() || user.profile_image_url.is_empty() {
+                continue;
+            }
+            avatars.insert(user.login.to_lowercase(), user.profile_image_url);
+        }
+    }
+    Ok(avatars)
 }
 
 #[cfg(test)]

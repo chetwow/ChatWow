@@ -97,6 +97,13 @@ shows a rose bar until you scroll back or read it. Turn off Settings -> Appearan
 on one row* and they wrap onto as many rows as they need instead, so everything you've joined is
 on screen at once.
 
+A tab can carry a face behind its name, faint enough to read straight through. Right-click a tab
+and pick under *Background avatar*: nothing, the channel's own avatar, or the avatar of the
+account the tab is on. Settings -> Appearance sets what a *new* tab starts with -- those three,
+or the avatar of the account only where the tab isn't on your usual one -- and changing it
+leaves the tabs you already have alone. How faint it is is a setting there too. Channel avatars
+need you to be signed in; without that those tabs stay plain.
+
 ## Two channels at once
 
 The split button in the title bar -- the pane with a line through it -- divides the window in
@@ -249,8 +256,8 @@ The gear in the title bar opens:
 - **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
   Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, whether your
-  Twitch avatar shows beside the message box, and whether tabs scroll on one row or wrap onto
-  several
+  Twitch avatar shows beside the message box, whether tabs scroll on one row or wrap onto
+  several, and which picture a new tab puts behind its name and how faint it is
 - **Emotes** — which emote services to use, and the hidden-emote lists
 - **Notifications** — which mentions ping, and which to ignore entirely
 

@@ -7,6 +7,7 @@ import type {
   LinkPreview,
   Preferences,
   Tab,
+  TabAvatarMode,
   UserCard,
 } from "../types";
 
@@ -35,7 +36,12 @@ export const api = {
   /** Read (and send) as a different account, keeping the tab and its messages. */
   setTabAccount: (id: string, account: string) =>
     invoke<Tab[]>("set_tab_account", { id, account }),
+  /** Which picture one tab draws behind its name. */
+  setTabAvatarMode: (id: string, mode: TabAvatarMode) =>
+    invoke<Tab[]>("set_tab_avatar_mode", { id, mode }),
   reorderTabs: (ids: string[]) => invoke<Tab[]>("reorder_tabs", { ids }),
+  /** Owner avatars fetched so far, by channel. Empty when signed out. */
+  channelAvatars: () => invoke<Record<string, string>>("channel_avatars"),
   sendMessage: (account: string, channel: string, text: string, replyToId?: string) =>
     invoke<void>("send_message", { account, channel, text, replyToId }),
   /** Runs a slash command; resolves with the line to print into the channel. */

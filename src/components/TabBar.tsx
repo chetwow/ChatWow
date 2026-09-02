@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { paneTabs, useChat } from "../store/chat";
+import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
 import { AccountMenu } from "./AccountMenu";
 import type { PaneIndex, Tab } from "../types";
@@ -31,6 +32,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
   const live = useChat((state) => state.live);
+  const auth = useChat((state) => state.auth);
+  const channelAvatars = useChat((state) => state.channelAvatars);
   const setActive = useChat((state) => state.setActive);
   const closeTab = useChat((state) => state.closeTab);
   const moveTab = useChat((state) => state.moveTab);
@@ -306,6 +309,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     // Only the badge's colors change, never its size -- see the slot
     // comment below for why a tab's width has to stay put.
     const named = (mentions[tab.id] ?? 0) > 0;
+    const avatar = tabAvatar(tab, auth, channelAvatars);
 
     return (
       <Fragment key={tab.id}>
@@ -348,9 +352,27 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
         >
           {isActive && <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" />}
 
-          <span className="font-medium">
-            <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
-            {isMentions ? "mentions" : tab.channel}
+          {/* Whose face sits behind the name is the tab's own choice, stamped
+              when it opened and changed from its right-click menu.
+              Absolutely positioned and
+              centred on the text rather than laid out beside it: a tab's
+              rendered width is what the row-wrap measurement reads, so
+              nothing here may take horizontal space, and an image that
+              arrives late must not reflow the row it's in. */}
+          <span className="relative font-medium">
+            {avatar && (
+              <img
+                src={avatar}
+                alt=""
+                aria-hidden
+                style={{ opacity: preferences.tabAvatarOpacity }}
+                className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full object-cover"
+              />
+            )}
+            <span className="relative">
+              <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
+              {isMentions ? "mentions" : tab.channel}
+            </span>
           </span>
 
           {/* The slot is always here, whether or not there's a dot in it.

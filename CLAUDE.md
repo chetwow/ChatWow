@@ -272,8 +272,8 @@ there, since there's no backend to write `settings.json`.
   in and each tab picks one, so the same channel can be open twice and a channel name no longer
   identifies a view. `settings::Tab` (`id`, `kind`, `channel`, `account`) does: messages, unread,
   scroll, sent history, completable emotes and role are all keyed by tab id, while emote sets,
-  badges, room id and live state stay keyed by channel because they belong to the *room*. Ids are
-  minted in the frontend so a new view has a key before the round trip.
+  badges, room id, live state and the owner's avatar stay keyed by channel because they belong to
+  the *room*. Ids are minted in the frontend so a new view has a key before the round trip.
 - **One IRC socket per account, and `client::sync` is the only thing that opens or closes one.**
   IRC authenticates per connection -- the login *is* the connection -- so reading as two accounts
   is two sockets, and whispers need one EventSub socket per account on top. Every tab change ends

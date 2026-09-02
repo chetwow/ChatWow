@@ -5,7 +5,8 @@ import { EmoteImage } from "./EmoteImage";
 import { Hinted } from "./Hinted";
 import { imageKey, ruleKey } from "../lib/emoteBlacklist";
 import { normalizeIgnore } from "../lib/ignores";
-import type { ChatFontSize, EmoteEntry, EmoteRule } from "../types";
+import { NEW_TAB_AVATAR_MODES } from "../lib/tabAvatar";
+import type { ChatFontSize, EmoteEntry, EmoteRule, NewTabAvatarMode } from "../types";
 
 export type SettingsTab = "general" | "account" | "appearance" | "notifications" | "emotes";
 
@@ -706,6 +707,61 @@ export function SettingsDialog({
                     onChange={(singleRowTabs) => updatePreferences({ singleRowTabs })}
                     label="Keep tabs on one row"
                   />
+                </Row>
+                {/* What a tab *opens* with: an open tab keeps the one it has
+                    and changes through its own right-click menu. */}
+                <Row label="Default background avatar">
+                  {/* `appearance-none` and our own chevron: left native, the
+                      control draws in the OS's own light chrome, which is the
+                      one thing on this screen that wouldn't be dark. */}
+                  <div className="relative">
+                    <select
+                      value={preferences.newTabAvatarMode}
+                      onChange={(event) =>
+                        updatePreferences({
+                          newTabAvatarMode: event.target.value as NewTabAvatarMode,
+                        })
+                      }
+                      aria-label="Default background avatar"
+                      className="w-full appearance-none rounded-md border border-line bg-surface py-1 pl-2 pr-7 text-[11px] text-ink outline-none transition-colors hover:bg-surface-hover focus:border-accent"
+                    >
+                      {NEW_TAB_AVATAR_MODES.map((mode) => (
+                        <option key={mode.id} value={mode.id} className="bg-surface text-ink">
+                          {mode.label}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      viewBox="0 0 10 6"
+                      width="8"
+                      height="5"
+                      aria-hidden
+                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint"
+                    >
+                      <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                  </div>
+                </Row>
+                {/* Worth a control rather than a constant: how visible a given
+                    opacity looks depends entirely on the avatar behind it. */}
+                <Row label="Background avatar opacity">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={Math.round(preferences.tabAvatarOpacity * 100)}
+                      onChange={(event) =>
+                        updatePreferences({ tabAvatarOpacity: Number(event.target.value) / 100 })
+                      }
+                      aria-label="Background avatar opacity"
+                      className="w-32 accent-accent"
+                    />
+                    <span className="w-8 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.tabAvatarOpacity * 100)}%
+                    </span>
+                  </div>
                 </Row>
               </Section>
             </div>

@@ -1,6 +1,7 @@
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { useChat } from "../store/chat";
-import { ANONYMOUS } from "../types";
+import { TAB_AVATAR_MODES } from "../lib/tabAvatar";
+import { ANONYMOUS, type TabAvatarMode } from "../types";
 
 /**
  * Which account a tab reads and sends as, picked from every account signed in.
@@ -28,6 +29,7 @@ export function AccountMenu({
   const tab = useChat((state) => state.tabs.find((open) => open.id === tabId));
   const setTabAccount = useChat((state) => state.setTabAccount);
   const closeTab = useChat((state) => state.closeTab);
+  const setTabAvatarMode = useChat((state) => state.setTabAvatarMode);
   if (!tab) return null;
 
   const choose = (account: string): ContextMenuOption => {
@@ -46,9 +48,22 @@ export function AccountMenu({
     };
   };
 
+  // The tick trails the label here for the same reason it does above.
+  const background = (mode: TabAvatarMode, label: string): ContextMenuOption => ({
+    label: tab.avatarMode === mode ? `${label} \u2713` : label,
+    onSelect: () => void setTabAvatarMode(tabId, mode),
+  });
+
   const options: ContextMenuOption[] = [
     ...accounts.map((account) => choose(account.id)),
     choose(ANONYMOUS),
+    { separator: true },
+    // What this one tab draws behind its name. The setting only stamps a new
+    // tab, so this is the only thing that ever changes an open one -- and
+    // there's no "follow the setting" to come back to, because a tab was never
+    // following it.
+    { heading: "Background avatar" },
+    ...TAB_AVATAR_MODES.map((mode) => background(mode.id, mode.label)),
     { separator: true },
     { label: "Close tab", onSelect: () => void closeTab(tabId) },
   ];

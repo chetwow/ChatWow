@@ -32,7 +32,9 @@ import type {
   ConnectionState,
   PaneIndex,
   ReplyInfo,
+  NewTabAvatarMode,
   SplitLayout,
+  TabAvatarMode,
   StatusEvent,
   StoredMessage,
   Tab,
@@ -62,6 +64,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   showComposerAvatar: true,
+  newTabAvatarMode: "owner",
+  tabAvatarOpacity: 0.4,
   previewImages: true,
   previewYoutube: true,
   previewTwitch: true,
@@ -82,6 +86,12 @@ export type BlacklistKind = "emoteBlacklist" | "emoteCompleteBlacklist";
 
 const FONT_SIZES = new Set<Preferences["chatFontSize"]>(["small", "medium", "large", "larger"]);
 const SPLIT_LAYOUTS = new Set<SplitLayout>(["none", "row", "column"]);
+const NEW_TAB_AVATAR_MODE_IDS = new Set<NewTabAvatarMode>([
+  "none",
+  "owner",
+  "account",
+  "otherAccount",
+]);
 
 /**
  * Coerce whatever the backend hands over into a usable set. `settings.json` is
@@ -97,6 +107,12 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
   merged.blockedUsers = normalizeLogins(merged.blockedUsers);
   if (!SPLIT_LAYOUTS.has(merged.splitLayout)) merged.splitLayout = DEFAULT_PREFERENCES.splitLayout;
+  if (!NEW_TAB_AVATAR_MODE_IDS.has(merged.newTabAvatarMode)) {
+    merged.newTabAvatarMode = DEFAULT_PREFERENCES.newTabAvatarMode;
+  }
+  merged.tabAvatarOpacity = Number.isFinite(merged.tabAvatarOpacity)
+    ? Math.min(1, Math.max(0, merged.tabAvatarOpacity))
+    : DEFAULT_PREFERENCES.tabAvatarOpacity;
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);
   if (!Number.isInteger(merged.splitIndex) || merged.splitIndex < 0) {
@@ -272,6 +288,12 @@ type ChatState = {
    * live is a property of the room, not of the tab watching it.
    */
   live: Record<string, boolean>;
+  /**
+   * Each channel owner's profile picture, by channel -- what a tab draws
+   * behind its name under `owner`. Keyed by channel because it belongs to the
+   * room, and empty when signed out, since Get Users needs a token.
+   */
+  channelAvatars: Record<string, string>;
   /** Emote count per channel, for the composer's placeholder. */
   emoteCounts: Record<string, number>;
   /**
@@ -346,6 +368,8 @@ type ChatState = {
   closeTab: (id: string) => Promise<void>;
   /** Read (and send) as a different account, keeping the tab and its messages. */
   setTabAccount: (id: string, account: string) => Promise<void>;
+  /** Change which picture one tab draws behind its name. */
+  setTabAvatarMode: (id: string, mode: TabAvatarMode) => Promise<void>;
   sendMessage: (id: string, text: string, replyToId?: string, replyTo?: ReplyInfo) => Promise<void>;
   /**
    * Run a slash command and print what it reported into the tab. Throws on
@@ -488,6 +512,17 @@ function placeNewTab(id: string) {
   useChat.getState().setActive(id);
 }
 
+/**
+ * What a tab opening now draws behind its name. Mirrors `stamped_avatar_mode`
+ * in Rust, which is what stamps the real thing -- this is for mock mode, where
+ * tabs are minted in the browser and never reach a backend.
+ */
+function stampAvatarMode(state: ChatState, account: string): TabAvatarMode {
+  const mode = state.preferences.newTabAvatarMode;
+  if (mode !== "otherAccount") return mode;
+  return account === state.auth.defaultAccount ? "none" : "account";
+}
+
 /** Everything kept about one tab and nothing else, dropped when it closes. */
 function forgetTab(state: ChatState, id: string) {
   const drop = <T,>(map: Record<string, T>) => {
@@ -518,6 +553,7 @@ export const useChat = create<ChatState>((set) => ({
   preferences: DEFAULT_PREFERENCES,
   ready: {},
   live: {},
+  channelAvatars: {},
   emoteCounts: {},
   roles: {},
   emoteEntries: {},
@@ -650,7 +686,11 @@ export const useChat = create<ChatState>((set) => ({
       kind,
       channel: kind === "mentions" ? "" : name,
       account: account ?? state.auth.defaultAccount,
+      avatarMode: "none",
     };
+    // Stamped once, here, exactly as `add_tab` does it in Rust: the preference
+    // is a rule for new tabs, not something a tab keeps re-reading.
+    tab.avatarMode = stampAvatarMode(state, tab.account);
 
     // The same channel twice as the same account would be two identical views
     // of one stream. Switch to the one already open instead.
@@ -689,6 +729,18 @@ export const useChat = create<ChatState>((set) => ({
     set((state) => ({ tabs, ...forgetTab(state, id) }));
     const settled = useChat.getState();
     set({ active: settleActive(settled, settled.active) });
+  },
+
+  setTabAvatarMode: async (id, mode) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab || tab.avatarMode === mode) return;
+
+    set({
+      tabs: IS_TAURI
+        ? await api.setTabAvatarMode(id, mode)
+        : state.tabs.map((open) => (open.id === id ? { ...open, avatarMode: mode } : open)),
+    });
   },
 
   setTabAccount: async (id, account) => {
@@ -1021,9 +1073,13 @@ export const useChat = create<ChatState>((set) => ({
 
   bootstrap: async () => {
     if (!IS_TAURI) {
-      const { mockTabs, buildInitialMessages, mockAuthStatus, mockSevenTvBadges } = await import(
-        "../dev/mockData"
-      );
+      const {
+        mockTabs,
+        buildInitialMessages,
+        mockAuthStatus,
+        mockSevenTvBadges,
+        MOCK_CHANNEL_AVATARS,
+      } = await import("../dev/mockData");
       const preferences = readMockPreferences();
       const tabs = mockTabs();
       set({
@@ -1033,6 +1089,7 @@ export const useChat = create<ChatState>((set) => ({
         ready: Object.fromEntries(tabs.map((tab) => [tab.id, true])),
         emoteCounts: Object.fromEntries(tabs.map((tab) => [tab.channel, 886])),
         live: { [tabs[0].channel]: true },
+        channelAvatars: MOCK_CHANNEL_AVATARS,
         // One tab of each, so the command picker's filtering is visible.
         roles: { [tabs[0].id]: "moderator", [tabs[1].id]: "broadcaster" },
         connections: Object.fromEntries(tabs.map((tab) => [tab.account, "connected" as const])),
@@ -1044,16 +1101,18 @@ export const useChat = create<ChatState>((set) => ({
       return;
     }
 
-    const [tabs, auth, preferences] = await Promise.all([
+    const [tabs, auth, preferences, channelAvatars] = await Promise.all([
       api.listTabs(),
       api.authStatus(),
       api.preferences(),
+      api.channelAvatars(),
     ]);
     const settings = normalize(preferences);
     set((state) => ({
       tabs,
       auth,
       preferences: settings,
+      channelAvatars,
       // Each pane opens on its own first tab.
       active: settleActive({ tabs, preferences: settings }, state.active),
     }));
@@ -1156,6 +1215,11 @@ export async function subscribeToBackend(): Promise<() => void> {
       useChat.setState({
         live: Object.fromEntries(event.payload.map((login) => [login, true])),
       });
+    }),
+    // The whole map every time, not a delta: it only grows, and it's one
+    // short string per open channel.
+    listen<Record<string, string>>("chat://channel-avatars", (event) => {
+      useChat.setState({ channelAvatars: event.payload });
     }),
   ]);
 

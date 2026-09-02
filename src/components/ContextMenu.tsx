@@ -3,7 +3,13 @@ import { useLayoutEffect, useRef, useState } from "react";
 export type ContextMenuOption =
   | { label: string; onSelect: () => void }
   /** A hairline rule, for grouping what the click landed *on* apart from the message. */
-  | { separator: true };
+  | { separator: true }
+  /**
+   * A name for the group under it. For a menu that answers two questions at
+   * once -- the tab's is "as whom?" and "with what behind it?" -- where the
+   * rows alone don't say which is which and prefixing every one of them would.
+   */
+  | { heading: string };
 
 /**
  * A minimal fixed-position menu, positioned at the (x, y) it's opened at and
@@ -71,6 +77,13 @@ export function ContextMenu({
       {options.map((option, index) =>
         "separator" in option ? (
           <div key={index} className="my-1 border-t border-line" />
+        ) : "heading" in option ? (
+          <div
+            key={index}
+            className="px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint"
+          >
+            {option.heading}
+          </div>
         ) : (
           <button
             key={index}
