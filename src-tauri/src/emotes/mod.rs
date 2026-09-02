@@ -3,13 +3,14 @@ pub mod cache;
 pub mod ffz;
 pub mod seventv;
 pub mod seventv_badges;
+pub mod seventv_events;
 pub mod seventv_links;
 
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// A renderable emote from any provider.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Emote {
     /// Provider-assigned id. Stable across renames -- 7TV emotes are commonly
     /// aliased per channel -- so it's what the image cache is keyed on.

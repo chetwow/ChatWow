@@ -122,14 +122,14 @@ fn render_and_queue(
     let _ = sink.send(message);
 }
 
-/// One provider's map, or an empty one -- a provider that's switched off is
+/// One provider's answer, or nothing -- a provider that's switched off is
 /// never asked, and one that's down or slow costs only its own emotes.
-async fn or_empty(
+async fn or_empty<T: Default>(
     enabled: bool,
-    fetch: impl std::future::Future<Output = anyhow::Result<HashMap<String, Emote>>>,
-) -> HashMap<String, Emote> {
+    fetch: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> T {
     if !enabled {
-        return HashMap::new();
+        return T::default();
     }
     timeout(ASSET_TIMEOUT, fetch).await.ok().and_then(|result| result.ok()).unwrap_or_default()
 }
@@ -147,18 +147,30 @@ async fn global_emotes(state: &AppState, providers: Providers) -> HashMap<String
     emotes::merge(vec![ffz_set, bttv_set, seventv_set])
 }
 
+/// One channel's sets from every enabled provider, as `ChannelData` holds
+/// them.
+struct ChannelEmotes {
+    merged: HashMap<String, Emote>,
+    others: HashMap<String, Emote>,
+    seventv_set: Option<String>,
+}
+
 /// The same for one channel's sets, keyed by its Twitch user id.
-async fn channel_emotes(
-    state: &AppState,
-    providers: Providers,
-    room_id: &str,
-) -> HashMap<String, Emote> {
-    let (ffz_set, bttv_set, seventv_set) = tokio::join!(
+async fn channel_emotes(state: &AppState, providers: Providers, room_id: &str) -> ChannelEmotes {
+    let (ffz_set, bttv_set, seventv) = tokio::join!(
         or_empty(providers.ffz, ffz::fetch_channel(&state.http, room_id)),
         or_empty(providers.bttv, bttv::fetch_channel(&state.http, room_id)),
         or_empty(providers.seventv, seventv::fetch_channel(&state.http, room_id)),
     );
-    emotes::merge(vec![ffz_set, bttv_set, seventv_set])
+    // The two lower-priority sets are kept as well as merged: 7TV's emotes can
+    // come and go while the channel is open, and a name uncovered by one
+    // leaving has to be findable again -- see `ChannelData::other_emotes`.
+    let others = emotes::merge(vec![ffz_set, bttv_set]);
+    ChannelEmotes {
+        merged: emotes::merge(vec![others.clone(), seventv.emotes]),
+        others,
+        seventv_set: seventv.id,
+    }
 }
 
 /// Which providers to ask, as of now. Read into an owned value: the guard
@@ -262,9 +274,14 @@ async fn load_channel_assets(
 
         let mut data = state.data.write();
         let entry = data.entry(channel.clone()).or_default();
-        entry.emotes = emotes;
+        entry.emotes = emotes.merged;
+        entry.other_emotes = emotes.others;
+        entry.seventv_set = emotes.seventv_set;
         entry.badges = badge_map;
         entry.assets_ready = true;
+        drop(data);
+        // A set nobody was watching a moment ago.
+        state.seventv_events.notify_one();
     }
 
     // This account's own emotes here -- its sub emotes, which no other
@@ -355,9 +372,15 @@ pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
     for (channel, room_id) in rooms {
         let emotes = channel_emotes(&state, providers, &room_id).await;
         if let Some(entry) = state.data.write().get_mut(&channel) {
-            entry.emotes = emotes;
+            entry.emotes = emotes.merged;
+            entry.other_emotes = emotes.others;
+            entry.seventv_set = emotes.seventv_set;
         }
     }
+
+    // Switching 7TV off leaves no set to watch, which is what closes the event
+    // socket; switching it back on is what opens one.
+    state.seventv_events.notify_one();
 
     // The frontend rebuilds every channel's completion index off this, which
     // is exactly what a changed provider set needs.
@@ -681,6 +704,8 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
     // pinned in the cache.
     let open = state.open_channels();
     state.data.write().retain(|channel, _| open.contains(channel));
+    // Whatever sets just left with those channels aren't worth a subscription.
+    state.seventv_events.notify_one();
 }
 
 /// Drop and rebuild every connection -- after a sign-in, a sign-out, or a

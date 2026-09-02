@@ -214,6 +214,8 @@ export type Preferences = {
   enableFfz: boolean;
   /** Show the 7TV badge a chatter has equipped, beside their Twitch ones. */
   showSeventvBadges: boolean;
+  /** Say in chat when a channel's 7TV emotes are added, removed or renamed. */
+  announceEmoteChanges: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */
@@ -385,6 +387,15 @@ export type LinkPreview = {
 export type ChannelReadyEvent = {
   /** Whose join finished: a second account in the same room loads its own. */
   account: string;
+  channel: string;
+  emoteCount: number;
+};
+
+/**
+ * A channel's emote set changed under it, pushed by 7TV. No account: the set
+ * belongs to the room, so every tab on that channel is looking at the new one.
+ */
+export type EmoteSetEvent = {
   channel: string;
   emoteCount: number;
 };

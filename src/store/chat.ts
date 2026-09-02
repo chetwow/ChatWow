@@ -28,6 +28,7 @@ import type {
   EmoteEntry,
   ChannelReadyEvent,
   ChatMessage,
+  EmoteSetEvent,
   ClearEvent,
   ConnectionState,
   PaneIndex,
@@ -61,6 +62,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   enableBttv: true,
   enableFfz: true,
   showSeventvBadges: true,
+  announceEmoteChanges: true,
   italicActions: true,
   showTimestamps: true,
   showComposerAvatar: true,
@@ -1172,6 +1174,20 @@ export async function subscribeToBackend(): Promise<() => void> {
       }
       useChat.setState({ ready, emoteCounts: { ...state.emoteCounts, [channel]: emoteCount } });
       for (const id of ids) void useChat.getState().loadEmoteIndex(id);
+    }),
+
+    // The set behind an open channel moved -- 7TV pushes those. The notice
+    // saying so arrives as an ordinary message; this is the other half, the
+    // completion index and the count catching up with what can now be typed.
+    listen<EmoteSetEvent>("chat://emote-set", (event) => {
+      const { channel, emoteCount } = event.payload;
+      const state = useChat.getState();
+      useChat.setState({ emoteCounts: { ...state.emoteCounts, [channel]: emoteCount } });
+      for (const tab of state.tabs) {
+        if (tab.kind === "channel" && tab.channel === channel) {
+          void useChat.getState().loadEmoteIndex(tab.id);
+        }
+      }
     }),
 
     listen<Record<string, Badge>>("chat://seventv-badges", (event) => {

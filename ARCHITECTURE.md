@@ -501,6 +501,45 @@ fetched again, so `set_preferences` respawns `client::reload_emotes` whenever th
 changes; it re-fetches the globals and every joined channel, then emits `chat://assets`, which the
 frontend already treats as "rebuild every channel's completion index".
 
+## 7TV emote sets changing under you
+
+A channel's sets are fetched once, on join, so an emote the streamer added an hour into the
+stream wouldn't exist for this app until the tab was closed and opened again. 7TV pushes those
+changes over a WebSocket, and
+[seventv_events.rs](src-tauri/src/emotes/seventv_events.rs) folds them back into `ChannelData`
+and says so in chat.
+
+One socket for the whole app, which is the difference from Twitch's EventSub
+([Whispers](#whispers)): these events are anonymous and belong to the *room*, so there's nothing
+to sign in as and a subscription names an emote set rather than a channel or a login. That set id
+comes back from the same `/v3/users/twitch/<id>` call the emotes do -- `seventv::ChannelSet`
+carries both -- and lands in `ChannelData::seventv_set`. `AppState::seventv_events` is a `Notify`
+that every change to the open channels pokes: joining one, parting one, or switching 7TV off in
+the settings, which re-fetches without it and leaves no set behind. The socket re-reads
+`AppState::seventv_sets` and subscribes or unsubscribes to match; with nothing left to watch it
+lets the connection go rather than hold an idle one, and `run` waits on the same signal until
+there is.
+
+A dispatch carries three lists -- `pushed`, `pulled` and `updated`, added, removed and re-aliased
+-- and 7TV batches them, so a streamer emptying a set sends one frame, not fifty. `pushed`
+carries the whole set entry, the identical shape `seventv::fetch_channel` reads, so an added
+emote is renderable without going back to the API for it.
+
+Removing one is the awkward direction. `ChannelData::emotes` is the three providers merged with
+7TV on top, and dropping a name from that merge would take an FFZ or BTTV emote with it if 7TV's
+had been shadowing one. So `ChannelData::other_emotes` keeps the FFZ+BTTV half on its own,
+purely so a removal can put back what was underneath. Every removal is also guarded on the
+emote's id: a name we're holding for some other provider, or for a different 7TV emote aliased
+over the top, isn't the one being removed.
+
+The announcement is an ordinary notice (`render::notice`), stamped once per account with a tab
+on that channel -- a message reaches a tab by the account it names, and this is news for every
+tab showing the room, whoever is reading it. The `announceEmoteChanges` preference gates only
+that line: the emotes follow the set either way, because what a chatter can type has changed
+whether or not anyone was told. The other half is `chat://emote-set`, which carries the channel
+and its new emote count so the frontend rebuilds that channel's completion index -- the same job
+`chat://channel-ready` does on join.
+
 ## 7TV badges
 
 A chatter's equipped 7TV badge is resolved per user, because there's no longer any other way:
@@ -737,7 +776,8 @@ wrap their control under the label when they have to, and the tab row scrolls si
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the
 window rather than the content, so switching tabs doesn't resize it. The settings that need
 explaining carry an info dot on the label -- history, the two link-preview switches, the blocked
-and ignored lists, the two emote blacklists, the notification toggles -- and the ones whose label
+and ignored lists, the emote-change announcement, the two emote blacklists, the notification
+toggles -- and the ones whose label
 is the whole story don't, which keeps the list scannable. A hint resets case, weight and tracking
 rather than inheriting them: it hangs inside the label it explains, and a section heading's small
 caps were being inherited into whole sentences.
@@ -794,18 +834,21 @@ cd src-tauri && cargo test
 Covers tag unescaping, code-point emote ranges, zero-width overlay folding, badge lookup
 fallbacks, the default color hash, emote-index ordering and use counting, command argument
 parsing, the backlog's filtering, the image cache's key validation, content-type sniffing and
-purge selection, and -- for link previews -- the meta-tag scan, the entity decoding, YouTube and
-Twitch url recognition, the count and duration formatting, and the refusal to fetch this
-machine's own network.
+purge selection, the 7TV event dispatches -- how one reads back as added, removed or renamed,
+and what folding it into a channel does to the merged map -- and, for link previews, the
+meta-tag scan, the entity decoding, YouTube and Twitch url recognition, the count and duration
+formatting, and the refusal to fetch this machine's own network.
 
 `cargo test -- --ignored` additionally hits the real APIs: one check runs a message through the
 whole pipeline off the live Twitch socket and 7TV, another parses the BetterTTV and FrankerFaceZ
 sets for real channels, a third resolves 7TV badges for users who do and don't have one, a fourth
 loads a user card unauthenticated -- the path with no Helix token, where ivr.fi answers both
-halves -- and a fifth reads real pages for previews, including the YouTube card whose every row
-comes from a different part of the page. A sixth covers Twitch's own links and needs a token, so
-it skips unless `TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are set. Those are the ones that
-catch a provider changing its response shape -- the symptom is an empty map, which is
-indistinguishable from a channel that simply has no emotes there.
+halves -- a fifth reads real pages for previews, including the YouTube card whose every row
+comes from a different part of the page, and a sixth opens the 7TV event socket and checks that
+a real channel's emote set is something 7TV will accept a subscription for, which is the half
+of that protocol no offline test can cover. A seventh covers Twitch's own links and needs a
+token, so it skips unless `TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are set. Those are
+the ones that catch a provider changing its response shape -- the symptom is an empty map,
+which is indistinguishable from a channel that simply has no emotes there.
 
 The frontend has no test suite; `npm run build` type-checks it.

@@ -1254,6 +1254,13 @@ pub fn run() {
             // One per signed-in account, since a whisper is addressed to one.
             tauri::async_runtime::spawn(twitch::eventsub::run(
                 Arc::clone(&shared),
+                sink.clone(),
+            ));
+            // 7TV pushes a channel's emote set changing, on one socket for the
+            // whole app -- a subscription names a set, not an account.
+            tauri::async_runtime::spawn(emotes::seventv_events::run(
+                handle.clone(),
+                Arc::clone(&shared),
                 sink,
             ));
             // The restored tabs decide which sockets to open, and as whom.

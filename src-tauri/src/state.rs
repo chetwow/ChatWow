@@ -170,7 +170,17 @@ pub struct ChannelData {
     /// Whether the emote and badge sets have landed. Fetched once per channel
     /// however many accounts are in it -- they're the same sets either way.
     pub assets_ready: bool,
+    /// Every provider's channel set, merged -- what the renderer looks in.
     pub emotes: HashMap<String, Emote>,
+    /// FFZ's and BTTV's halves of that merge, kept on their own. 7TV wins a
+    /// shared name, so when one of its emotes is *removed* live the name it
+    /// was standing on top of has to come back, and the merged map alone can't
+    /// say what that was. Nothing reads this to render.
+    pub other_emotes: HashMap<String, Emote>,
+    /// The 7TV emote set these emotes came from, when this channel has one.
+    /// Only the EventAPI needs it: it's what a subscription names, and what a
+    /// change coming back is matched to a channel by.
+    pub seventv_set: Option<String>,
     pub badges: BadgeMap,
 }
 
@@ -234,6 +244,10 @@ pub struct AppState {
     /// connection and comes back with the new token, or idles here when
     /// there's no longer one to listen with.
     pub eventsub_restart: tokio::sync::Notify,
+    /// Tells the 7TV event socket that the emote sets worth watching have
+    /// moved -- a channel joined or parted, or 7TV switched off. It re-reads
+    /// `seventv_sets` and subscribes or unsubscribes to match.
+    pub seventv_events: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -265,6 +279,7 @@ impl AppState {
             sink: RwLock::new(None),
             live_poll: tokio::sync::Notify::new(),
             eventsub_restart: tokio::sync::Notify::new(),
+            seventv_events: tokio::sync::Notify::new(),
         }
     }
 
@@ -288,6 +303,24 @@ impl AppState {
         if let Some(connection) = self.connections.read().get(account) {
             let _ = connection.commands.send(command);
         }
+    }
+
+    /// The 7TV emote sets behind the open channels -- what the event socket
+    /// subscribes to. A channel with no 7TV account contributes nothing.
+    pub fn seventv_sets(&self) -> HashSet<String> {
+        self.data.read().values().filter_map(|data| data.seventv_set.clone()).collect()
+    }
+
+    /// Which accounts have a tab on a channel. What a line the app writes
+    /// about the *room* rather than about one login has to be stamped with,
+    /// once each, to reach every tab showing that channel.
+    pub fn accounts_in(&self, channel: &str) -> HashSet<String> {
+        self.tabs
+            .read()
+            .iter()
+            .filter(|tab| tab.is_channel() && tab.channel == channel)
+            .map(|tab| tab.account.clone())
+            .collect()
     }
 
     /// Every channel any tab is reading, however many accounts are in each.

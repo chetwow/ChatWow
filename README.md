@@ -12,6 +12,7 @@ overlays included), user badges, and everyone's real name color.
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
 - A card behind every name: account age, follow age, sub months, and what they've said
 - Link previews on hover, with Twitch clips, YouTube videos and 7TV emotes read in full
+- 7TV emote sets kept live, with a line in chat when one is added, removed or renamed
 
 ## Running it
 
@@ -178,6 +179,10 @@ name only.
 emoji. With nothing typed it lists your most-used emotes; both it and `Tab` put the ones you use
 most at the top.
 
+If the channel's 7TV emotes change while you're watching -- one added, removed or renamed -- the
+new set is in use straight away, and a line in chat says what changed and who changed it. Turn
+the line off in Settings -> Emotes; the emotes still follow the set either way.
+
 Right-clicking an emote in chat can hide it: hidden emotes draw as their underlined name instead
 of the picture (hover the name to see it anyway), and can be hidden from completion separately.
 Both lists are editable in Settings -> Emotes.
@@ -261,7 +266,8 @@ The gear in the title bar opens:
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, whether your
   Twitch avatar shows beside the message box, whether tabs scroll on one row or wrap onto
   several, and which picture a new tab puts behind its name and how faint it is
-- **Emotes** — which emote services to use, and the hidden-emote lists
+- **Emotes** — which emote services to use, whether 7TV emote changes are announced, and the
+  hidden-emote lists
 - **Notifications** — which mentions ping, and which to ignore entirely
 
 Settings that need explaining carry an info dot on the label; the ones that say what they do

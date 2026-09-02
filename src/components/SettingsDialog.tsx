@@ -776,6 +776,22 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
+              <Section title="Changes">
+                {/* Off only stops the line. A set that changes while you're
+                    reading still changes what you can type either way. */}
+                <Row
+                  label="Announce 7TV emote changes"
+                  hint="A line in chat when the channel's 7TV emotes are added, removed or renamed."
+                >
+                  <Toggle
+                    checked={preferences.announceEmoteChanges}
+                    onChange={(announceEmoteChanges) =>
+                      updatePreferences({ announceEmoteChanges })
+                    }
+                    label="Announce 7TV emote changes"
+                  />
+                </Row>
+              </Section>
               <Section
                 title="Hidden emotes"
                 hint="Drawn as their underlined name instead of their image; hover the name for the usual preview. A name rule catches every emote called that, an id rule catches one image however it's aliased."

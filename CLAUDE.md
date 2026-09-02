@@ -83,6 +83,18 @@ exercisable too. Preferences fall back to `localStorage` there, since there's no
   Don't merge those names into `ChannelData::emotes` or `global_emotes` to save a lookup — those
   maps are matched by name against message *text*, so any word matching an emote name would
   render as that emote even from someone who doesn't own it.
+- **A channel's 7TV set can change while you're reading it, and one socket watches every open
+  one.** [src-tauri/src/emotes/seventv_events.rs](src-tauri/src/emotes/seventv_events.rs)
+  subscribes to `emote_set.update` on 7TV's EventAPI, keyed by the set id
+  `seventv::fetch_channel` now returns alongside the emotes. Unlike Twitch's EventSub these
+  events are anonymous and belong to the *room*, so there's one socket for the app rather than
+  one per account; `AppState::seventv_events` is the `Notify` that every join, part and provider
+  switch pokes, and with nothing left to watch the socket is let go rather than held idle. A
+  *removal* is why `ChannelData::other_emotes` exists: `emotes` is the three providers merged
+  with 7TV on top, so dropping a name would take a shadowed FFZ or BTTV emote with it -- keep
+  the lower half separately, and guard every removal on the emote's id. The line it writes is an
+  ordinary notice stamped once per account with a tab on that channel; `announce_emote_changes`
+  gates the line only, never the emotes.
 - **7TV badges are resolved per chatter, and there's no bulk endpoint any more.** The v3
   `/v3/cosmetics` route that served every badge and its owners now 404s; v4 answers one user at a
   time through GraphQL, so [src-tauri/src/emotes/seventv_badges.rs](src-tauri/src/emotes/seventv_badges.rs)

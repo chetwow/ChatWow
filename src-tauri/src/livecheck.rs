@@ -111,8 +111,12 @@ async fn live_pipeline_resolves_real_messages() {
         let set = crate::emotes::seventv::fetch_channel(&http, room_id)
             .await
             .expect("channel emote fetch should not error");
-        println!("#{channel} (room {room_id}): {} 7TV emotes", set.len());
-        channel_emotes.insert(channel.clone(), set);
+        println!(
+            "#{channel} (room {room_id}): {} 7TV emotes in set {:?}",
+            set.emotes.len(),
+            set.id
+        );
+        channel_emotes.insert(channel.clone(), set.emotes);
     }
     assert!(
         channel_emotes.values().any(|set| !set.is_empty()),
@@ -459,4 +463,68 @@ async fn live_twitch_link_previews_resolve() {
         crate::twitch::links::preview(&helix, &link).await.expect("no error"),
         None
     );
+}
+
+/// The 7TV EventAPI handshake, which no offline test can cover: the opcode
+/// numbers, the subscribe payload shape, and that a real channel's set id is
+/// something 7TV will actually accept a subscription for. Emote sets change
+/// when a streamer feels like it, so this doesn't wait for a dispatch -- being
+/// acknowledged is the part that can silently be wrong.
+#[tokio::test]
+#[ignore = "hits the live 7TV APIs"]
+async fn live_seventv_event_socket_accepts_a_subscription() {
+    use crate::emotes::seventv_events::{classify, Incoming};
+
+    let http = reqwest::Client::new();
+    // xQc's channel, by Twitch user id -- the same lookup a join does.
+    let set = crate::emotes::seventv::fetch_channel(&http, "71092938")
+        .await
+        .expect("the 7TV user lookup should answer");
+    let set_id = set.id.expect("this channel should have a 7TV emote set");
+    println!("emote set {set_id}: {} emotes", set.emotes.len());
+
+    let (stream, _) = connect_async("wss://events.7tv.io/v3").await.expect("7TV should accept us");
+    let (mut write, mut read) = stream.split();
+
+    let welcome = read.next().await.expect("a first frame").expect("a readable frame");
+    let Message::Text(text) = welcome else { panic!("expected text, got {welcome:?}") };
+    assert_eq!(classify(&text), Incoming::Hello, "the first frame is the welcome: {text}");
+
+    write
+        .send(Message::Text(
+            serde_json::json!({
+                "op": 35,
+                "d": { "type": "emote_set.update", "condition": { "object_id": set_id } },
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("the subscribe should send");
+
+    // Acks aren't something the client acts on, so `classify` reads one as
+    // Ignored -- this checks the wire, not our reading of it.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let frame = tokio::time::timeout_at(deadline, read.next())
+            .await
+            .expect("7TV should answer the subscribe")
+            .expect("a frame")
+            .expect("a readable frame");
+        let Message::Text(text) = frame else { continue };
+        let value: serde_json::Value = serde_json::from_str(&text).expect("json");
+        println!("{value}");
+        match value["op"].as_u64() {
+            // Ack.
+            Some(5) => {
+                assert_eq!(value["d"]["data"]["type"], "emote_set.update");
+                break;
+            }
+            // Error -- the condition or the opcode is wrong, which is exactly
+            // what this test exists to catch.
+            Some(6) => panic!("7TV refused the subscription: {value}"),
+            // Heartbeat, or a dispatch that happened to land first.
+            _ => continue,
+        }
+    }
 }
