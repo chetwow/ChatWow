@@ -15,10 +15,16 @@ export default function App() {
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToBackend();
-    void bootstrap();
+    // Listeners first, then the reads: `subscribeToBackend` attaches over IPC
+    // and so completes a turn or two later, and an event that lands in that
+    // gap is simply lost -- several of them (live channels, owner avatars) are
+    // sent only when something *changes*, so the next one could be minutes
+    // away or never. Bootstrapping afterwards means anything missed is read
+    // back rather than waited for.
+    const listening = subscribeToBackend();
+    void listening.then(() => bootstrap());
     return () => {
-      void unsubscribe.then((off) => off());
+      void listening.then((off) => off());
     };
   }, [bootstrap]);
 

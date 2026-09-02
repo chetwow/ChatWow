@@ -1099,11 +1099,12 @@ export const useChat = create<ChatState>((set) => ({
       return;
     }
 
-    const [tabs, auth, preferences, channelAvatars] = await Promise.all([
+    const [tabs, auth, preferences, channelAvatars, live] = await Promise.all([
       api.listTabs(),
       api.authStatus(),
       api.preferences(),
       api.channelAvatars(),
+      api.liveChannels(),
     ]);
     const settings = normalize(preferences);
     set((state) => ({
@@ -1111,6 +1112,7 @@ export const useChat = create<ChatState>((set) => ({
       auth,
       preferences: settings,
       channelAvatars,
+      live: Object.fromEntries(live.map((login) => [login, true])),
       // Each pane opens on its own first tab.
       active: settleActive({ tabs, preferences: settings }, state.active),
     }));

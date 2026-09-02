@@ -271,6 +271,10 @@ async fn restore_session(app: AppHandle, state: Shared) {
         // the ones whose token was refreshed need the socket to use the new one.
         client::reconnect_all(&state);
         state.eventsub_restart.notify_one();
+        // The live poll started with the app and asked with whatever token was
+        // stored -- which, if it needed renewing, was refused. Nothing else
+        // would ask again for a poll period.
+        state.live_poll.notify_one();
     }
 
     client::load_global_assets(app, state).await;
@@ -863,6 +867,18 @@ fn channel_avatars(state: State<'_, Shared>) -> HashMap<String, String> {
     state.channel_avatars.read().clone()
 }
 
+/// Which joined channels are live, for the tab bar to start from.
+///
+/// Same reason as `channel_avatars`, and the same startup to get wrong:
+/// `chat://live` fires only on a *change*, and the first poll runs the moment
+/// the app opens -- well before the webview has a listener attached. Miss that
+/// one emit and the next is whenever a channel actually goes on or off air, so
+/// the dots would sit dark through a session that started with everyone live.
+#[tauri::command]
+fn live_channels(state: State<'_, Shared>) -> Vec<String> {
+    state.live.read().iter().cloned().collect()
+}
+
 /// Open a tab. The id is the frontend's -- it mints one when it opens the view,
 /// so the view has a key from the first frame rather than after a round trip --
 /// and everything else is validated here.
@@ -1264,6 +1280,7 @@ pub fn run() {
             set_tab_account,
             set_tab_avatar_mode,
             channel_avatars,
+            live_channels,
             reorder_tabs,
             send_message,
             preferences,
