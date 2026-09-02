@@ -23,6 +23,10 @@ import { linkKind } from "../lib/links";
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
 
+/** One long token, so the wrapping of a link that can't break naturally shows. */
+const UNBREAKABLE_URL =
+  "https://example.com/watch?v=" + "aB3xQ7zK9mR2tW5yD8pL4nV6cF1hJ0sG".repeat(4);
+
 /**
  * A 7TV emote link, which previews as the emote rather than as the page. Its
  * canned answer is shaped the way `seventv_links` shapes a real one -- the
@@ -265,6 +269,15 @@ const DRAFTS: Draft[] = [
       text("look at this "),
       { kind: "link", text: FORSEN_AVATAR, href: FORSEN_AVATAR },
     ],
+  },
+  {
+    // A url with nothing to break on -- no hyphen, no slash near the end. It
+    // has to wrap inside the pane rather than stretch the row past it, which
+    // a link can only do because it's told to break anywhere.
+    login: "linkposter",
+    displayName: "linkposter",
+    color: "#7FE3A0",
+    segments: [text("or this "), { kind: "link", text: UNBREAKABLE_URL, href: UNBREAKABLE_URL }],
   },
   {
     login: "clipper",

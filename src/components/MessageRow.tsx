@@ -389,7 +389,15 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
             }
           : undefined
       }
-      className="cursor-pointer text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+      // `anywhere` rather than the row's inherited `break-word`: a button is an
+      // atomic inline box, so it's laid out at its own intrinsic width, and
+      // `break-word` doesn't shrink that -- a url with nothing to break on
+      // (no hyphen, no slash in the right place) stretched the row past the
+      // pane and was cut off. `anywhere` is the one that counts a forced break
+      // when measuring, so the button can be as narrow as the pane.
+      // `text-left` because a button centres its text, which only shows once
+      // there is more than one line of it.
+      className="cursor-pointer text-left text-accent underline decoration-accent/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent"
     >
       {segment.text}
     </button>
@@ -455,7 +463,7 @@ function MessageRowInner({
     return (
       <div
         onContextMenu={handleContextMenu}
-        className={`msg-row ${leftPad} pr-1.5 py-[3px] text-ink-faint italic`}
+        className={`msg-row ${leftPad} break-words pr-1.5 py-[3px] text-ink-faint italic`}
       >
         {message.systemMessage}
       </div>
