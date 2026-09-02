@@ -3,6 +3,7 @@ pub mod cache;
 pub mod ffz;
 pub mod seventv;
 pub mod seventv_badges;
+pub mod seventv_links;
 
 use serde::Serialize;
 use std::collections::HashMap;

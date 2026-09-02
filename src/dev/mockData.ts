@@ -13,6 +13,7 @@ import type {
   Tab,
   UserCard,
 } from "../types";
+import { linkKind } from "../lib/links";
 
 /**
  * Sample data for design iteration in a plain browser (no Rust backend).
@@ -21,6 +22,20 @@ import type {
  */
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
+
+/**
+ * A 7TV emote link, which previews as the emote rather than as the page. Its
+ * canned answer is shaped the way `seventv_links` shapes a real one -- the
+ * name, the big image, and the owner in `description`.
+ */
+const EMOTE_LINK = "https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQMS";
+const EMOTE_LINK_PREVIEW: LinkPreview = {
+  title: "PEPE",
+  description: "SwaguarTV",
+  image: "https://cdn.7tv.app/emote/01FW4E4Q6R00023D6NVRA4DQMS/4x.webp",
+  facts: [],
+  ttlSeconds: 0,
+};
 
 /** Real Twitch profile images, so the user card and the accounts list show real ones. */
 const FORSEN_AVATAR =
@@ -236,7 +251,8 @@ const DRAFTS: Draft[] = [
       { kind: "mention", text: "@opaxord" },
       text(" check "),
       { kind: "link", text: "https://7tv.app", href: "https://7tv.app" },
-      text(" for emotes"),
+      text(" for emotes, this one especially "),
+      { kind: "link", text: EMOTE_LINK, href: EMOTE_LINK },
     ],
   },
   {
@@ -574,7 +590,7 @@ export function mockLinkPreview(url: string): Promise<LinkPreview | null> {
   } catch {
     return Promise.resolve(null);
   }
-  const preview = LINK_PREVIEWS[host] ?? null;
+  const preview = linkKind(url) === "emote" ? EMOTE_LINK_PREVIEW : (LINK_PREVIEWS[host] ?? null);
   return new Promise((resolve) => window.setTimeout(() => resolve(preview), 700));
 }
 

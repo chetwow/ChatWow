@@ -41,23 +41,25 @@ struct EmoteData {
     host: Option<Host>,
 }
 
+/// Where an emote's images live. Shared with `seventv_links`, which reads the
+/// same shape off the single-emote endpoint.
 #[derive(Deserialize)]
-struct Host {
+pub struct Host {
     #[serde(default)]
-    url: String,
+    pub url: String,
     #[serde(default)]
-    files: Vec<HostFile>,
+    pub files: Vec<HostFile>,
 }
 
 #[derive(Deserialize)]
-struct HostFile {
-    name: String,
+pub struct HostFile {
+    pub name: String,
     #[serde(default)]
-    format: String,
+    pub format: String,
     #[serde(default)]
-    width: u32,
+    pub width: u32,
     #[serde(default)]
-    height: u32,
+    pub height: u32,
 }
 
 #[derive(Deserialize)]
@@ -67,14 +69,14 @@ struct UserResponse {
 }
 
 /// Pick a webp file by its scale prefix, e.g. "2x". Falls back to any webp.
-fn pick_file<'a>(files: &'a [HostFile], scale: &str) -> Option<&'a HostFile> {
+pub fn pick_file<'a>(files: &'a [HostFile], scale: &str) -> Option<&'a HostFile> {
     files
         .iter()
         .find(|f| f.format.eq_ignore_ascii_case("WEBP") && f.name.starts_with(scale))
         .or_else(|| files.iter().find(|f| f.format.eq_ignore_ascii_case("WEBP")))
 }
 
-fn absolutize(host_url: &str, file: &str) -> String {
+pub fn absolutize(host_url: &str, file: &str) -> String {
     // 7TV returns protocol-relative URLs like //cdn.7tv.app/emote/<id>
     if host_url.starts_with("//") {
         format!("https:{host_url}/{file}")

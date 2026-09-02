@@ -647,18 +647,22 @@ answers are cached for the session either way ([src/lib/linkPreviews.ts](src/lib
 -- with a cap, since chat is endless where the user cards are a handful of names you clicked. A
 cached link draws with no spinner at all, since there's nothing to wait for.
 
-`previewImages`, `previewYoutube`, `previewTwitch` and `previewPages` are four preferences
-because the four cost different things: one request to the host in the link; a megabyte read off
-YouTube; a Helix call carrying your token; a request to a stranger's host and a thumbnail from
-wherever it names. Splitting them is what lets someone keep the cheap ones and drop the rest.
+`previewImages` and `previewPages` are two preferences rather than one because they promise
+different things: a picture, or somebody's web page fetched and read. Which resolver serves them
+isn't the split -- YouTube's megabyte and Twitch's Helix call both sit behind *pages*, since both
+are a link to a page answered as well as it can be.
 
 Which switch applies is decided by the *link*, before anything is asked, so `linkKind`
-([src/lib/links.ts](src/lib/links.ts)) classifies by extension and host alone. That's coarser
-than what the resolvers do -- `twitch.tv/directory` is a Twitch link to the switch and an
-ordinary page to Rust -- and deliberately so: the switch is about where the request goes, and
-that one goes to Twitch either way.
+([src/lib/links.ts](src/lib/links.ts)) classifies by the url alone. An image is settled by the
+extension on its path. A 7TV emote link is the other one under *images*: it isn't an image url,
+but it previews as a picture, resolved by [src-tauri/src/emotes/seventv_links.rs](src-tauri/src/emotes/seventv_links.rs)
+from `GET /v3/emotes/<id>` -- the same reasoning as `twitch::links`, since 7tv.app is a script
+shell and the emote is a thing this app already knows how to draw. Rust answers it as a
+`LinkPreview` carrying the name, the 4x image and the owner in `description`, and the frontend
+draws it through the *emote* card rather than the page card: a 128px emote in a page card's
+`object-cover` thumbnail would be a crop of a face.
 
-All four gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch
+Both gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch
 has to stop the call rather than the request. Nothing else reads them, and a message already on
 screen picks up the change because `LinkView` subscribes to the store instead of taking a prop --
 the same reason the emote blacklists do.
@@ -732,7 +736,7 @@ The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the
 window rather than the content, so switching tabs doesn't resize it. The settings that need
-explaining carry an info dot on the label -- history, the four link-preview switches, the blocked
+explaining carry an info dot on the label -- history, the two link-preview switches, the blocked
 and ignored lists, the two emote blacklists, the notification toggles -- and the ones whose label
 is the whole story don't, which keeps the list scannable. A hint resets case, weight and tracking
 rather than inheriting them: it hangs inside the label it explains, and a section heading's small
@@ -758,6 +762,7 @@ caps were being inherited into whole sentences.
 | `src-tauri/src/twitch/eventsub.rs` | The whisper socket, one per account |
 | `src-tauri/src/usercard.rs` | The card behind a name: Helix profile, ivr.fi follow and subs |
 | `src-tauri/src/linkinfo.rs` | Link previews: the fetch, the meta scan, the YouTube fields |
+| `src-tauri/src/emotes/seventv_links.rs` | A 7TV emote link, previewed as the emote |
 | `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/state.rs` | Accounts, connections, per-room data and per-session state |

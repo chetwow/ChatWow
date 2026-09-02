@@ -67,8 +67,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   newTabAvatarMode: "owner",
   tabAvatarOpacity: 0.4,
   previewImages: true,
-  previewYoutube: true,
-  previewTwitch: true,
   previewPages: true,
   singleRowTabs: true,
   splitLayout: "none",

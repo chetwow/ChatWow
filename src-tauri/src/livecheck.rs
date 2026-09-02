@@ -383,6 +383,36 @@ async fn live_link_previews_read_real_pages() {
     }
 }
 
+/// The 7TV half of link previews. No token anywhere -- the emote endpoint is
+/// public, which is why an emote link previews the same signed in or out.
+#[tokio::test]
+#[ignore = "asks the real 7TV API"]
+async fn live_seventv_emote_link_previews_resolve() {
+    let http = reqwest::Client::new();
+    let url = reqwest::Url::parse("https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQMS").unwrap();
+    let id = crate::emotes::seventv_links::parse(&url).expect("an emote link");
+
+    let preview = crate::emotes::seventv_links::preview(&http, &id)
+        .await
+        .expect("the request should not fail")
+        .expect("a known emote should preview");
+    println!("{preview:#?}");
+    assert_eq!(preview.title, "PEPE", "the emote's name is the title");
+    assert!(!preview.description.is_empty(), "the owner rides in the description");
+    assert!(
+        preview.image.starts_with("https://cdn.7tv.app/emote/"),
+        "image: {}",
+        preview.image
+    );
+
+    // An id shaped like one and belonging to nothing: an answer, not an error,
+    // so the caller falls through to reading the page.
+    let missing = crate::emotes::seventv_links::preview(&http, "01ZZZZZZZZ00000000000000ZZ")
+        .await
+        .expect("a miss should not fail");
+    assert_eq!(missing, None, "an id nobody owns has no preview");
+}
+
 /// The Twitch half of link previews, which needs a token -- Helix has no
 /// anonymous mode and this app has no client secret to mint an app token with.
 /// Supply one from a signed-in session to run it:

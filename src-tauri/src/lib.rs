@@ -618,16 +618,27 @@ async fn search_channels(
 /// because the preview draws the same nothing for all of them.
 ///
 /// Twitch's own links go to Helix first: a twitch.tv page tells a scraper
-/// almost nothing, and this app is already holding a token. Everything about
-/// that path is best-effort -- signed out there's no token, and a Helix miss or
-/// failure is not the end of the answer -- so it falls through to the ordinary
-/// page preview rather than reporting an error.
+/// almost nothing, and this app is already holding a token. A 7TV emote link
+/// goes to the 7TV API for the same reason, and answers with the emote itself.
+/// Everything about both paths is best-effort -- signed out there's no Twitch
+/// token, and a miss or a failure either side is not the end of the answer --
+/// so they fall through to the ordinary page preview rather than reporting an
+/// error.
 #[tauri::command]
 async fn link_preview(
     state: State<'_, Shared>,
     url: String,
 ) -> Result<Option<linkinfo::LinkPreview>, String> {
-    if let Some(link) = reqwest::Url::parse(&url).ok().as_ref().and_then(twitch::links::parse) {
+    let parsed = reqwest::Url::parse(&url).ok();
+    if let Some(id) = parsed.as_ref().and_then(emotes::seventv_links::parse) {
+        match emotes::seventv_links::preview(&state.http, &id).await {
+            Ok(Some(preview)) => return Ok(Some(preview)),
+            Ok(None) => {}
+            Err(error) => eprintln!("link preview: 7TV failed ({error}); reading the page"),
+        }
+    }
+
+    if let Some(link) = parsed.as_ref().and_then(twitch::links::parse) {
         let credentials = { state.auth.read().any_credentials() };
         if let Some((client_id, token)) = credentials {
             let helix = twitch::helix::Helix {

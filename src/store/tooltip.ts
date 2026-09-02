@@ -11,7 +11,12 @@ import type { LinkPreview } from "../types";
  * replaces it. Two would leave both on screen, overlapping.
  */
 export type Preview =
-  | { kind: "emote"; name: string; urlLarge: string; provider: string }
+  /**
+   * `by` is only known for an emote reached through a *link*, which is
+   * resolved from the 7TV API. An emote in a message carries no owner -- it
+   * was resolved from an emote set, which doesn't say who made it.
+   */
+  | { kind: "emote"; name: string; urlLarge: string; provider: string; by?: string }
   | { kind: "image"; url: string }
   | { kind: "page"; preview: LinkPreview; host: string }
   | { kind: "loading" };

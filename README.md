@@ -11,7 +11,7 @@ overlays included), user badges, and everyone's real name color.
 - Twitch's slash commands from a `/` picker that only offers what you can run
 - Whispers, replies, `Tab` completion for emotes and names, and a `:` emote and emoji search
 - A card behind every name: account age, follow age, sub months, and what they've said
-- Link previews on hover, with Twitch clips and YouTube videos read in full
+- Link previews on hover, with Twitch clips, YouTube videos and 7TV emotes read in full
 
 ## Running it
 
@@ -217,12 +217,13 @@ Nothing is fetched until the pointer has rested on the link for a moment, so rea
 message costs nothing, and a spinner marks the wait while a preview loads. A page that publishes
 nothing about itself simply has no preview.
 
-Each kind has its own switch in Settings -> General, since they cost different things:
+A link to a **7TV emote** previews as the emote itself, at full size, with its name and who made
+it -- 7TV is asked directly, so it works whether or not you're signed in.
 
-- *Preview image links* — one request, to the host in the link
-- *Preview YouTube links* — the most expensive; the page is read to a megabyte to reach the numbers
-- *Preview Twitch links* — goes to Twitch with your sign-in, not to a stranger's host
-- *Preview other links* — a request, and a thumbnail from wherever that page names
+Two switches in Settings -> General, for the two kinds of promise:
+
+- *Preview image links* — a picture: the image a link points at, or the emote behind a 7TV emote link
+- *Preview other links* — everything else, which means asking that page (or Twitch) about itself
 
 ## Mentions and pings
 
@@ -251,7 +252,7 @@ in Settings -> General.
 
 The gear in the title bar opens:
 
-- **General** — recent message history on join, the four link-preview switches, and the list of
+- **General** — recent message history on join, the two link-preview switches, and the list of
   blocked people
 - **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
   Client ID
@@ -272,7 +273,7 @@ recent message history on join* in General stops it. Opening a chatter's card as
 clicked and the channel you clicked it in; that one only happens when you open a card. The third
 is the only one that isn't a service this app chose: a link preview loads from whatever host was
 linked, so hovering tells that host you're here. That's why it waits before fetching, and why
-each kind of preview has its own switch.
+it has a switch of its own.
 
 ## Shortcuts
 

@@ -189,6 +189,7 @@ export function HoverPreview() {
             <div className="text-[11px] font-semibold text-ink">{preview.name}</div>
             <div className="text-[10px] text-ink-faint">
               {LABEL[preview.provider] ?? preview.provider}
+              {preview.by && ` \u00b7 by ${preview.by}`}
             </div>
           </>
         ) : preview.kind === "loading" ? (

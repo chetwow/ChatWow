@@ -13,11 +13,13 @@
  * whose path is a hash), but a miss is a link behaving exactly as it always
  * did, where a guess is an empty frame over a page that was never an image.
  *
- * YouTube and Twitch are settled by host alone, which is deliberately coarser
- * than what Rust does with them: `twitch.tv/directory` is a Twitch link to the
- * switch that says "Twitch links", even though the resolver will treat it as
- * an ordinary page. The switch is about where the request goes, and it goes to
- * Twitch either way.
+ * A 7TV emote link is the third case, and it sits under the image switch: it
+ * isn't an image url, but what it previews *as* is a picture, from one call to
+ * an API this app already talks to. Deciding that here rather than from what
+ * comes back is the same rule as everything else on this side -- the switch has
+ * to be read before anything is asked -- and it's the only link whose kind
+ * needs a path as well as a host, an emote page being one shape among many on
+ * that site.
  */
 
 /** What a webview will actually decode in an `<img>`. */
@@ -55,25 +57,34 @@ export function linkHost(href: string): string {
   }
 }
 
-/** Which switch a link answers to, and which resolver it will reach. */
-export type LinkKind = "image" | "youtube" | "twitch" | "page";
+/** Which switch a link answers to, and what it previews as. */
+export type LinkKind = "image" | "emote" | "page";
 
-const YOUTUBE = new Set([
-  "youtube.com",
-  "m.youtube.com",
-  "music.youtube.com",
-  "youtube-nocookie.com",
-  "youtu.be",
-]);
+const SEVENTV_HOSTS = new Set(["7tv.app", "old.7tv.app", "7tv.io"]);
 
-const TWITCH = new Set(["twitch.tv", "m.twitch.tv", "clips.twitch.tv", "player.twitch.tv"]);
+/**
+ * Whether this is a link to one 7TV emote. Mirrors `seventv_links::parse` in
+ * Rust, which is what actually resolves it -- this side only has to be right
+ * about which switch applies, so it checks the shape of the path and leaves
+ * whether the id exists to the API.
+ */
+function isEmoteLink(href: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  // `www.` is the only subdomain worth folding away; the rest are listed.
+  if (!SEVENTV_HOSTS.has(url.host.toLowerCase().replace(/^www\./, ""))) return false;
+  const segments = url.pathname.split("/").filter(Boolean);
+  // `/v3/emotes/<id>` reaches the same emote as `/emotes/<id>`.
+  const path = /^v\d$/.test(segments[0] ?? "") ? segments.slice(1) : segments;
+  return path.length === 2 && path[0] === "emotes" && /^[A-Za-z0-9]{20,32}$/.test(path[1]);
+}
 
 export function linkKind(href: string): LinkKind {
   if (imagePreviewUrl(href)) return "image";
-  // `www.` is the only subdomain worth folding away: the rest (m., music.,
-  // clips.) are listed, and an unlisted one is somebody else's host.
-  const host = linkHost(href).toLowerCase().replace(/^www\./, "");
-  if (YOUTUBE.has(host)) return "youtube";
-  if (TWITCH.has(host)) return "twitch";
+  if (isEmoteLink(href)) return "emote";
   return "page";
 }

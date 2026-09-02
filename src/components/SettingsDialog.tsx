@@ -591,32 +591,12 @@ export function SettingsDialog({
               <Section title="Links">
                 <Row
                   label="Preview image links"
-                  hint="Hovering a link that points straight at an image shows the picture, loaded from the host that was linked."
+                  hint="A link straight to an image shows the picture, and a 7TV emote link shows the emote."
                 >
                   <Toggle
                     checked={preferences.previewImages}
                     onChange={(previewImages) => updatePreferences({ previewImages })}
                     label="Preview image links"
-                  />
-                </Row>
-                <Row
-                  label="Preview YouTube links"
-                  hint="A video's channel, duration, date and counts. The most expensive one: the page is read to a megabyte to reach them."
-                >
-                  <Toggle
-                    checked={preferences.previewYoutube}
-                    onChange={(previewYoutube) => updatePreferences({ previewYoutube })}
-                    label="Preview YouTube links"
-                  />
-                </Row>
-                <Row
-                  label="Preview Twitch links"
-                  hint="Clips, VODs and channels, answered by Twitch itself rather than by reading the page. Needs you signed in."
-                >
-                  <Toggle
-                    checked={preferences.previewTwitch}
-                    onChange={(previewTwitch) => updatePreferences({ previewTwitch })}
-                    label="Preview Twitch links"
                   />
                 </Row>
                 <Row

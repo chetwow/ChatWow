@@ -224,12 +224,11 @@ export type Preferences = {
   newTabAvatarMode: NewTabAvatarMode;
   /** How strongly that picture is drawn, 0 to 1. */
   tabAvatarOpacity: number;
-  /** Show the picture on hover when a link points straight at an image. */
+  /**
+   * Show the picture on hover for a link that is one: straight at an image, or
+   * at a 7TV emote, which is the same promise by way of one API call.
+   */
   previewImages: boolean;
-  /** Show a YouTube video's channel, duration, date and counts on hover. */
-  previewYoutube: boolean;
-  /** Show what Twitch knows about a clip, VOD or channel link on hover. */
-  previewTwitch: boolean;
   /** Show what the page says about itself on hover, for every other link. */
   previewPages: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */

@@ -141,24 +141,18 @@ pub struct Preferences {
     /// invisible where a bright one is plenty. Clamped in the frontend, which
     /// is also what draws it.
     pub tab_avatar_opacity: f64,
-    /// Show the picture on hover when a link points straight at an image.
-    /// On by default, but a setting because it's fetched from whatever host a
-    /// chatter linked -- hovering tells that host you're here, which nothing
-    /// else about reading chat does.
+    /// Show the picture on hover for a link that is one: straight at an image,
+    /// or at a 7TV emote, which is the same promise by way of one call to an
+    /// API this app already talks to. On by default, but a setting because an
+    /// image is fetched from whatever host a chatter linked -- hovering tells
+    /// that host you're here, which nothing else about reading chat does.
     pub preview_images: bool,
-    /// A YouTube video, which shows the channel, duration, date and counts.
-    /// Its own switch because it's the most expensive preview there is: the
-    /// page is read to a megabyte to reach numbers Google buries behind
-    /// half of it (see `linkinfo`).
-    pub preview_youtube: bool,
-    /// A Twitch clip, VOD or channel, which comes from Helix rather than the
-    /// page (see `twitch::links`). Its own switch because it's the one that
-    /// goes to Twitch with your token rather than to a stranger's host.
-    pub preview_twitch: bool,
     /// Every other link, which shows what the page says about itself.
-    /// Separate from the three above because they cost different things: an
+    /// Separate from the one above because they cost different things: an
     /// image is one request to the host in the link, where a page is a
-    /// request, a read, and a thumbnail from wherever that page names.
+    /// request, a read, and a thumbnail from wherever that page names --
+    /// whatever the resolver behind it turns out to be, Helix for a Twitch
+    /// link and the page itself for the rest.
     pub preview_pages: bool,
     /// Keep the channel tabs on one row and scroll them sideways. On by
     /// default: wrapping keeps every tab in sight, but it also lets the tab
@@ -213,8 +207,6 @@ impl Default for Preferences {
             new_tab_avatar_mode: "owner".to_string(),
             tab_avatar_opacity: 0.4,
             preview_images: true,
-            preview_youtube: true,
-            preview_twitch: true,
             preview_pages: true,
             single_row_tabs: true,
             split_layout: "none".to_string(),

@@ -53,13 +53,14 @@ message stream instead of calling `invoke`. Use this loop for pure UI/CSS work; 
 dynamically imported so it never ships in a production bundle — if you add mock data, keep it
 behind that same dynamic `import()`.
 
-Mock mode signs in two accounts, `you` and `you_alt`, and opens four tabs -- including the same
-channel under both, which is the case the multi-account work exists for. That gives the
-reply-to-you and mention highlights an identity to match against (some mock drafts tag `@you` and
-use the bare name deliberately) *and* a second identity they must not match, so a mention landing
-in the wrong tab is visible without signing in to Twitch. The two accounts hold different scopes,
-so the command picker's locked rows are exercisable too. Preferences fall back to `localStorage`
-there, since there's no backend to write `settings.json`.
+Mock mode signs in three accounts -- `you` and `you_alt` with tabs, `you_spare` idle and without
+a picture -- and opens four tabs, including the same channel under both of the first two, which is
+the case the multi-account work exists for. That gives the reply-to-you and mention highlights an
+identity to match against (some mock drafts tag `@you` and use the bare name deliberately) *and*
+a second identity they must not match, so a mention landing in the wrong tab is visible without
+signing in to Twitch. The accounts hold different scopes, so the command picker's locked rows are
+exercisable too. Preferences fall back to `localStorage` there, since there's no backend to write
+`settings.json`.
 
 ## Non-obvious constraints (read before touching related code)
 
@@ -109,13 +110,21 @@ there, since there's no backend to write `settings.json`.
   host, an eight-second timeout, and a body read in chunks and stopped as soon as it holds what's
   wanted (`</head>`, capped at 256KB). Don't route a link fetch through `state.http`, and don't
   drop the host check because "the user could have clicked it anyway" -- this happens on *hover*,
-  without a click. The four `preview*` preferences are enforced in the frontend only (Rust
+  without a click. The two `preview*` preferences are enforced in the frontend only (Rust
   fetches whatever `link_preview` is handed), so a switch has to stop the call; which one applies
-  is decided by `linkKind` ([src/lib/links.ts](src/lib/links.ts)) from the extension and host
-  alone, before anything is asked. That classification is coarser than the resolvers' -- a
-  `twitch.tv/directory` link answers to the Twitch switch and is then handled as an ordinary page
-  -- which is right, because the switch is about which host gets the request. A link that points
+  is decided by `linkKind` ([src/lib/links.ts](src/lib/links.ts)) from the url alone, before
+  anything is asked. The split is what's promised, not which resolver answers: `previewImages` is
+  the two that show a picture -- an image url, and a 7TV emote link -- and `previewPages`
+  everything else, Twitch's Helix path and YouTube's megabyte included. A link that points
   straight at an image is never fetched by Rust at all: the frontend renders an `<img>`.
+- **A 7TV emote link is answered by the 7TV API, and drawn as an emote.** `seventv_links`
+  ([src-tauri/src/emotes/seventv_links.rs](src-tauri/src/emotes/seventv_links.rs)) recognizes
+  `7tv.app/emotes/<id>`, asks `GET /v3/emotes/<id>`, and returns a `LinkPreview` whose
+  `description` is the *owner* -- the frontend renders it through the emote card (image, name,
+  who by), not the page card, whose `object-cover` thumbnail would crop a 128px emote into a
+  face. `linkKind` mirrors the same url shape so the switch can be read before the call. Public
+  endpoint, so unlike the Twitch path it works signed out; a miss or a failure still falls
+  through to the page scrape.
 - **A Twitch link is answered by Helix, not by reading twitch.tv.** The page is a React shell
   whose og: tags say nothing, so `twitch::links` ([src-tauri/src/twitch/links.rs](src-tauri/src/twitch/links.rs))
   matches clip/VOD/channel urls and asks Helix instead, from the command in

@@ -9,7 +9,7 @@ import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
 import { imagePreviewUrl, linkHost, linkKind, type LinkKind } from "../lib/links";
 import { cachedLinkPreview, loadLinkPreview } from "../lib/linkPreviews";
-import type { Badge, ReplyInfo, Segment, StoredMessage } from "../types";
+import type { Badge, LinkPreview, ReplyInfo, Segment, StoredMessage } from "../types";
 
 function timeOf(ts: number) {
   if (!ts) return "";
@@ -299,8 +299,9 @@ const PREVIEW_DELAY_MS = 220;
 /** The switch each kind of link answers to. */
 const PREFERENCE = {
   image: "previewImages",
-  youtube: "previewYoutube",
-  twitch: "previewTwitch",
+  // A 7TV emote link previews as a picture, so it answers to the picture
+  // switch -- even though, unlike an image url, it takes a fetch to resolve.
+  emote: "previewImages",
   page: "previewPages",
 } as const satisfies Record<LinkKind, string>;
 
@@ -336,19 +337,33 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
     const anchor = () => element.getBoundingClientRect();
     if (image) return show({ kind: "image", url: image }, anchor());
 
+    // A resolved emote is drawn as the emote it is -- image, name, who by --
+    // rather than as a card about a web page. `description` is the owner; see
+    // `seventv_links` in Rust, which fills it in.
+    const found = (preview: LinkPreview) =>
+      kind === "emote"
+        ? ({
+            kind: "emote",
+            name: preview.title,
+            urlLarge: preview.image,
+            provider: "7tv",
+            by: preview.description,
+          } as const)
+        : ({ kind: "page", preview, host: linkHost(segment.href) } as const);
+
     const known = cachedLinkPreview(segment.href);
     if (known !== undefined) {
       // Asked before: draw it or don't, with no spinner in between.
-      return known ? show({ kind: "page", preview: known, host: linkHost(segment.href) }, anchor()) : undefined;
+      return known ? show(found(known), anchor()) : undefined;
     }
 
     // The spinner goes up before the request, so the wait is visibly a wait.
     show({ kind: "loading" }, anchor());
     const token = hover.current;
-    void loadLinkPreview(segment.href).then((found) => {
+    void loadLinkPreview(segment.href).then((preview) => {
       if (hover.current !== token) return;
-      if (!found) return hide();
-      show({ kind: "page", preview: found, host: linkHost(segment.href) }, anchor());
+      if (!preview) return hide();
+      show(found(preview), anchor());
     });
   };
 
