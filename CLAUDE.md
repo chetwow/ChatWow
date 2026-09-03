@@ -304,6 +304,16 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   and setting one on Windows would draw a menu bar into a window that has `decorations: false`.
   Don't swap it back for `Menu::default` or `enable_macos_default_menu` -- the first breaks
   `Cmd+W`, the second takes `Cmd+Q` and the Edit items (copy and paste in the composer) with it.
+- **macOS keeps its native window frame; every other platform doesn't.** Square corners and no
+  system shadow are what `decorations: false` gets you, and on macOS that reads as a foreign
+  window. [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) turns decorations
+  back on with `titleBarStyle: "Overlay"`, so the system draws the traffic lights over our own
+  title bar and we draw no window buttons of our own -- `IS_MACOS`
+  ([src/lib/tauri.ts](src/lib/tauri.ts)) gates both that and the left padding the lights sit in,
+  which has to match `trafficLightPosition`. Tauri *replaces* rather than merges the
+  `app.windows` array when it picks up a platform config, so that file repeats the whole window
+  object: change a size, a title or a background colour in `tauri.conf.json` and it has to change
+  in both. `hiddenTitle` is what stops macOS drawing the window title across our own.
 - **`dragDropEnabled` must stay `false`** ([src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)).
   Tauri's default native drag-drop handling intercepts drag events at the window level for OS
   file-drop support, which swallows the HTML5 Drag and Drop API before the page ever sees it —

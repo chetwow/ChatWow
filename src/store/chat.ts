@@ -250,23 +250,6 @@ function settleActive(layout: Layout, preferred: (string | null)[]): [string | n
   return next as [string | null, string | null];
 }
 
-/**
- * The worst state any connection is in, which is what the title bar's dot
- * shows. One socket per account means several answers to "are we connected",
- * and the one that's down is the one worth showing; with nothing open at all
- * there's no bad news to report.
- */
-export function connectionState(state: {
-  connections: Record<string, ConnectionState>;
-}): ConnectionState {
-  const states = Object.values(state.connections);
-  if (states.length === 0) return "connected";
-  for (const wanted of ["disconnected", "reconnecting", "connecting"] as const) {
-    if (states.includes(wanted)) return wanted;
-  }
-  return "connected";
-}
-
 type ChatState = {
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];

@@ -1,17 +1,10 @@
 import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { connectionState, useChat } from "../store/chat";
-import { IS_TAURI } from "../lib/tauri";
+import { useChat } from "../store/chat";
+import { IS_MACOS, IS_TAURI } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
 import type { AuthStatus } from "../types";
-
-const DOT: Record<string, string> = {
-  connected: "bg-emerald-400",
-  connecting: "bg-amber-400",
-  reconnecting: "bg-amber-400",
-  disconnected: "bg-rose-500",
-};
 
 function ControlButton({
   onClick,
@@ -197,9 +190,14 @@ function accountLabel(auth: AuthStatus): string {
   return `${auth.accounts.length} accounts`;
 }
 
+/**
+ * Room at the left for the macOS traffic lights, which the system draws over
+ * this bar at the position `tauri.macos.conf.json` gives them. Everywhere else
+ * the bar starts where it always did.
+ */
+const LEADING = IS_MACOS ? "pl-[76px]" : "pl-3";
+
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
-  // One socket per account, so the dot shows the worst of them.
-  const connection = useChat(connectionState);
   const auth = useChat((state) => state.auth);
   // A newer release, being fetched, or waiting to be restarted into -- all
   // three are "there is something to do in settings", which is all the dot
@@ -214,24 +212,30 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
   return (
     <div
       data-tauri-drag-region
-      className="flex h-8 shrink-0 items-center border-b border-line bg-surface-raised pl-3"
+      className={`flex h-8 shrink-0 items-center border-b border-line bg-surface-raised ${LEADING}`}
     >
       <div data-tauri-drag-region className="flex items-center gap-2">
-        <span className={`h-1.5 w-1.5 rounded-full ${DOT[connection] ?? "bg-ink-faint"}`} />
         <span
           data-tauri-drag-region
-          className="text-[11px] font-semibold tracking-wide text-ink-dim"
+          className="shrink-0 text-[11px] font-semibold tracking-wide text-ink-dim"
         >
           ChatWow
         </span>
         {!IS_TAURI && (
-          <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-400">
+          <span className="shrink-0 whitespace-nowrap rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-400">
             PREVIEW · MOCK DATA
           </span>
         )}
       </div>
 
       <div data-tauri-drag-region className="flex-1" />
+
+      <button
+        onClick={() => onOpenSettings("account")}
+        className="mr-1 shrink-0 whitespace-nowrap rounded px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+      >
+        {accountLabel(auth)}
+      </button>
 
       <PinButton />
       <MuteButton />
@@ -259,28 +263,25 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         )}
       </button>
 
-      <button
-        onClick={() => onOpenSettings("account")}
-        className="mr-1 rounded px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
-      >
-        {accountLabel(auth)}
-      </button>
-
-      <ControlButton onClick={() => void getCurrentWindow().minimize()} label="Minimize">
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <rect y="4.5" width="10" height="1" fill="currentColor" />
-        </svg>
-      </ControlButton>
-      <ControlButton onClick={() => void getCurrentWindow().toggleMaximize()} label="Maximize">
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" />
-        </svg>
-      </ControlButton>
-      <ControlButton onClick={() => void getCurrentWindow().close()} label="Close" danger>
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
-        </svg>
-      </ControlButton>
+      {!IS_MACOS && (
+        <>
+          <ControlButton onClick={() => void getCurrentWindow().minimize()} label="Minimize">
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <rect y="4.5" width="10" height="1" fill="currentColor" />
+            </svg>
+          </ControlButton>
+          <ControlButton onClick={() => void getCurrentWindow().toggleMaximize()} label="Maximize">
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" />
+            </svg>
+          </ControlButton>
+          <ControlButton onClick={() => void getCurrentWindow().close()} label="Close" danger>
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" fill="none" />
+            </svg>
+          </ControlButton>
+        </>
+      )}
     </div>
   );
 }
