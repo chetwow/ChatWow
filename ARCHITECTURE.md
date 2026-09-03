@@ -617,11 +617,10 @@ over the top, isn't the one being removed.
 
 The announcement is an ordinary notice (`render::notice`), stamped once per account with a tab
 on that channel -- a message reaches a tab by the account it names, and this is news for every
-tab showing the room, whoever is reading it. The `announceEmoteChanges` preference gates only
-that line: the emotes follow the set either way, because what a chatter can type has changed
-whether or not anyone was told. The other half is `chat://emote-set`, which carries the channel
-and its new emote count so the frontend rebuilds that channel's completion index -- the same job
-`chat://channel-ready` does on join.
+tab showing the room, whoever is reading it. Set changes are always announced, and the emotes
+always follow the set because what a chatter can type has changed. The other half is
+`chat://emote-set`, which carries the channel and its new emote count so the frontend rebuilds
+that channel's completion index -- the same job `chat://channel-ready` does on join.
 
 ## 7TV badges
 
@@ -996,7 +995,7 @@ shipped build, since the public key is compiled in and a redirected endpoint sti
 a download signed with the right key.
 
 The affordance is a dot on the settings cog, not a line in chat. Announcing it as a
-`localNotice`, the way `announce_emote_changes` and `announce_drop` do, fits the house style
+`localNotice`, the way 7TV set events and `announce_drop` do, fits the house style
 better -- but a notice scrolls away in a busy channel, and would either be seen once and lost or
 repeat in every tab. The dot persists until it's acted on, and it's an absolutely positioned
 overlay inside the cog's existing fixed box: it must never change what the title bar measures.

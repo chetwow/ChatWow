@@ -29,6 +29,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reordered and clarified listener filter labels, and removed redundant helper and keyboard-
   instruction text.
 
+### Removed
+
+- Removed the 7TV emote-change announcement toggle; set changes are now always announced.
+
 ### Fixed
 
 - Fixed the account permission reminder so required scopes cannot hold it open and it disappears

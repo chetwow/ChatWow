@@ -967,19 +967,6 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section title="Miscellaneous">
-                {/* Off only stops the line. A set that changes while you're
-                    reading still changes what you can type either way. */}
-                <Row label="Announce 7TV emote changes">
-                  <Toggle
-                    checked={preferences.announceEmoteChanges}
-                    onChange={(announceEmoteChanges) =>
-                      updatePreferences({ announceEmoteChanges })
-                    }
-                    label="Announce 7TV emote changes"
-                  />
-                </Row>
-              </Section>
               <Section title="Hidden emotes">
                 <BlacklistEditor
                   list="emoteBlacklist"

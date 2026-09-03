@@ -67,7 +67,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   enableBttv: true,
   enableFfz: true,
   showSeventvBadges: true,
-  announceEmoteChanges: true,
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,

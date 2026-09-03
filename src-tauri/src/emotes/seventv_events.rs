@@ -281,12 +281,7 @@ fn handle(app: &AppHandle, state: &Arc<AppState>, sink: &MessageSink, update: &S
         return;
     }
 
-    // The emotes move either way -- the preference is about whether chat is
-    // told, not about whether the set is kept up to date.
-    let lines = match state.preferences.read().announce_emote_changes {
-        true => lines(update),
-        false => Vec::new(),
-    };
+    let lines = lines(update);
 
     for channel in touched {
         for line in &lines {

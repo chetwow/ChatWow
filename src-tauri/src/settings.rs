@@ -166,10 +166,6 @@ pub struct Preferences {
     /// Show the 7TV badge a chatter has equipped, beside their Twitch ones.
     /// Off means 7TV is never asked who anybody is.
     pub show_seventv_badges: bool,
-    /// Say in chat when a channel's 7TV emotes are added, removed or renamed.
-    /// Only the line: the emotes themselves follow the set either way, since
-    /// what a chatter can type has changed whether or not anyone was told.
-    pub announce_emote_changes: bool,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -258,7 +254,6 @@ impl Default for Preferences {
             enable_bttv: true,
             enable_ffz: true,
             show_seventv_badges: true,
-            announce_emote_changes: true,
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,

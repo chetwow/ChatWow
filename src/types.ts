@@ -238,8 +238,6 @@ export type Preferences = {
   enableFfz: boolean;
   /** Show the 7TV badge a chatter has equipped, beside their Twitch ones. */
   showSeventvBadges: boolean;
-  /** Say in chat when a channel's 7TV emotes are added, removed or renamed. */
-  announceEmoteChanges: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */
