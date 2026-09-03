@@ -364,9 +364,9 @@ function UpdateButton() {
       case "upToDate":
         return [checkForUpdate, `${update.currentVersion} -- up to date`];
       case "available":
-        // A build that can't replace itself -- macOS until it's signed, or a
-        // `.deb`/`.rpm`. The version is still worth knowing, so the button
-        // points at the page to get it from rather than going dead.
+        // A build that can't replace itself -- macOS, until it's signed. The
+        // version is still worth knowing, so the button points at the page to
+        // get it from rather than going dead.
         return [
           update.canInstall
             ? installUpdate

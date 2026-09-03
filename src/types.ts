@@ -433,9 +433,9 @@ export type UpdateState = {
   /** One short line. The detail is in the log. */
   error: string | null;
   /**
-   * Whether this build can replace itself. False for a `.deb` or `.rpm`
-   * install, where the new version is real but applying it belongs to the
-   * package manager.
+   * Whether this build can replace itself. False on macOS until the app is
+   * signed, where the new version is real but applying it would break the
+   * install.
    */
   canInstall: boolean;
 };

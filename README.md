@@ -303,19 +303,19 @@ something about it -- nothing pops up, and nothing is downloaded until you ask f
 Settings -> General -> Updates has the version you're on and a button. Press it and the new
 version is fetched and checked against a key built into the app, so a download that isn't the
 real thing won't install. On Windows the app closes and comes back on its own once it's done;
-on the Linux AppImage the button turns into *Restart* when it's ready, and waits for you.
+on Linux the button turns into *Restart* when it's ready, and waits for you.
 
 The first switch on that page turns off the check on launch. The button still works; nothing
 else changes. It's the only thing this app asks github.com.
 
-**Not every build can replace itself.** On macOS, and if you installed the `.deb` or `.rpm`,
-the app still tells you when a new version is out -- the button just says *Get it* and opens
-the download page instead of doing it for you.
+The `.deb` and `.rpm` update themselves too. Those go through your package manager rather than
+swapping a file, so you'll be asked for your password.
 
-macOS is temporary and it's about signing. Swapping an app bundle that Apple hasn't signed is
-what makes macOS decide the app is damaged and refuse to open it, which is a worse outcome
-than an honest link. It'll do it properly once ChatWow is signed and notarized. The `.deb` and
-`.rpm` are permanent -- those belong to your package manager, not to this app.
+**macOS is the exception, for now.** There the app still tells you when a new version is out,
+but the button says *Get it* and opens the download page instead of doing it for you. Swapping
+an app bundle that Apple hasn't signed is what makes macOS decide the app is damaged and refuse
+to open it, which is a worse outcome than an honest link. It'll do it properly once ChatWow is
+signed and notarized.
 
 One more: a version older than 0.6.0 has none of this, so that one has to be installed by hand.
 

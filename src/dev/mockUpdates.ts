@@ -11,7 +11,7 @@
  *
  * `?update=fail` and `?update=uptodate` reach the two stages you can't get to
  * by pressing the buttons in order, and `?update=manual` is the build that
- * can't replace itself -- macOS until it's signed, or a `.deb`/`.rpm`.
+ * can't replace itself -- macOS, until it's signed.
  */
 import type { UpdateState } from "../types";
 

@@ -67,9 +67,9 @@ pub struct UpdateState {
     pub total: Option<u64>,
     /// One short line for the user. The detail goes to the log.
     pub error: Option<String>,
-    /// Whether this build is one that can replace itself. False for a `.deb`
-    /// or `.rpm` install, where the update is real but applying it is the
-    /// package manager's job -- see `can_install`.
+    /// Whether this build is one that can replace itself. False on macOS until
+    /// the app is signed, where the update is real but applying it would break
+    /// the install -- see `can_install`.
     pub can_install: bool,
 }
 
@@ -123,38 +123,25 @@ impl Updates {
 
 /// Whether this build can put an update in place itself.
 ///
-/// The check is still worth running where this is false: knowing a new version
-/// exists is useful even when the button can't be the thing that fetches it --
-/// it sends you to the releases page instead.
+/// Only macOS can't, and only until the app is signed. Replacing an *unsigned*
+/// bundle in place is what produces "ChatWow is damaged and can't be opened" on
+/// the next launch -- a worse thing to hand somebody than no update at all.
+/// Nothing in the plugin is at fault and nothing here can work around it: the
+/// fix is a Developer ID Application certificate and notarization, at which
+/// point this arm comes out and nothing else changes. Tauri's own docs say
+/// ad-hoc signing (`signingIdentity: "-"`) isn't enough.
 ///
-/// **macOS: not until the app is signed.** Replacing an unsigned bundle in
-/// place is what produces "ChatWow is damaged and can't be opened" on the next
-/// launch, which is a worse thing to hand somebody than no update at all.
-/// Nothing in the plugin is at fault and nothing here can work around it --
-/// the fix is a Developer ID certificate and notarization, and this comes off
-/// the moment those exist. Tauri's own docs say ad-hoc signing
-/// (`signingIdentity: "-"`) isn't enough.
+/// Every other format is fine, `.deb` and `.rpm` included -- the bundler stamps
+/// each binary with the format it was packaged as, so an installed copy asks
+/// `latest.json` for its own (`linux-x86_64-deb` and friends are all there) and
+/// the plugin hands it to `dpkg -i` behind a graphical root prompt. Nothing
+/// here has to tell those apart.
 ///
-/// **Linux: only the AppImage.** `latest.json` carries one Linux entry and
-/// it's the AppImage, and the plugin's Linux path doesn't check what it's
-/// running as -- handed the AppImage while installed from a `.deb` it would
-/// rename the packaged binary out of the way and unpack over it. That
-/// generally fails on permissions rather than succeeding, but "generally" is
-/// not a thing to leave to chance with somebody's `/usr/bin`. `APPIMAGE` is
-/// set by the AppImage runtime and by nothing else.
+/// The check still runs where this is false: knowing a new version exists is
+/// useful even when the button can't be what fetches it, so it opens the
+/// releases page instead.
 fn can_install() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        false
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::env::var_os("APPIMAGE").is_some()
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        true
-    }
+    !cfg!(target_os = "macos")
 }
 
 /// Store a state and tell the frontend, in that order and never separately.
