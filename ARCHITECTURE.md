@@ -653,7 +653,9 @@ familiar faces keep theirs.
 
 Clicking a name opens [UserCard.tsx](src/components/UserCard.tsx). Its top half is fetched, its
 bottom half is free -- the messages that chatter has already sent in this tab, filtered out of
-the store. That log is one tab only: the same name in two tabs is two conversations.
+the store. That log is one tab only: the same name in two tabs is two conversations. The ear
+action in its header creates the same current-channel user listener as the chatter-name context
+menu, including its one-time backfill and notifications-off default.
 
 The fetched half needs two services, because Twitch only answers one of it.
 

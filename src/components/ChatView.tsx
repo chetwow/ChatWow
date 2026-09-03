@@ -267,6 +267,25 @@ export function ChatView({
   }, []);
   const closeCard = useCallback(() => setCard(null), []);
 
+  // Both entry points deliberately share this path so the user-card action
+  // keeps the context menu's current-channel seed and notification defaults.
+  const createUserListener = useCallback(
+    (login: string, name: string, sourceChannel: string) => {
+      void openMentionsTab(
+        {
+          name,
+          accounts: [],
+          users: [login],
+          channels: [sourceChannel],
+          phrases: [],
+          notify: false,
+        },
+        { seedCurrentMatches: true },
+      );
+    },
+    [openMentionsTab],
+  );
+
   // The chip on a mentions-tab row: go to where it was said. A channel you've
   // since left has nothing to switch to, so it stays put rather than
   // selecting a tab that isn't there.
@@ -352,18 +371,7 @@ export function ChatView({
         ? [
             {
               label: "Create listener tab for this user",
-              onSelect: () =>
-                void openMentionsTab(
-                  {
-                    name,
-                    accounts: [],
-                    users: [login],
-                    channels: [message.channel],
-                    phrases: [],
-                    notify: false,
-                  },
-                  { seedCurrentMatches: true },
-                ),
+              onSelect: () => createUserListener(login, name, message.channel),
             },
           ]
         : []),
@@ -583,7 +591,16 @@ export function ChatView({
         {/* Keyed by who it's about: clicking a second name reuses this slot, and
             without a key the card would keep the first person's fetched data. */}
         {card && (
-          <UserCard key={`${card.channel}|${card.login}`} target={card} onClose={closeCard} />
+          <UserCard
+            key={`${card.channel}|${card.login}`}
+            target={card}
+            onClose={closeCard}
+            onCreateListener={
+              card.channel && (!myLogin || card.login.toLowerCase() !== myLogin.toLowerCase())
+                ? () => createUserListener(card.login.toLowerCase(), card.displayName, card.channel)
+                : undefined
+            }
+          />
         )}
       </div>
 

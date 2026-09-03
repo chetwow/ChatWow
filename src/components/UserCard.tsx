@@ -115,7 +115,15 @@ function SubLine({ history }: { history: NonNullable<UserCardData["history"]> })
  * floor doesn't fit, the log is the part that gives -- it's the only section
  * that can shrink without losing anything, having a scrollbar already.
  */
-export function UserCard({ target, onClose }: { target: UserCardTarget; onClose: () => void }) {
+export function UserCard({
+  target,
+  onClose,
+  onCreateListener,
+}: {
+  target: UserCardTarget;
+  onClose: () => void;
+  onCreateListener?: () => void;
+}) {
   const { login, displayName, color, channel, anchor } = target;
   const ref = useRef<HTMLDivElement>(null);
   const log = useRef<HTMLDivElement>(null);
@@ -265,12 +273,36 @@ export function UserCard({ target, onClose }: { target: UserCardTarget; onClose:
             {displayName.slice(0, 1).toUpperCase()}
           </div>
         )}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate text-[14px] font-semibold" style={{ color }}>
             {displayName}
           </div>
           <div className="truncate text-[11px] text-ink-faint">@{login}</div>
         </div>
+        {onCreateListener && (
+          <button
+            type="button"
+            title="Create a listener tab for this user"
+            aria-label="Create a listener tab for this user"
+            onClick={onCreateListener}
+            className="grid h-8 w-8 shrink-0 place-items-center self-start rounded-md text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 8.5a5.5 5.5 0 0 1 11 0c0 3.1-1.9 4.7-3.6 6.1-1.3 1.1-2.4 2-2.4 3.9a2 2 0 0 1-4 0" />
+              <path d="M10 8.5a1.5 1.5 0 0 1 3 0c0 1.2-.8 1.8-1.7 2.5-.7.5-1.3 1.1-1.3 2" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="shrink-0 space-y-1 border-t border-line px-3 py-2">
