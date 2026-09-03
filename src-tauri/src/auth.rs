@@ -39,16 +39,14 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
     PermissionGroup {
         id: "chat",
         label: "Read and send chat",
-        detail: "Reading chat and sending messages. Always requested -- it's what \
-                 signing in is for.",
+        detail: "Reading chat and sending messages. Always requested.",
         scopes: &["chat:read", "chat:edit", "user:write:chat"],
         required: true,
     },
     PermissionGroup {
         id: "account",
         label: "Your own account",
-        detail: "Needed for the commands that act on your account rather than a channel: \
-                 /color, /block, /unblock and /w.",
+        detail: "For commands that act on your account: /color, /block, /unblock and /w.",
         scopes: &[
             "user:manage:chat_color",
             "user:manage:blocked_users",
@@ -63,8 +61,8 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
     PermissionGroup {
         id: "moderation",
         label: "Moderator commands",
-        detail: "Needed to run the moderator commands -- /ban, /timeout, /clear, /slow, \
-                 /announce and the rest.",
+        detail: "For moderator commands: /ban, /timeout, /clear, /slow, /announce and \
+                 the rest.",
         scopes: &[
             "moderator:manage:banned_users",
             "moderator:manage:chat_messages",
@@ -78,8 +76,7 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
     PermissionGroup {
         id: "channel",
         label: "Broadcaster commands",
-        detail: "Needed to run the broadcaster commands -- /mod, /vip, /raid, /commercial \
-                 and /marker.",
+        detail: "For broadcaster commands: /mod, /vip, /raid, /commercial and /marker.",
         scopes: &[
             "channel:manage:moderators",
             "channel:manage:vips",

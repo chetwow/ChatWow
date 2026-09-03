@@ -711,10 +711,7 @@ export function SettingsDialog({
           {tab === "general" && (
             <div className="flex flex-col gap-5">
               <Section title="Chat history">
-                <Row
-                  label="Show recent message history on join"
-                  hint="Loads a channel's last 150 messages when you join it, so the pane isn't empty."
-                >
+                <Row label="Show recent message history on join">
                   <Toggle
                     checked={preferences.showMessageHistory}
                     onChange={(showMessageHistory) => updatePreferences({ showMessageHistory })}
@@ -725,7 +722,7 @@ export function SettingsDialog({
               <Section title="Links">
                 <Row
                   label="Preview image links"
-                  hint="A link straight to an image shows the picture, and a 7TV emote link shows the emote."
+                  hint="Covers direct image links and 7TV emote links."
                 >
                   <Toggle
                     checked={preferences.previewImages}
@@ -735,7 +732,7 @@ export function SettingsDialog({
                 </Row>
                 <Row
                   label="Preview other links"
-                  hint="Everything else, shown as the page's own title, thumbnail and summary -- which means asking that page for them."
+                  hint="Shows the page's own title and thumbnail."
                 >
                   <Toggle
                     checked={preferences.previewPages}
@@ -747,7 +744,7 @@ export function SettingsDialog({
               <Section title="Diagnostics">
                 <Row
                   label="Log folder"
-                  hint="What the app was doing before something went wrong, kept across a few runs. No message text, no tokens -- safe to attach to a bug report."
+                  hint="Safe to attach to a bug report."
                 >
                   <LogFolderButton />
                 </Row>
@@ -755,7 +752,7 @@ export function SettingsDialog({
               <Section title="Updates">
                 <Row
                   label="Check for updates on launch"
-                  hint="Asks GitHub once, a moment after the window opens, whether there's a newer release. Nothing is downloaded until you ask for it."
+                  hint="Nothing is downloaded until you choose to install it."
                 >
                   <Toggle
                     checked={preferences.checkForUpdates}
@@ -763,16 +760,13 @@ export function SettingsDialog({
                     label="Check for updates on launch"
                   />
                 </Row>
-                <Row
-                  label="Version"
-                  hint="Updates come from this app's own GitHub releases, and are checked against a key built into it -- a tampered download won't install."
-                >
+                <Row label="Version">
                   <UpdateButton />
                 </Row>
               </Section>
               <Section
                 title="Blocked"
-                hint="Their messages aren't drawn at all, in any channel, and can't mention you. Nothing is sent to Twitch -- this is between you and this app, and unblocking brings their messages straight back."
+                hint="Hides their messages everywhere. Twitch is not told."
               >
                 <NameListEditor
                   entries={preferences.blockedUsers}
@@ -941,7 +935,7 @@ export function SettingsDialog({
                     reading still changes what you can type either way. */}
                 <Row
                   label="Announce 7TV emote changes"
-                  hint="A line in chat when the channel's 7TV emotes are added, removed or renamed."
+                  hint="The emotes change either way."
                 >
                   <Toggle
                     checked={preferences.announceEmoteChanges}
@@ -954,7 +948,7 @@ export function SettingsDialog({
               </Section>
               <Section
                 title="Hidden emotes"
-                hint="Drawn as their underlined name instead of their image; hover the name for the usual preview. A name rule catches every emote called that, an id rule catches one image however it's aliased."
+                hint="Shown as their name instead of a picture."
               >
                 <BlacklistEditor
                   list="emoteBlacklist"
@@ -963,7 +957,7 @@ export function SettingsDialog({
               </Section>
               <Section
                 title="Hidden from autocomplete"
-                hint="Kept out of Tab completion and the : picker. Independent of the list above -- an emote can be suggestable but hidden, or drawn but never suggested."
+                hint="Separate from the hidden emotes above."
               >
                 <BlacklistEditor
                   list="emoteCompleteBlacklist"
@@ -978,9 +972,9 @@ export function SettingsDialog({
               <Section title="Mentions">
                 <Row
                   label="Notify when tagged"
-                  hint={`Plays a sound when someone writes @${
+                  hint={`Sounds when someone writes @${
                     auth.accounts[0]?.login ?? "yourname"
-                  } -- matched per tab against the account reading it.`}
+                  }.`}
                 >
                   <Toggle
                     checked={preferences.notifyOnTag}
@@ -990,7 +984,7 @@ export function SettingsDialog({
                 </Row>
                 <Row
                   label="Notify on any mention"
-                  hint="Also plays a sound when your name is used without the @."
+                  hint="Also sounds when your name is used without the @."
                 >
                   <Toggle
                     checked={preferences.notifyOnName}
@@ -1000,7 +994,7 @@ export function SettingsDialog({
                 </Row>
                 <Row
                   label="Notify for active tab"
-                  hint="Off by default -- no sound for mentions in the channel you're already reading."
+                  hint="Also sounds for mentions in the channel you are already reading."
                 >
                   <Toggle
                     checked={preferences.notifyActiveTab}
@@ -1011,7 +1005,7 @@ export function SettingsDialog({
               </Section>
               <Section
                 title="Ignored"
-                hint="No sound, no rose badge, and nothing in the mentions tab. @name silences one person wherever they are; #name silences a whole channel."
+                hint="@name for one person, #name for a whole channel."
               >
                 <NameListEditor
                   entries={preferences.mentionIgnores}
