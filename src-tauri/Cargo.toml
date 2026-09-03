@@ -1,6 +1,6 @@
 [package]
 name = "chatwow"
-version = "0.6.0"
+version = "0.6.0-rc.1"
 description = "A sleek multi-channel Twitch chat client"
 authors = ["chetwow"]
 edition = "2021"
