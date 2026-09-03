@@ -314,6 +314,12 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   `app.windows` array when it picks up a platform config, so that file repeats the whole window
   object: change a size, a title or a background colour in `tauri.conf.json` and it has to change
   in both. `hiddenTitle` is what stops macOS drawing the window title across our own.
+
+  The config is compiled in, and `build.rs` only asks Cargo to watch the files it found *last*
+  time it ran. So creating a platform config for the first time changes nothing until something
+  else forces a rebuild -- `tauri dev` will keep running the old window. `touch
+  src-tauri/tauri.conf.json` and build again; from then on both files are watched and an edit to
+  either is picked up on its own.
 - **`dragDropEnabled` must stay `false`** ([src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)).
   Tauri's default native drag-drop handling intercepts drag events at the window level for OS
   file-drop support, which swallows the HTML5 Drag and Drop API before the page ever sees it —
