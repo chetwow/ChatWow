@@ -309,8 +309,13 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   window. [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) turns decorations
   back on with `titleBarStyle: "Overlay"`, so the system draws the traffic lights over our own
   title bar and we draw no window buttons of our own -- `IS_MACOS`
-  ([src/lib/tauri.ts](src/lib/tauri.ts)) gates both that and the left padding the lights sit in,
-  which has to match `trafficLightPosition`. Tauri *replaces* rather than merges the
+  ([src/lib/tauri.ts](src/lib/tauri.ts)) gates both that and the left padding the lights sit in.
+  The bar is 28px there rather than 32, which is the height of a standard macOS title bar and so
+  the height the lights are already centred for; that's why `trafficLightPosition` is *not* set.
+  It doesn't mean "put them here" -- tao resizes the title bar container to `buttonHeight + y`
+  and lets the buttons keep their own offset inside it, so the value that centres them is a
+  guess about AppKit's internals. Matching the height macOS expects needs no number.
+  Tauri *replaces* rather than merges the
   `app.windows` array when it picks up a platform config, so that file repeats the whole window
   object: change a size, a title or a background colour in `tauri.conf.json` and it has to change
   in both. `hiddenTitle` is what stops macOS drawing the window title across our own.

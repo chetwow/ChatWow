@@ -191,11 +191,21 @@ function accountLabel(auth: AuthStatus): string {
 }
 
 /**
- * Room at the left for the macOS traffic lights, which the system draws over
- * this bar at the position `tauri.macos.conf.json` gives them. Everywhere else
- * the bar starts where it always did.
+ * The bar itself, which macOS shapes differently.
+ *
+ * 28px because that is the height of a standard macOS title bar, and standard
+ * is exactly what the traffic lights are placed for: leave the bar that tall
+ * and the system centres them in it with no help. `trafficLightPosition` is
+ * deliberately not set -- it doesn't mean "put them here", it resizes the
+ * title bar container to `buttonHeight + y` and lets the buttons keep their
+ * own offset inside it, so the number that centres them is a guess about
+ * AppKit's internals rather than a measurement. Matching the height it already
+ * expects needs no number at all.
+ *
+ * The padding clears the lights: they start 14px in and the group is 52px
+ * wide, so the name begins a comfortable distance after them.
  */
-const LEADING = IS_MACOS ? "pl-[76px]" : "pl-3";
+const BAR = IS_MACOS ? "h-7 pl-[84px]" : "h-8 pl-3";
 
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const auth = useChat((state) => state.auth);
@@ -212,7 +222,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
   return (
     <div
       data-tauri-drag-region
-      className={`flex h-8 shrink-0 items-center border-b border-line bg-surface-raised ${LEADING}`}
+      className={`flex shrink-0 items-center border-b border-line bg-surface-raised ${BAR}`}
     >
       <div data-tauri-drag-region className="flex items-center gap-2">
         <span
