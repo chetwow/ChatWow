@@ -26,6 +26,7 @@ npm run build                # tsc + vite build (type-check the frontend)
 cd src-tauri && cargo test          # Rust unit tests
 cd src-tauri && cargo test -- --ignored --nocapture   # + livecheck.rs, hits real Twitch/7TV APIs
 TWITCH_CLIENT_ID=xxx npm run tauri build    # build against a different Twitch app
+npm run build:local         # a release build on your own machine (see below)
 CHATWOW_LOG=debug npm run tauri dev  # turn the log up for one run (see diagnostics.rs)
 python3 scripts/generate-emoji.py   # regenerate src/lib/emoji.json (don't hand-edit it)
 npx tauri icon app-icon.png         # regenerate src-tauri/icons (see the note below)
@@ -33,6 +34,15 @@ python3 scripts/bump-version.py 0.6.0   # set the version in all five files at o
 git tag v0.3.0 && git push origin v0.3.0    # build installers (see .github/workflows/release.yml)
 CHATWOW_UPDATE_ENDPOINT=https://.../latest.json npm run tauri dev  # rehearse an update
 ```
+
+`npm run tauri build` fails on a developer machine with "A public key has been found, but no
+private key": `createUpdaterArtifacts` is on, so every build wants to sign, and the minisign key
+lives only in the repo secrets. `npm run build:local` merges
+[src-tauri/tauri.local.conf.json](src-tauri/tauri.local.conf.json) over the real config to turn
+those artifacts off, which is right for a local build -- nobody installs one, and a bundle
+signed with a key CI doesn't have is worse than one that isn't signed at all. Don't set
+`TAURI_SIGNING_PRIVATE_KEY` by hand to get around it; that puts the key and its password in your
+shell history for no gain.
 
 `app-icon.png` at the repo root is the source the icons are cut from, and the only one to edit.
 `tauri icon` also writes `src-tauri/icons/android/` and `ios/`, which this desktop-only app has
