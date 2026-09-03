@@ -440,6 +440,16 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   deliberately: granting `updater:default` would let the webview download and execute code in an
   app that renders arbitrary chat under `csp: null`, and nothing about an update depends on which
   login is reading. `capabilities/default.json` should stay untouched.
+- **The window-state plugin runs on three flags, not its default `all()`.** `DECORATIONS` would
+  let a saved value argue with `decorations: false` in
+  [tauri.conf.json](src-tauri/tauri.conf.json), which is what gives this app its own title bar,
+  and `VISIBLE` can restore a window that was hidden -- an app that starts invisible and is only
+  fixable by deleting a file the user has never heard of. `SIZE | POSITION | MAXIMIZED` is the
+  whole feature. No capability is needed and none is granted: save and restore run from the
+  plugin's Rust hooks (`on_window_ready`, `on_window_event`, `RunEvent::Exit`), and permissions
+  only gate `invoke()` from the webview. It writes its own `.window-state.json` beside
+  `settings.json` rather than living in it, which is why nothing in `settings::Settings` mentions
+  the window.
 - **A tab's rendered width must never change on hover** ([src/components/TabBar.tsx](src/components/TabBar.tsx)).
   The tab bar computes its own row-wrap breaks in JS (measuring each tab, reserving room for the
   add-channel button) and re-runs that via a `ResizeObserver` on real size changes. If hovering a

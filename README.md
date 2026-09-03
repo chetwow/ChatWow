@@ -270,19 +270,25 @@ in Settings -> General.
 
 The gear in the title bar opens:
 
-- **General** — recent message history on join, the two link-preview switches, the list of
-  blocked people, and the button that opens the log folder
+- **General** — recent message history on join, the two link-preview switches, updates, the list
+  of blocked people, and an Advanced section holding the button that opens the log folder
 - **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
   Client ID
-- **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, whether your
-  Twitch avatar shows beside the message box, whether tabs scroll on one row or wrap onto
-  several, and which picture a new tab puts behind its name and how faint it is
+- **Appearance** — whether the window stays on top of everything else, chat font size,
+  timestamps, 7TV badges, italic `/me` actions, whether your Twitch avatar shows beside the
+  message box, whether tabs scroll on one row or wrap onto several, and which picture a new tab
+  puts behind its name and how faint it is
 - **Emotes** — which emote services to use, whether 7TV emote changes are announced, and the
   hidden-emote lists
 - **Notifications** — which mentions ping, and which to ignore entirely
 
 Settings that need explaining carry an info dot on the label; the ones that say what they do
 don't.
+
+Keeping the window on top is also the pin in the title bar, next to the mute button, since it's
+the sort of thing you flip mid-stream rather than go looking for. The window remembers where it
+was and how big it was, and comes back that way; if the screen it was on has since gone, it
+opens wherever your system decides instead of off the edge of the world.
 
 Three things here reach something that isn't Twitch or an emote provider. Joining a channel asks
 [recent-messages.robotty.de](https://recent-messages.robotty.de) for its recent history -- Twitch

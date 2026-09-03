@@ -36,3 +36,4 @@ parking_lot = "0.12"
 # verify a download -- the public key -- is compiled in from tauri.conf.json.
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2.4.1"

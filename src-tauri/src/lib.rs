@@ -1255,6 +1255,22 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Remembers where the window was and how big it was. Three flags, not
+        // the default `all()`: DECORATIONS would let a saved value fight
+        // `decorations: false` in tauri.conf.json, which is what gives this app
+        // its own title bar, and VISIBLE can restore a window hidden -- an app
+        // that starts invisible and can only be fixed by deleting a file the
+        // user doesn't know about. FULLSCREEN is left out because size and
+        // position are what was asked for.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         // First, so that anything the others have to say on the way up
         // has somewhere to land.
         .plugin(diagnostics::plugin());
