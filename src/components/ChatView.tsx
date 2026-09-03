@@ -14,15 +14,33 @@ import { UserCard, type UserCardTarget } from "./UserCard";
 import { loginOf, useChat, type BlacklistKind } from "../store/chat";
 import { messageLine, messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
-import { ignoreForChannel, ignoreForUser, mentionIgnored } from "../lib/ignores";
+import { ignoreForChannel, ignoreForUser, mentionIgnored, userBlocked } from "../lib/ignores";
 import type { EmoteRule, StoredMessage } from "../types";
 
 /** How close to the bottom still counts as "pinned". */
 const PIN_THRESHOLD = 40;
 
+/** The text visibly associated with a row, without fetching or re-resolving anything. */
+function searchableText(message: StoredMessage, includeChannel: boolean): string {
+  return [
+    message.displayName,
+    message.login,
+    includeChannel ? message.channel : "",
+    message.systemMessage,
+    message.replyTo?.displayName,
+    message.replyTo?.body,
+    messageText(message),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLocaleLowerCase();
+}
+
 export function ChatView({
   id,
   capturesTyping = true,
+  searchRequest = null,
+  onCloseSearch,
 }: {
   /** The tab this view is of. Two tabs can be of one channel, so it's not the name. */
   id: string;
@@ -32,6 +50,9 @@ export function ChatView({
    * focus on every keystroke would take it in turns to steal your text.
    */
   capturesTyping?: boolean;
+  /** Non-null while this is the focused tab's active find target. */
+  searchRequest?: number | null;
+  onCloseSearch: () => void;
 }) {
   const tab = useChat((state) => state.tabs.find((open) => open.id === id));
   const channel = tab?.channel ?? "";
@@ -87,6 +108,40 @@ export function ChatView({
   const myLogin = useChat((state) => loginOf(state, account));
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const searchOpen = searchRequest !== null;
+  const searchWasOpen = useRef(searchOpen);
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const searchMatches = useMemo(
+    () =>
+      normalizedSearch
+        ? (messages ?? [])
+            .filter((message) => !userBlocked(message, blockedUsers))
+            .filter((message) => searchableText(message, isMentions).includes(normalizedSearch))
+            .map((message) => message.key)
+        : [],
+    [messages, normalizedSearch, blockedUsers, isMentions],
+  );
+  const searchMatchIndex = useMemo(
+    () => new Map(searchMatches.map((key, index) => [key, index])),
+    [searchMatches],
+  );
+
+  // A repeated title-bar click or Ctrl/Cmd+F brings the field back even if
+  // focus had moved into the transcript or composer.
+  useLayoutEffect(() => {
+    if (!searchOpen) return;
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, [searchOpen, searchRequest]);
+
+  useEffect(() => {
+    setCurrentMatch((current) =>
+      searchMatches.length === 0 ? 0 : Math.min(current, searchMatches.length - 1),
+    );
+  }, [searchMatches.length]);
 
   // Re-pin when switching tabs.
   useEffect(() => setPinned(true), [id]);
@@ -104,6 +159,18 @@ export function ChatView({
       element.scrollTop = element.scrollHeight;
     }
   }, [messages, pinned, channel]);
+
+  // Match wrappers carry a numeric index, so navigation never has to put an
+  // arbitrary message key into a CSS selector. Finding moves away from the
+  // live edge intentionally; incoming chat must not pull the result away.
+  useLayoutEffect(() => {
+    if (!searchOpen || searchMatches.length === 0) return;
+    const result = content.current?.querySelector<HTMLElement>(
+      `[data-search-match="${currentMatch}"]`,
+    );
+    result?.scrollIntoView({ block: "center" });
+    setPinned(false);
+  }, [searchOpen, searchMatches, currentMatch]);
 
   // Keep the latest messages in view when the window (and so the scroller)
   // is resized -- without this, shrinking the window leaves scrollTop fixed
@@ -155,6 +222,14 @@ export function ChatView({
     if (element) element.scrollTop = element.scrollHeight;
     setPinned(true);
   };
+
+  // Search deliberately unpins while visiting an older result. Closing it is
+  // an equally deliberate return to live chat, whichever close control was
+  // used (including the title-bar toggle outside this component).
+  useLayoutEffect(() => {
+    if (searchWasOpen.current && !searchOpen) jumpToPresent();
+    searchWasOpen.current = searchOpen;
+  }, [searchOpen]);
 
   // Stable identity: MessageRow is memoized to keep a busy channel cheap, and
   // a fresh callback on every render would defeat that for every row.
@@ -328,8 +403,97 @@ export function ChatView({
       ]
     : [];
 
+  const moveSearch = (direction: 1 | -1) => {
+    if (searchMatches.length === 0) return;
+    setCurrentMatch(
+      (current) => (current + direction + searchMatches.length) % searchMatches.length,
+    );
+  };
+
+  const searchStatus = !normalizedSearch
+    ? ""
+    : searchMatches.length === 0
+      ? "No matches"
+      : `${currentMatch + 1} of ${searchMatches.length}`;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-line bg-surface-raised px-2 py-1.5">
+          <svg
+            viewBox="0 0 16 16"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            className="shrink-0 text-ink-faint"
+          >
+            <circle cx="6.8" cy="6.8" r="4.2" />
+            <path d="m10 10 3.5 3.5" strokeLinecap="round" />
+          </svg>
+          <input
+            ref={searchInput}
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setCurrentMatch(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onCloseSearch();
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                moveSearch(event.shiftKey ? -1 : 1);
+              }
+            }}
+            aria-label="Search messages in active tab"
+            placeholder="Search messages"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="selectable min-w-0 flex-1 rounded border border-line bg-surface px-2 py-1 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+          <span className="w-16 shrink-0 whitespace-nowrap text-center text-[10px] tabular-nums text-ink-faint">
+            {searchStatus}
+          </span>
+          <button
+            onClick={() => moveSearch(-1)}
+            disabled={searchMatches.length === 0}
+            aria-label="Previous match"
+            title="Previous match (Shift+Enter)"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-30"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="m4 10 4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            onClick={() => moveSearch(1)}
+            disabled={searchMatches.length === 0}
+            aria-label="Next match"
+            title="Next match (Enter)"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-30"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            onClick={onCloseSearch}
+            aria-label="Close search"
+            title="Close search (Escape)"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+          >
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="m3.5 3.5 9 9m0-9-9 9" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         <div
           ref={scroller}
@@ -356,15 +520,26 @@ export function ChatView({
           )}
 
           <div ref={content}>
-            {messages?.map((message) => (
-              <MessageRow
-                key={message.key}
-                message={message}
-                onContextMenu={openMenu}
-                onNameClick={openCard}
-                onChannelClick={isMentions ? goToChannel : undefined}
-              />
-            ))}
+            {messages?.map((message) => {
+              const match = searchMatchIndex.get(message.key);
+              return (
+                <div key={message.key} data-search-match={match}>
+                  <MessageRow
+                    message={message}
+                    onContextMenu={openMenu}
+                    onNameClick={openCard}
+                    onChannelClick={isMentions ? goToChannel : undefined}
+                    searchMatch={
+                      !searchOpen || match === undefined
+                        ? undefined
+                        : match === currentMatch
+                          ? "current"
+                          : "match"
+                    }
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
 

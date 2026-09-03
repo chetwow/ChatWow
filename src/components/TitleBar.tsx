@@ -216,8 +216,17 @@ const ICON_GAP = IS_MACOS ? "" : "mr-1";
 const GLYPH = IS_MACOS ? 16 : 13;
 const TEXT = IS_MACOS ? "text-[12px]" : "text-[11px]";
 
-export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
+export function TitleBar({
+  onOpenSettings,
+  onSearch,
+  searchActive,
+}: {
+  onOpenSettings: (tab: SettingsTab) => void;
+  onSearch: () => void;
+  searchActive: boolean;
+}) {
   const auth = useChat((state) => state.auth);
+  const hasActiveTab = useChat((state) => state.active[state.focusedPane] !== null);
   // A newer release, being fetched, or waiting to be restarted into -- all
   // three are "there is something to do in settings", which is all the dot
   // says. It stays until acted on, which a chat notice wouldn't.
@@ -250,6 +259,31 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         className={`mr-1 shrink-0 whitespace-nowrap rounded px-2 py-1 text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink ${TEXT}`}
       >
         {accountLabel(auth)}
+      </button>
+
+      <button
+        onClick={onSearch}
+        disabled={!hasActiveTab}
+        aria-label="Search active tab"
+        aria-pressed={searchActive}
+        title={`Search active tab (${IS_MACOS ? "⌘F" : "Ctrl+F"})`}
+        className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors disabled:opacity-35 ${
+          searchActive
+            ? "bg-surface-hover text-accent"
+            : "text-ink-dim hover:bg-surface-hover hover:text-ink"
+        }`}
+      >
+        <svg
+          viewBox="0 0 16 16"
+          width={GLYPH}
+          height={GLYPH}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        >
+          <circle cx="6.8" cy="6.8" r="4.2" />
+          <path d="m10 10 3.5 3.5" strokeLinecap="round" />
+        </svg>
       </button>
 
       <PinButton />

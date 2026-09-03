@@ -521,6 +521,18 @@ started, and typing over a recalled message ends the walk so the next `↑` star
 History is per channel and lives only for the session, and a repeat of the previous message
 doesn't add a second entry. The emote picker takes the arrows first while it's open.
 
+## Searching a tab
+
+The find session targets the active tab in the focused pane, which is the same ownership rule as
+the other title-bar actions. `Ctrl/Cmd+F` opens or refocuses the search row inside that tab, while
+the title-bar magnifier toggles it; moving focus to another active tab closes it. The query stays
+in `ChatView` and searches
+the already-resolved, immutable message objects in memory -- sender, channel, reply, system, and
+body text -- so finding never crosses IPC or starts an external request. Blocked rows are excluded
+because there is nothing visible to navigate to. Enter and Shift+Enter move through matches, and
+leaving the live edge disables scroll pinning so incoming chat cannot pull the selected result
+away. Closing search jumps back to the live edge and restores pinning.
+
 ## Emote providers
 
 Three services, plus Twitch's own emotes: 7TV

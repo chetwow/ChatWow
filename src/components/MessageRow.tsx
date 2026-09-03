@@ -404,6 +404,7 @@ function MessageRowInner({
   onContextMenu,
   onNameClick,
   onChannelClick,
+  searchMatch,
 }: {
   message: StoredMessage;
   onContextMenu?: (event: MouseEvent, message: StoredMessage) => void;
@@ -414,6 +415,8 @@ function MessageRowInner({
    * channel's own view the chip would say the same thing on every row.
    */
   onChannelClick?: (channel: string) => void;
+  /** A find result in the active tab; only the current one gets the stronger ring. */
+  searchMatch?: "match" | "current";
 }) {
   const time = messageTime(message.ts);
   // Who "you" are for this row: the account whose connection received it, not
@@ -448,6 +451,12 @@ function MessageRowInner({
   // 2px border between the two. Both row kinds take the same inset, so they
   // still share a left edge.
   const leftPad = showTimestamps ? "pl-1.5" : "pl-3";
+  const searchClass =
+    searchMatch === "current"
+      ? "ring-2 ring-inset ring-amber-300/80"
+      : searchMatch === "match"
+        ? "ring-1 ring-inset ring-amber-400/30"
+        : "";
 
   // Blocked: nothing at all, rather than a "message hidden" placeholder --
   // the point of blocking someone is not to be reminded of them. Unblocking
@@ -458,7 +467,7 @@ function MessageRowInner({
     return (
       <div
         onContextMenu={handleContextMenu}
-        className={`msg-row ${leftPad} break-words pr-1.5 py-[3px] text-ink-faint italic`}
+        className={`msg-row ${leftPad} break-words pr-1.5 py-[3px] text-ink-faint italic ${searchClass}`}
       >
         {message.systemMessage}
       </div>
@@ -487,6 +496,7 @@ function MessageRowInner({
         message.kind === "whisper" ? "border-l-2 border-fuchsia-400/70 bg-fuchsia-400/[0.06]" : "",
         message.isFirstMessage ? "border-l-2 border-emerald-400/70 bg-emerald-400/[0.05]" : "",
         aboutYou ? "border-l-2 border-rose-400/70 bg-rose-400/[0.06]" : "",
+        searchClass,
       ].join(" ")}
     >
       {/* Dropped entirely rather than blanked, so the row reclaims the gutter

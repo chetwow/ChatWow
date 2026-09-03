@@ -8,6 +8,8 @@ import type { PaneIndex } from "../types";
 /** The divider's own thickness, and the whole of its grab area. */
 const DIVIDER = 5;
 
+export type TabSearchSession = { tabId: string; request: number };
+
 /**
  * Nothing joined: the ways in, and nothing else. Signing in is offered
  * alongside because the title bar's own button is easy to miss on a screen
@@ -46,10 +48,14 @@ function Pane({
   pane,
   onAdd,
   onSignIn,
+  search,
+  onCloseSearch,
 }: {
   pane: PaneIndex;
   onAdd: () => void;
   onSignIn: () => void;
+  search: TabSearchSession | null;
+  onCloseSearch: () => void;
 }) {
   const active = useChat((state) => state.active[pane]);
   const focusPane = useChat((state) => state.focusPane);
@@ -95,7 +101,13 @@ function Pane({
     >
       <TabBar pane={pane} onAdd={onAdd} />
       {active ? (
-        <ChatView key={active} id={active} capturesTyping={typingPane === pane} />
+        <ChatView
+          key={active}
+          id={active}
+          capturesTyping={typingPane === pane}
+          searchRequest={search?.tabId === active ? search.request : null}
+          onCloseSearch={onCloseSearch}
+        />
       ) : (
         <EmptyPane onAdd={onAdd} onSignIn={onSignIn} />
       )}
@@ -151,7 +163,17 @@ function Divider({
  * are exactly two -- a pane can't itself be split -- so this is a ratio and an
  * axis rather than a tree.
  */
-export function Panes({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => void }) {
+export function Panes({
+  onAdd,
+  onSignIn,
+  search,
+  onCloseSearch,
+}: {
+  onAdd: () => void;
+  onSignIn: () => void;
+  search: TabSearchSession | null;
+  onCloseSearch: () => void;
+}) {
   const layout = useChat((state) => state.preferences.splitLayout);
   const ratio = useChat((state) => state.preferences.splitRatio);
   const setSplitRatio = useChat((state) => state.setSplitRatio);
@@ -160,7 +182,15 @@ export function Panes({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => 
   const [dragging, setDragging] = useState<number | null>(null);
 
   if (layout === "none") {
-    return <Pane pane={0} onAdd={onAdd} onSignIn={onSignIn} />;
+    return (
+      <Pane
+        pane={0}
+        onAdd={onAdd}
+        onSignIn={onSignIn}
+        search={search}
+        onCloseSearch={onCloseSearch}
+      />
+    );
   }
 
   const vertical = layout === "row";
@@ -186,7 +216,13 @@ export function Panes({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => 
           whatever the divider doesn't take without any arithmetic about how
           thick it is. */}
       <div className="flex min-h-0 min-w-0" style={{ flex: `${shown} 1 0%` }}>
-        <Pane pane={0} onAdd={onAdd} onSignIn={onSignIn} />
+        <Pane
+          pane={0}
+          onAdd={onAdd}
+          onSignIn={onSignIn}
+          search={search}
+          onCloseSearch={onCloseSearch}
+        />
       </div>
       <Divider
         vertical={vertical}
@@ -197,7 +233,13 @@ export function Panes({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => 
         }}
       />
       <div className="flex min-h-0 min-w-0" style={{ flex: `${1 - shown} 1 0%` }}>
-        <Pane pane={1} onAdd={onAdd} onSignIn={onSignIn} />
+        <Pane
+          pane={1}
+          onAdd={onAdd}
+          onSignIn={onSignIn}
+          search={search}
+          onCloseSearch={onCloseSearch}
+        />
       </div>
     </div>
   );

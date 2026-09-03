@@ -1,6 +1,6 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { TitleBar } from "./components/TitleBar";
-import { Panes } from "./components/Panes";
+import { Panes, type TabSearchSession } from "./components/Panes";
 import { AddChannelDialog } from "./components/AddChannelDialog";
 import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
 import { HoverPreview } from "./components/HoverPreview";
@@ -12,7 +12,36 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   // Which tab the settings dialog is open on, or null when it's closed.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [search, setSearch] = useState<TabSearchSession | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
+  const focusedTab = useChat((state) => state.active[state.focusedPane]);
+
+  const openSearch = useCallback(() => {
+    const { active, focusedPane } = useChat.getState();
+    const tabId = active[focusedPane];
+    if (!tabId) return;
+    // Bumping the request refocuses and selects the existing query when the
+    // same button or shortcut is used a second time.
+    setSearch((current) => ({ tabId, request: (current?.request ?? 0) + 1 }));
+  }, []);
+
+  const toggleSearch = useCallback(() => {
+    const { active, focusedPane } = useChat.getState();
+    const tabId = active[focusedPane];
+    if (!tabId) return;
+    setSearch((current) =>
+      current?.tabId === tabId
+        ? null
+        : { tabId, request: (current?.request ?? 0) + 1 },
+    );
+  }, []);
+
+  // Search belongs to the tab in the pane being worked in. Moving that focus
+  // or switching its active tab closes the old find bar rather than leaving a
+  // hidden search session attached to something no longer active.
+  useEffect(() => {
+    setSearch((current) => (current && current.tabId !== focusedTab ? null : current));
+  }, [focusedTab]);
 
   useEffect(() => {
     // Listeners first, then the reads: `subscribeToBackend` attaches over IPC
@@ -29,8 +58,8 @@ export default function App() {
   }, [bootstrap]);
 
   // Ctrl+K opens the channel switcher, matching the command-palette
-  // convention. Ctrl/Cmd+T and Ctrl/Cmd+W are the browser's new-tab and
-  // close-tab, which is what a row of tabs sets people up to expect --
+  // convention. Ctrl/Cmd+F searches the active tab. Ctrl/Cmd+T and Ctrl/Cmd+W
+  // are the browser's new-tab and close-tab, which is what a row of tabs sets people up to expect --
   // reaching the page at all on macOS took dropping Close Window from the menu
   // bar (see `macos_menu` in src-tauri/src/lib.rs).
   useEffect(() => {
@@ -40,6 +69,11 @@ export default function App() {
       if (key === "k") {
         event.preventDefault();
         setShowAdd(true);
+        return;
+      }
+      if (key === "f") {
+        event.preventDefault();
+        if (!document.querySelector("[data-modal]")) openSearch();
         return;
       }
       // A dialog is its own context: closing the channel behind it, unseen,
@@ -59,7 +93,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openSearch]);
 
   // A right-click selects the word under it, which is the webview preparing
   // for a menu that isn't ours -- and it means a right-click arrives carrying a
@@ -133,8 +167,17 @@ export default function App() {
       className="flex h-full flex-col overflow-hidden bg-surface"
       onContextMenu={(event) => event.preventDefault()}
     >
-      <TitleBar onOpenSettings={setSettingsTab} />
-      <Panes onAdd={() => setShowAdd(true)} onSignIn={() => setSettingsTab("account")} />
+      <TitleBar
+        onOpenSettings={setSettingsTab}
+        onSearch={toggleSearch}
+        searchActive={search?.tabId === focusedTab}
+      />
+      <Panes
+        onAdd={() => setShowAdd(true)}
+        onSignIn={() => setSettingsTab("account")}
+        search={search}
+        onCloseSearch={() => setSearch(null)}
+      />
 
       {showAdd && <AddChannelDialog onClose={() => setShowAdd(false)} />}
       {settingsTab && (
