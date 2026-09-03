@@ -206,11 +206,12 @@ function accountLabel(auth: AuthStatus): string {
  * The padding clears the lights, which end about 66px in. The gap after them
  * is the only part of this that's taste rather than arithmetic.
  */
-const BAR = IS_MACOS ? "pl-[76px]" : "pl-3";
+const BAR = IS_MACOS ? "pl-[84px]" : "pl-3";
 
-/** The icon buttons, sized to the bar they sit in. */
-const ICON_BOX = IS_MACOS ? "h-7 w-7" : "h-6 w-6";
-const GLYPH = IS_MACOS ? 14 : 13;
+/** Everything else in the bar, sized to the bar it sits in. */
+const ICON_BOX = IS_MACOS ? "h-8 w-8" : "h-6 w-6";
+const GLYPH = IS_MACOS ? 16 : 13;
+const TEXT = IS_MACOS ? "text-[12px]" : "text-[11px]";
 
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const auth = useChat((state) => state.auth);
@@ -233,7 +234,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
       <div data-tauri-drag-region className="flex items-center gap-2">
         <span
           data-tauri-drag-region
-          className="shrink-0 text-[11px] font-semibold tracking-wide text-ink-dim"
+          className={`shrink-0 font-semibold tracking-wide text-ink-dim ${TEXT}`}
         >
           ChatWow
         </span>
@@ -243,7 +244,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
 
       <button
         onClick={() => onOpenSettings("account")}
-        className="mr-1 shrink-0 whitespace-nowrap rounded px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+        className={`mr-1 shrink-0 whitespace-nowrap rounded px-2 py-1 text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink ${TEXT}`}
       >
         {accountLabel(auth)}
       </button>
