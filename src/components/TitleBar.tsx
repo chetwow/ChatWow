@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useChat } from "../store/chat";
-import { IS_MACOS } from "../lib/tauri";
+import { IS_MACOS, TITLE_BAR_PX } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
 import type { AuthStatus } from "../types";
@@ -206,7 +206,7 @@ function accountLabel(auth: AuthStatus): string {
  * The padding clears the lights, which end about 66px in. The gap after them
  * is the only part of this that's taste rather than arithmetic.
  */
-const BAR = IS_MACOS ? "h-9 pl-[76px]" : "h-8 pl-3";
+const BAR = IS_MACOS ? "pl-[76px]" : "pl-3";
 
 /** The icon buttons, sized to the bar they sit in. */
 const ICON_BOX = IS_MACOS ? "h-7 w-7" : "h-6 w-6";
@@ -227,6 +227,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
   return (
     <div
       data-tauri-drag-region
+      style={{ height: TITLE_BAR_PX }}
       className={`flex shrink-0 items-center border-b border-line bg-surface-raised ${BAR}`}
     >
       <div data-tauri-drag-region className="flex items-center gap-2">

@@ -18,3 +18,13 @@ export const IS_TAURI = isTauri();
  * the preview can't show.
  */
 export const IS_MACOS = navigator.userAgent.includes("Macintosh");
+
+/**
+ * How tall the title bar is, in px. Taller on macOS to give the traffic lights
+ * room, since they're a system size and can't be scaled.
+ *
+ * Shared rather than repeated: the modals sit below the bar so the lights are
+ * never drawn over a dialog, and a bar that disagreed with that offset would
+ * either overlap it or leave a stripe.
+ */
+export const TITLE_BAR_PX = IS_MACOS ? 36 : 32;

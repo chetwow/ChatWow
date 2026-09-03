@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
-import { IS_TAURI } from "../lib/tauri";
+import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { ANONYMOUS, type ChannelHit } from "../types";
 
 /** Wait this long after the last keystroke before asking Twitch. */
@@ -199,7 +199,8 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-modal
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[18vh] backdrop-blur-[2px]"
+      style={{ top: TITLE_BAR_PX }}
+      className="fixed inset-x-0 bottom-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[18vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div

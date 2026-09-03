@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
-import { IS_TAURI } from "../lib/tauri";
+import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
@@ -704,14 +704,18 @@ export function SettingsDialog({
       // `data-modal` is what stops the composer's window-level key handler
       // from stealing typing while a dialog is open.
       data-modal
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-[2px]"
+      // Below the title bar, not over it: on macOS the traffic lights are drawn
+      // by the system on top of everything, so a dialog that reached the top of
+      // the window would have them sitting in its corner.
+      style={{ top: TITLE_BAR_PX }}
+      className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
         onClick={(event) => event.stopPropagation()}
         // A fixed height, not a max: the dialog shouldn't resize as you move
         // between tabs with more or less in them. It only tracks the window.
-        className="flex h-[min(620px,calc(100vh-1rem))] w-[min(560px,100%)] flex-col overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
+        className="flex h-[min(620px,calc(100%-1rem))] w-[min(560px,100%)] flex-col overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
       >
         <div className="flex items-center justify-between px-3 pb-2 pt-3">
           <h2 className="text-[15px] font-semibold text-ink">Settings</h2>
