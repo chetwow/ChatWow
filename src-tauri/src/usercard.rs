@@ -190,7 +190,7 @@ async fn profile(
         let helix = Helix { client, client_id, token };
         match users::fetch_profile(&helix, login).await {
             Ok(profile) => return Ok(profile),
-            Err(error) => eprintln!("user card: Helix profile failed ({error}); trying ivr.fi"),
+            Err(error) => log::debug!("user card: Helix profile failed ({error}); trying ivr.fi"),
         }
     }
     ivr_profile(client, login).await
@@ -202,12 +202,12 @@ async fn history(client: &reqwest::Client, login: &str, channel: &str) -> Option
         Ok(body) => match serde_json::from_str::<SubageResponse>(&body) {
             Ok(response) => Some(history_from(response)),
             Err(error) => {
-                eprintln!("user card: unexpected ivr.fi subage response: {error}");
+                log::debug!("user card: unexpected ivr.fi subage response: {error}");
                 None
             }
         },
         Err(error) => {
-            eprintln!("user card: ivr.fi subage failed: {error}");
+            log::debug!("user card: ivr.fi subage failed: {error}");
             None
         }
     }

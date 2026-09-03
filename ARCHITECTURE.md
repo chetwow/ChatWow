@@ -825,6 +825,58 @@ caps were being inherited into whole sentences.
 | `src/components/` | Title bar, tabs, chat view, composer, pickers, user card, settings |
 | `scripts/generate-emoji.py` | Regenerates `src/lib/emoji.json` from Unicode |
 
+## Diagnostics
+
+Nothing this app knew used to survive it. Rust's diagnostics went to stderr, which under
+`npm run tauri dev` means a terminal you may have closed and in a bundled `.app` means nowhere at
+all; an exception in the webview stayed in a devtools console nobody had open; and a panic inside
+a spawned task was delivered to a `JoinHandle` nothing awaits, so the socket simply stopped with
+the window still up and nothing said anywhere. [diagnostics.rs](src-tauri/src/diagnostics.rs) is
+the answer to all three.
+
+`tauri-plugin-log` writes one file in the OS's own log directory --
+`~/Library/Logs/io.github.chetwow.chatwow/chatwow.log` on macOS,
+`%LOCALAPPDATA%\io.github.chetwow.chatwow\logs\` on Windows -- rotating at 5MB and keeping
+three, so it can neither fill a disk nor have thrown away the run you came to read about. The
+level is set twice on purpose: everything defaults to `Warn` and only `chatwow_lib` and the
+webview target get the chosen level, because `CHATWOW_LOG=debug` is otherwise unusable -- rustls,
+hyper and tungstenite between them say more per second at debug than a whole session of ours
+does. Stdout stays a target as well, since under `tauri dev` the terminal is still the fastest
+place to read.
+
+`install_panic_hook` chains rather than replaces the default hook, so the familiar message still
+reaches the terminal, and writes the panic, the thread and a forced backtrace to the log first --
+forced because nobody who double-clicked the app set `RUST_BACKTRACE`. It has to go up *after*
+the plugin, or the logger it writes into doesn't exist yet and the first panic is the one that
+goes missing.
+
+`supervise` replaces `tauri::async_runtime::spawn` for the long-lived tasks -- the IRC sockets,
+the whisper sockets, the 7TV event socket, the pollers, the badge resolver, the asset loads. It
+catches the unwind and names the task that stopped; the hook has already written why. Nothing is
+restarted: each of these already has its own retry loop for the failures it expects, so reaching
+that line means an assumption broke rather than a network did, and running it again over state it
+may have left half-written is a worse answer than a line in the log. The whisper sockets are the
+one exception and are spawned directly, because their handles are deliberately aborted whenever
+the accounts change and `supervise` would report each of those as a task ending.
+
+The webview half is [src/lib/diagnostics.ts](src/lib/diagnostics.ts): `error` and
+`unhandledrejection` listeners installed before the first render, forwarding through the plugin's
+JS side into the same file. React 19 reports an uncaught render error through `reportError`,
+which arrives as an ordinary `error` event, so a broken component lands there too. Two things
+about that turned out to matter only once it was run against the real webview. The bracketed
+source the plugin stamps on each line is derived from *our* stack at the point of the call, so it
+names `diagnostics.ts` however the file is arranged and can't be made to point at what threw --
+everything worth reading therefore goes in the message text. And `Error.prototype.stack`
+disagrees across engines: V8 starts it with `Error: message` where JavaScriptCore, which is what
+renders this on macOS, gives the frames alone. Reading `stack` and trusting it drops the message
+entirely on macOS, so `describe` composes the two halves itself.
+
+What the file must never hold is the two things worth keeping out of something a user might paste
+into an issue: an access token, and the text of anybody's messages. Log the shape of what
+happened -- which channel, which account's login, which url failed -- and not its contents. That
+is what lets Settings -> General offer to reveal the folder, through the `open_log_dir` command,
+without a warning attached.
+
 ## Tests
 
 ```bash

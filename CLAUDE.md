@@ -26,6 +26,7 @@ npm run build                # tsc + vite build (type-check the frontend)
 cd src-tauri && cargo test          # Rust unit tests
 cd src-tauri && cargo test -- --ignored --nocapture   # + livecheck.rs, hits real Twitch/7TV APIs
 TWITCH_CLIENT_ID=xxx npm run tauri build    # build against a different Twitch app
+CHATWOW_LOG=debug npm run tauri dev  # turn the log up for one run (see diagnostics.rs)
 python3 scripts/generate-emoji.py   # regenerate src/lib/emoji.json (don't hand-edit it)
 git tag v0.3.0 && git push origin v0.3.0    # build installers (see .github/workflows/release.yml)
 ```
@@ -239,6 +240,15 @@ exercisable too. Preferences fall back to `localStorage` there, since there's no
   specific Client ID, so a token held across a switch is dead weight that reads as a broken
   session rather than a signed-out one. `set_client_id_override` and `logout` share
   `clear_session` ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) for exactly this.
+- **Nothing is written down unless it goes through `log`, and a spawned task's panic is silent
+  without `diagnostics::supervise`.** [src-tauri/src/diagnostics.rs](src-tauri/src/diagnostics.rs)
+  installs `tauri-plugin-log` (one rotating file in the OS log dir), a panic hook that chains the
+  default one and forces a backtrace, and `supervise`, which is what long-lived tasks are spawned
+  through -- `tauri::async_runtime::spawn` hands back a `JoinHandle` nothing awaits, so a panic
+  inside one kills that socket in total silence. Use `log::warn!`/`error!`, never `eprintln!`: in
+  a bundled build stderr goes nowhere. The hook must be installed *after* the plugin, or the
+  first panic has no logger to write to. Two things must never reach the file, since the user is
+  invited to attach it to a bug report: an access token, and the text of anybody's messages.
 - **Tauri's `setup()` hook runs outside any Tokio runtime context.** Calling `tokio::spawn`
   there panics with "there is no reactor running." Use `tauri::async_runtime::spawn` for
   anything spawned during setup (see [src-tauri/src/irc/client.rs](src-tauri/src/irc/client.rs)).

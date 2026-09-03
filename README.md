@@ -259,8 +259,8 @@ in Settings -> General.
 
 The gear in the title bar opens:
 
-- **General** — recent message history on join, the two link-preview switches, and the list of
-  blocked people
+- **General** — recent message history on join, the two link-preview switches, the list of
+  blocked people, and the button that opens the log folder
 - **Accounts** — the accounts you're signed in as, which one new tabs use, permissions, and the
   Client ID
 - **Appearance** — chat font size, timestamps, 7TV badges, italic `/me` actions, whether your
@@ -282,6 +282,17 @@ clicked and the channel you clicked it in; that one only happens when you open a
 is the only one that isn't a service this app chose: a link preview loads from whatever host was
 linked, so hovering tells that host you're here. That's why it waits before fetching, and why
 it has a switch of its own.
+
+## When something goes wrong
+
+The app keeps a log of what it was doing -- channels joined, connections dropped and remade,
+requests that failed, and anything that crashed, with a backtrace. Settings -> General ->
+Diagnostics has a button that opens the folder it lives in; it holds the last few runs and
+rotates itself, so it can't grow without bound.
+
+It's safe to attach to a bug report: no message text and no account tokens ever go in it. If
+you're chasing something specific, starting the app with `CHATWOW_LOG=debug` set turns the
+detail up for that run.
 
 ## Shortcuts
 

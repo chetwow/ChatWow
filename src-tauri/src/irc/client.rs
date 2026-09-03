@@ -38,6 +38,12 @@ const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
 
 fn emit_status(app: &AppHandle, account: &str, state: &str, detail: Option<String>) {
+    // The same line the UI's connection dot gets, written down: a log read
+    // after the fact is mostly the story of which socket was up when.
+    match detail.as_deref() {
+        Some(detail) => log::info!("irc ({account}): {state} -- {detail}"),
+        None => log::info!("irc ({account}): {state}"),
+    }
     let _ = app.emit(
         "chat://status",
         json!({ "account": account, "state": state, "detail": detail }),
@@ -481,14 +487,17 @@ fn handle_line(
             );
 
             if needs_fetch {
-                tauri::async_runtime::spawn(load_channel_assets(
-                    app.clone(),
-                    Arc::clone(state),
-                    sink.clone(),
-                    account.to_string(),
-                    channel,
-                    room_id,
-                ));
+                crate::diagnostics::supervise(
+                    format!("channel assets ({account} in #{channel})"),
+                    load_channel_assets(
+                        app.clone(),
+                        Arc::clone(state),
+                        sink.clone(),
+                        account.to_string(),
+                        channel,
+                        room_id,
+                    ),
+                );
             }
         }
         "CLEARCHAT" => {
@@ -676,13 +685,10 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
     for (account, channels) in wanted {
         let connection = connections.entry(account.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel::<IrcCommand>();
-            tauri::async_runtime::spawn(run(
-                app.clone(),
-                Arc::clone(state),
-                sink.clone(),
-                account.clone(),
-                rx,
-            ));
+            crate::diagnostics::supervise(
+                format!("irc socket ({account})"),
+                run(app.clone(), Arc::clone(state), sink.clone(), account.clone(), rx),
+            );
             Connection { commands: tx, joined: HashSet::new() }
         });
 

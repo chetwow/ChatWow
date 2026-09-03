@@ -62,4 +62,6 @@ export const api = {
   preferences: () => invoke<Preferences>("preferences"),
   setPreferences: (preferences: Preferences) =>
     invoke<Preferences>("set_preferences", { preferences }),
+  /** Reveals the log folder, and resolves with where it is. */
+  openLogDir: () => invoke<string>("open_log_dir"),
 };

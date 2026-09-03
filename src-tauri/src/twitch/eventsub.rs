@@ -219,7 +219,7 @@ async fn run_account(state: Arc<AppState>, sink: MessageSink, account: String) {
                 continue;
             }
             Ok(None) => backoff_secs = 1,
-            Err(error) => eprintln!("whisper socket ({account}): {error}"),
+            Err(error) => log::warn!("whisper socket ({account}): {error}"),
         }
 
         let jitter = rand::thread_rng().gen_range(0..500);
@@ -256,6 +256,10 @@ pub async fn run(state: Arc<AppState>, sink: MessageSink) {
         let running: Vec<_> = wanted
             .into_iter()
             .map(|account| {
+                // Spawned rather than supervised: these handles are aborted
+                // when the accounts change, which `supervise` would then
+                // report as a task ending. The panic hook still writes down
+                // anything that goes wrong inside one.
                 tauri::async_runtime::spawn(run_account(
                     Arc::clone(&state),
                     sink.clone(),

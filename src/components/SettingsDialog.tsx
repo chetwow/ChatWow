@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { api } from "../lib/api";
 import { useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
@@ -280,6 +281,44 @@ function AddButtons({
  * input reddens the box rather than throwing a sentence at you: the placeholder
  * already says the shape, and the only way to get it wrong is a typo.
  */
+/**
+ * Reveals the log folder in the file manager. It reports the path on success
+ * rather than saying nothing: on a machine with nothing registered to open a
+ * folder the reveal is a no-op, and a path you can read is the fallback.
+ */
+function LogFolderButton() {
+  const [path, setPath] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={async () => {
+          try {
+            setPath(await api.openLogDir());
+            setFailed(false);
+          } catch {
+            setFailed(true);
+          }
+        }}
+        className="shrink-0 rounded-md bg-accent/15 px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25"
+      >
+        Show
+      </button>
+      {(path || failed) && (
+        <span
+          className={`selectable max-w-[260px] truncate text-[10px] ${
+            failed ? "text-rose-400" : "text-ink-faint"
+          }`}
+          title={path ?? undefined}
+        >
+          {failed ? "Couldn't open it" : path}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function NameListEditor({
   entries,
   placeholder,
@@ -608,6 +647,14 @@ export function SettingsDialog({
                     onChange={(previewPages) => updatePreferences({ previewPages })}
                     label="Preview other links"
                   />
+                </Row>
+              </Section>
+              <Section title="Diagnostics">
+                <Row
+                  label="Log folder"
+                  hint="What the app was doing before something went wrong, kept across a few runs. No message text, no tokens -- safe to attach to a bug report."
+                >
+                  <LogFolderButton />
                 </Row>
               </Section>
               <Section

@@ -403,7 +403,7 @@ pub async fn run(app: AppHandle, state: Arc<AppState>, sink: MessageSink) {
 
         match connect_once(&app, &state, &sink).await {
             Ok(()) => backoff_secs = 1,
-            Err(error) => eprintln!("7tv event socket: {error}"),
+            Err(error) => log::warn!("7tv event socket: {error}"),
         }
 
         let jitter = rand::thread_rng().gen_range(0..500);

@@ -1,5 +1,6 @@
 mod auth;
 mod color;
+mod diagnostics;
 mod emotes;
 mod irc;
 #[cfg(test)]
@@ -16,6 +17,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::irc::client;
@@ -82,7 +84,7 @@ fn persist(app: &AppHandle, state: &AppState) {
     };
     drop(auth);
     if let Err(error) = settings::save(app, &settings) {
-        eprintln!("failed to save settings: {error}");
+        log::error!("failed to save settings: {error}");
     }
 }
 
@@ -191,11 +193,11 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
             // Worth saying out loud even though nothing changes: a token that
             // keeps failing to renew is the shape of the bug this poller was
             // written for, and silence is how it went unnoticed the first time.
-            eprintln!("couldn't renew {}'s token, will retry: {reason}", account.login);
+            log::warn!("couldn't renew {}'s token, will retry: {reason}", account.login);
             return TokenCheck::Unchanged;
         }
         auth::RefreshOutcome::Rejected(reason) => {
-            eprintln!("signing {} out -- Twitch rejected the refresh: {reason}", account.login);
+            log::warn!("signing {} out -- Twitch rejected the refresh: {reason}", account.login);
             let mut auth_state = state.auth.write();
             auth_state.accounts.retain(|a| a.id != account.id);
             if auth_state.default_account == account.id {
@@ -362,7 +364,7 @@ fn set_preferences(
     if before != after {
         let shared = Arc::clone(&state);
         let handle = app.clone();
-        tauri::async_runtime::spawn(client::reload_emotes(handle, shared));
+        diagnostics::supervise("emote reload", client::reload_emotes(handle, shared));
     }
 
     // Badges are resolved as people talk, and everyone already asked about is
@@ -374,6 +376,25 @@ fn set_preferences(
     }
 
     state.preferences.read().clone()
+}
+
+/// Show the log folder, and say where it is.
+///
+/// The path is returned as well as opened: on a machine where nothing is
+/// registered to handle a folder the open fails, and a path the user can copy
+/// is a better answer than an error. See `diagnostics` for what's in there.
+#[tauri::command]
+fn open_log_dir(app: AppHandle) -> Result<String, String> {
+    let dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    // The folder isn't made until the first line is written, and on a run
+    // that hasn't logged anything yet an open would simply fail.
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+
+    let path = dir.to_string_lossy().into_owned();
+    if let Err(error) = app.opener().open_path(path.clone(), None::<&str>) {
+        log::warn!("couldn't open the log folder: {error}");
+    }
+    Ok(path)
 }
 
 /// Drop the signed-in session and everything that came with it. Badges are
@@ -638,7 +659,7 @@ async fn link_preview(
         match emotes::seventv_links::preview(&state.http, &id).await {
             Ok(Some(preview)) => return Ok(Some(preview)),
             Ok(None) => {}
-            Err(error) => eprintln!("link preview: 7TV failed ({error}); reading the page"),
+            Err(error) => log::debug!("link preview: 7TV failed ({error}); reading the page"),
         }
     }
 
@@ -653,7 +674,7 @@ async fn link_preview(
             match twitch::links::preview(&helix, &link).await {
                 Ok(Some(preview)) => return Ok(Some(preview)),
                 Ok(None) => {}
-                Err(error) => eprintln!("link preview: Helix failed ({error}); reading the page"),
+                Err(error) => log::debug!("link preview: Helix failed ({error}); reading the page"),
             }
         }
     }
@@ -756,7 +777,7 @@ async fn poll_device_auth(
             // Badges need a token, so refetch everything; sockets belonging to
             // this account (a re-sign-in) need to log in again with the new one.
             let shared: Shared = Arc::clone(&state);
-            tauri::async_runtime::spawn(client::load_global_assets(app.clone(), shared));
+            diagnostics::supervise("global assets", client::load_global_assets(app.clone(), shared));
             state.send(&validation.user_id, state::IrcCommand::Reconnect);
             // We can ask about live status now that there's a token, and the
             // whisper socket has one to subscribe with.
@@ -1170,7 +1191,11 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        // First, so that anything the others have to say on the way up
+        // has somewhere to land.
+        .plugin(diagnostics::plugin());
     // Only macOS gets one: Tauri leaves every other platform menu-less, where
     // the keystrokes reach the page on their own.
     #[cfg(target_os = "macos")]
@@ -1191,7 +1216,7 @@ pub fn run() {
                         .header("Cache-Control", "max-age=31536000, immutable")
                         .body(bytes),
                     Err(error) => {
-                        eprintln!("emote cache: {key}: {error}");
+                        log::debug!("emote cache: {key}: {error}");
                         tauri::http::Response::builder().status(404).body(Vec::new())
                     }
                 };
@@ -1232,37 +1257,45 @@ pub fn run() {
                 *shared.tabs.write() = tabs;
             }
 
+            // After the plugin above, which is what these write into.
+            diagnostics::install_panic_hook();
+            diagnostics::log_launch();
+
             // 7TV answers "who has which badge" one user at a time, so chatters
             // queue here and go out in batches.
             let (badge_tx, badge_rx) = mpsc::unbounded_channel::<String>();
             *shared.badge_lookups.write() = Some(badge_tx);
-            tauri::async_runtime::spawn(emotes::seventv_badges::run(
-                handle.clone(),
-                Arc::clone(&shared),
-                badge_rx,
-            ));
+            diagnostics::supervise(
+                "7tv badge resolver",
+                emotes::seventv_badges::run(handle.clone(), Arc::clone(&shared), badge_rx),
+            );
 
             let sink = client::spawn_emitter(handle.clone());
             *shared.sink.write() = Some(sink.clone());
 
-            tauri::async_runtime::spawn(restore_session(handle.clone(), Arc::clone(&shared)));
-            tauri::async_runtime::spawn(poll_live(handle.clone(), Arc::clone(&shared)));
+            diagnostics::supervise(
+                "session restore",
+                restore_session(handle.clone(), Arc::clone(&shared)),
+            );
+            diagnostics::supervise("live poll", poll_live(handle.clone(), Arc::clone(&shared)));
             // Tokens outlive neither the app nor a long session on their own.
-            tauri::async_runtime::spawn(poll_tokens(handle.clone(), Arc::clone(&shared)));
+            diagnostics::supervise(
+                "token poll",
+                poll_tokens(handle.clone(), Arc::clone(&shared)),
+            );
             // Whispers arrive on their own socket -- Twitch doesn't send them
             // over IRC -- but through the same sink, so they batch with chat.
             // One per signed-in account, since a whisper is addressed to one.
-            tauri::async_runtime::spawn(twitch::eventsub::run(
-                Arc::clone(&shared),
-                sink.clone(),
-            ));
+            diagnostics::supervise(
+                "whisper sockets",
+                twitch::eventsub::run(Arc::clone(&shared), sink.clone()),
+            );
             // 7TV pushes a channel's emote set changing, on one socket for the
             // whole app -- a subscription names a set, not an account.
-            tauri::async_runtime::spawn(emotes::seventv_events::run(
-                handle.clone(),
-                Arc::clone(&shared),
-                sink,
-            ));
+            diagnostics::supervise(
+                "7tv event socket",
+                emotes::seventv_events::run(handle.clone(), Arc::clone(&shared), sink),
+            );
             // The restored tabs decide which sockets to open, and as whom.
             client::sync(&handle, &shared);
 
@@ -1292,11 +1325,22 @@ pub fn run() {
             send_message,
             preferences,
             set_preferences,
+            open_log_dir,
             emote_index,
             record_emote_uses,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // Built and then run, rather than `run(context)`, only so that a
+        // clean exit can say so. It's the difference between a log that ends
+        // because the app was closed and one that ends because the app was
+        // killed -- a terminal window shutting under `tauri dev` takes the
+        // whole process group with it, and leaves no other trace at all.
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                log::info!("shutting down");
+            }
+        });
 }
 
 #[cfg(test)]
