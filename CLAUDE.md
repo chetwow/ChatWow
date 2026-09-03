@@ -404,6 +404,13 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   `deb` and `rpm` stay: they build, they just can't self-update, which `updater::can_install`
   detects from the `APPIMAGE` env var. Don't let that guard go -- the plugin's Linux path doesn't
   check what it's running as, and would unpack an AppImage over a packaged binary.
+- **macOS can't self-update until the app is signed, and that's the one line to change when it
+  is.** `updater::can_install` returns false there because replacing an *unsigned* bundle in
+  place is what makes macOS call the app damaged and refuse to open it -- a worse outcome than
+  no update. Ad-hoc signing doesn't clear it. Remove the `#[cfg(target_os = "macos")]` arm only
+  once a Developer ID Application certificate and notarization are actually in the release
+  workflow (`APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID` and friends), not before.
+  Where `can_install` is false the check still runs and the button opens the releases page.
 - **Don't re-parallelize the release matrix.** `tauri-action` builds `latest.json` by downloading
   the copy on the release, merging its own platform in and re-uploading it, so two jobs finishing
   together lose one platform's entry -- silently, and only that platform then stops seeing

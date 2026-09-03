@@ -301,17 +301,23 @@ release, and if there is, a dot appears on the settings cog. It stays there unti
 something about it -- nothing pops up, and nothing is downloaded until you ask for it.
 
 Settings -> General -> Updates has the version you're on and a button. Press it and the new
-version is fetched and checked against a key built into the app, so a download that isn't
-the real thing won't install. On Windows the app closes and comes back on its own once it's
-done. On macOS and Linux the button turns into *Restart* when it's ready, and waits for you.
+version is fetched and checked against a key built into the app, so a download that isn't the
+real thing won't install. On Windows the app closes and comes back on its own once it's done;
+on the Linux AppImage the button turns into *Restart* when it's ready, and waits for you.
 
 The first switch on that page turns off the check on launch. The button still works; nothing
 else changes. It's the only thing this app asks github.com.
 
-Two things to know. If you installed the `.deb` or `.rpm`, the app will still tell you a new
-version is out, but the button is greyed out -- replacing those is your package manager's job,
-not the app's. And a version older than 0.6.0 has none of this, so that one has to be
-installed by hand.
+**Not every build can replace itself.** On macOS, and if you installed the `.deb` or `.rpm`,
+the app still tells you when a new version is out -- the button just says *Get it* and opens
+the download page instead of doing it for you.
+
+macOS is temporary and it's about signing. Swapping an app bundle that Apple hasn't signed is
+what makes macOS decide the app is damaged and refuse to open it, which is a worse outcome
+than an honest link. It'll do it properly once ChatWow is signed and notarized. The `.deb` and
+`.rpm` are permanent -- those belong to your package manager, not to this app.
+
+One more: a version older than 0.6.0 has none of this, so that one has to be installed by hand.
 
 ## When something goes wrong
 

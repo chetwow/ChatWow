@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
+import { IS_TAURI } from "../lib/tauri";
 import { useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
@@ -320,6 +322,13 @@ function LogFolderButton() {
 }
 
 /**
+ * Where to send someone whose build can't update itself. The same repo the
+ * updater endpoint in `tauri.conf.json` points at -- this is the page a person
+ * reads, that one is the file the app reads.
+ */
+const RELEASES_URL = "https://github.com/chetwow/ChatWow/releases/latest";
+
+/**
  * The version, and the one button the whole update flow needs.
  *
  * Same shape as `LogFolderButton` above -- a pill and a line under it -- since
@@ -355,11 +364,15 @@ function UpdateButton() {
       case "upToDate":
         return [checkForUpdate, `${update.currentVersion} -- up to date`];
       case "available":
-        // A `.deb` or `.rpm` install: the version is worth knowing, but
-        // replacing it is the package manager's job, not this button's.
-        return update.canInstall
-          ? [installUpdate, `${update.version} is available`]
-          : [null, `${update.version} is available -- update your package`];
+        // A build that can't replace itself -- macOS until it's signed, or a
+        // `.deb`/`.rpm`. The version is still worth knowing, so the button
+        // points at the page to get it from rather than going dead.
+        return [
+          update.canInstall
+            ? installUpdate
+            : () => void (IS_TAURI ? openUrl(RELEASES_URL) : window.open(RELEASES_URL)),
+          `${update.version} is available`,
+        ];
       case "downloading":
         return [null, percent === null ? "Downloading..." : `Downloading... ${percent}%`];
       case "ready":
@@ -372,7 +385,13 @@ function UpdateButton() {
   })();
 
   const label =
-    update.stage === "available" ? "Install" : update.stage === "ready" ? "Restart" : "Check";
+    update.stage === "available"
+      ? update.canInstall
+        ? "Install"
+        : "Get it"
+      : update.stage === "ready"
+        ? "Restart"
+        : "Check";
 
   return (
     <div className="flex flex-col items-end gap-1">

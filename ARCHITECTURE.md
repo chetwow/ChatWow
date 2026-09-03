@@ -879,9 +879,20 @@ which is the only Linux format the bundler will make an updater artifact for. Dr
 that platform's updates disappear without any error. `deb` and `rpm` still build and still
 can't update -- and the plugin's Linux path doesn't check what it's running as, so handed the
 AppImage while installed from a `.deb` it would rename the packaged binary out of the way and
-unpack over it. Hence `can_install`, which gates on the `APPIMAGE` environment variable the
-AppImage runtime sets. The check still runs there: knowing a version exists is useful even when
-the button can't be what fetches it.
+unpack over it.
+
+That's one of the two things `can_install` gates. The other is **macOS, until the app is
+signed**. Replacing an unsigned bundle in place is what produces "ChatWow is damaged and can't
+be opened" on the next launch -- the failure is well attested against Tauri, nothing in the
+plugin is at fault, and no amount of care on this side avoids it. Ad-hoc signing
+(`signingIdentity: "-"`) isn't enough either; Tauri's own docs say so. The fix is a Developer ID
+Application certificate and notarization, at which point the `#[cfg(target_os = "macos")]` arm
+comes out and nothing else has to change. It's deliberately a runtime gate rather than a build
+flag, so the one place that decides is the one place to edit.
+
+The check still runs wherever `can_install` is false: knowing a version exists is useful even
+when the button can't be what fetches it, so it opens the releases page instead of going dead.
+That's the whole difference in the UI -- the button says *Get it* rather than *Install*.
 
 **The release matrix is serialized on purpose.** `tauri-action` builds `latest.json` by
 downloading the copy already on the release, merging its own platform in, and re-uploading it.

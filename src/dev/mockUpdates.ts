@@ -10,7 +10,8 @@
  * in a production bundle.
  *
  * `?update=fail` and `?update=uptodate` reach the two stages you can't get to
- * by pressing the buttons in order.
+ * by pressing the buttons in order, and `?update=manual` is the build that
+ * can't replace itself -- macOS until it's signed, or a `.deb`/`.rpm`.
  */
 import type { UpdateState } from "../types";
 
@@ -57,6 +58,7 @@ export async function mockCheck(): Promise<UpdateState> {
   }
   return {
     ...resting("available"),
+    canInstall: mode() !== "manual",
     version: MOCK_NEXT,
     notes: "- Emote combos stack again\n- Fixed the tab bar flickering on hover",
   };

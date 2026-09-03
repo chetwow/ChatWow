@@ -123,22 +123,35 @@ impl Updates {
 
 /// Whether this build can put an update in place itself.
 ///
-/// Only the AppImage can, on Linux. `latest.json` carries one Linux entry and
+/// The check is still worth running where this is false: knowing a new version
+/// exists is useful even when the button can't be the thing that fetches it --
+/// it sends you to the releases page instead.
+///
+/// **macOS: not until the app is signed.** Replacing an unsigned bundle in
+/// place is what produces "ChatWow is damaged and can't be opened" on the next
+/// launch, which is a worse thing to hand somebody than no update at all.
+/// Nothing in the plugin is at fault and nothing here can work around it --
+/// the fix is a Developer ID certificate and notarization, and this comes off
+/// the moment those exist. Tauri's own docs say ad-hoc signing
+/// (`signingIdentity: "-"`) isn't enough.
+///
+/// **Linux: only the AppImage.** `latest.json` carries one Linux entry and
 /// it's the AppImage, and the plugin's Linux path doesn't check what it's
 /// running as -- handed the AppImage while installed from a `.deb` it would
 /// rename the packaged binary out of the way and unpack over it. That
 /// generally fails on permissions rather than succeeding, but "generally" is
 /// not a thing to leave to chance with somebody's `/usr/bin`. `APPIMAGE` is
 /// set by the AppImage runtime and by nothing else.
-///
-/// The check is still worth running where this is false: knowing a new version
-/// exists is useful even when the button can't be the thing that fetches it.
 fn can_install() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        false
+    }
     #[cfg(target_os = "linux")]
     {
         std::env::var_os("APPIMAGE").is_some()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         true
     }
@@ -199,7 +212,7 @@ pub async fn check(app: AppHandle, shared: Arc<AppState>) -> UpdateState {
 /// exits underneath us.
 pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String> {
     if !can_install() {
-        return Err("This install is managed by your package manager".to_string());
+        return Err("This build can't replace itself".to_string());
     }
     let update = match shared.updates.pending.lock().await.take() {
         Some(update) => update,
