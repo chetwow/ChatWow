@@ -125,5 +125,11 @@ jobs:
             Nothing here is code-signed yet, so both Windows and macOS will want
             convincing on first launch.
           releaseDraft: true
-          prerelease: false
+          # A tag with a hyphen in it is a semver prerelease -- v0.6.0-rc.1 and
+          # friends. That has to reach GitHub as an actual prerelease, because
+          # `releases/latest` skips those and `releases/latest/download/latest.json`
+          # is what every installed copy reads: publishing an rc as an ordinary
+          # release would hand it to everyone. Rehearsing an update against one
+          # is the whole reason CHATWOW_UPDATE_ENDPOINT exists.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
