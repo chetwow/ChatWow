@@ -8,6 +8,7 @@ import type {
   Preferences,
   Tab,
   TabAvatarMode,
+  UpdateState,
   UserCard,
 } from "../types";
 
@@ -64,4 +65,9 @@ export const api = {
     invoke<Preferences>("set_preferences", { preferences }),
   /** Reveals the log folder, and resolves with where it is. */
   openLogDir: () => invoke<string>("open_log_dir"),
+
+  updateState: () => invoke<UpdateState>("update_state"),
+  checkForUpdates: () => invoke<UpdateState>("check_for_updates"),
+  installUpdate: () => invoke<void>("install_update"),
+  restartApp: () => invoke<void>("restart_app"),
 };

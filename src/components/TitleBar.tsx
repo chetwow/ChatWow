@@ -160,6 +160,15 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
   // One socket per account, so the dot shows the worst of them.
   const connection = useChat(connectionState);
   const auth = useChat((state) => state.auth);
+  // A newer release, being fetched, or waiting to be restarted into -- all
+  // three are "there is something to do in settings", which is all the dot
+  // says. It stays until acted on, which a chat notice wouldn't.
+  const updatePending = useChat(
+    (state) =>
+      state.update.stage === "available" ||
+      state.update.stage === "downloading" ||
+      state.update.stage === "ready",
+  );
 
   return (
     <div
@@ -188,9 +197,9 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
 
       <button
         onClick={() => onOpenSettings("general")}
-        aria-label="Settings"
-        title="Settings"
-        className="mr-1 grid h-6 w-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+        aria-label={updatePending ? "Settings -- an update is waiting" : "Settings"}
+        title={updatePending ? "An update is waiting" : "Settings"}
+        className="relative mr-1 grid h-6 w-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
       >
         {/* A cog, not a sun: the teeth are a heavy dashed ring around the
             body circle, which reads as a gear at 13px without hand-plotting
@@ -200,6 +209,12 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
           <circle cx="8" cy="8" r="4.15" strokeWidth="1.3" />
           <circle cx="8" cy="8" r="1.75" strokeWidth="1.3" />
         </svg>
+        {/* Absolutely positioned inside the button's own fixed 6x6 box: the
+            dot must never change what the row measures, the way the tab bar's
+            hover affordances mustn't. */}
+        {updatePending && (
+          <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-accent" />
+        )}
       </button>
 
       <button

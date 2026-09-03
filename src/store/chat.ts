@@ -21,6 +21,7 @@ import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
   Badge,
+  UpdateState,
   ChannelRole,
   RoleEvent,
   EmoteRule,
@@ -58,6 +59,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notifyOnName: true,
   notifyActiveTab: false,
   showMessageHistory: true,
+  checkForUpdates: true,
   enableSeventv: true,
   enableBttv: true,
   enableFfz: true,
@@ -79,6 +81,21 @@ export const DEFAULT_PREFERENCES: Preferences = {
   muted: false,
   emoteBlacklist: [],
   emoteCompleteBlacklist: [],
+};
+
+/**
+ * Before anything has been asked. `currentVersion` is filled in by the first
+ * `refreshUpdate`, since only the backend knows what build this is.
+ */
+const IDLE_UPDATE: UpdateState = {
+  stage: "idle",
+  currentVersion: "",
+  version: null,
+  notes: null,
+  downloaded: 0,
+  total: null,
+  error: null,
+  canInstall: true,
 };
 
 /** Which of the two blacklists an operation is about -- keyed by its own preference field. */
@@ -279,6 +296,12 @@ type ChatState = {
   chatters: Record<string, Chatters>;
   /** Everything the settings dialog edits, as stored in `settings.json`. */
   preferences: Preferences;
+  /**
+   * Whether a newer release is out, and how far a download has got. A whole
+   * snapshot rather than a flag, because the settings dialog can be opened
+   * mid-download and has to find what the events have already painted.
+   */
+  update: UpdateState;
   /** Whether each tab's own join has finished loading. */
   ready: Record<string, boolean>;
   /**
@@ -390,6 +413,14 @@ type ChatState = {
   /** Add or drop a login on the blocked list. */
   setUserBlocked: (login: string, blocked: boolean) => void;
   toggleMuted: () => void;
+  /** Re-read where the update machinery got to. Called when settings opens. */
+  refreshUpdate: () => Promise<void>;
+  /** Ask GitHub whether there's something newer. Downloads nothing. */
+  checkForUpdate: () => Promise<void>;
+  /** Fetch the update the last check found and put it in place. */
+  installUpdate: () => Promise<void>;
+  /** Restart into the version just installed. */
+  restartForUpdate: () => Promise<void>;
   ingest: (batch: ChatMessage[]) => void;
   clear: (event: ClearEvent) => void;
   bootstrap: () => Promise<void>;
@@ -551,6 +582,7 @@ export const useChat = create<ChatState>((set) => ({
   mentions: {},
   chatters: {},
   preferences: DEFAULT_PREFERENCES,
+  update: IDLE_UPDATE,
   ready: {},
   live: {},
   channelAvatars: {},
@@ -892,6 +924,44 @@ export const useChat = create<ChatState>((set) => ({
   toggleMuted: () =>
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
 
+  refreshUpdate: async () => {
+    const update = IS_TAURI
+      ? await api.updateState()
+      : await import("../dev/mockUpdates").then((mock) => mock.mockUpdateState());
+    // Only the resting stages: a `refreshUpdate` racing a download in mock
+    // mode would otherwise snap the bar back to nothing.
+    set((state) => (state.update.stage === "downloading" ? {} : { update }));
+  },
+
+  checkForUpdate: async () => {
+    set((state) => ({ update: { ...state.update, stage: "checking", error: null } }));
+    const update = IS_TAURI
+      ? await api.checkForUpdates()
+      : await import("../dev/mockUpdates").then((mock) => mock.mockCheck());
+    set({ update });
+  },
+
+  installUpdate: async () => {
+    if (!IS_TAURI) {
+      const { mockInstall } = await import("../dev/mockUpdates");
+      await mockInstall((update) => set({ update }));
+      return;
+    }
+    // Rust drives the states from here: progress rides `update://state`, and
+    // on Windows this call never comes back at all -- the installer takes the
+    // process with it. A rejection has already been rendered as `failed`.
+    await api.installUpdate().catch(() => {});
+  },
+
+  restartForUpdate: async () => {
+    if (!IS_TAURI) {
+      console.info("mock: restarting");
+      set({ update: IDLE_UPDATE });
+      return;
+    }
+    await api.restartApp();
+  },
+
   ingest: (batch) => {
     if (batch.length === 0) return;
 
@@ -1080,6 +1150,7 @@ export const useChat = create<ChatState>((set) => ({
         mockSevenTvBadges,
         MOCK_CHANNEL_AVATARS,
       } = await import("../dev/mockData");
+      const { mockUpdateState } = await import("../dev/mockUpdates");
       const preferences = readMockPreferences();
       const tabs = mockTabs();
       set({
@@ -1096,23 +1167,26 @@ export const useChat = create<ChatState>((set) => ({
         globalEmotes: 45,
         seventvBadges: mockSevenTvBadges(),
         preferences,
+        update: mockUpdateState(),
       });
       useChat.getState().ingest(buildInitialMessages(tabs));
       return;
     }
 
-    const [tabs, auth, preferences, channelAvatars, live] = await Promise.all([
+    const [tabs, auth, preferences, channelAvatars, live, update] = await Promise.all([
       api.listTabs(),
       api.authStatus(),
       api.preferences(),
       api.channelAvatars(),
       api.liveChannels(),
+      api.updateState(),
     ]);
     const settings = normalize(preferences);
     set((state) => ({
       tabs,
       auth,
       preferences: settings,
+      update,
       channelAvatars,
       live: Object.fromEntries(live.map((login) => [login, true])),
       // Each pane opens on its own first tab.
@@ -1234,6 +1308,11 @@ export async function subscribeToBackend(): Promise<() => void> {
     }),
     // The whole map every time, not a delta: it only grows, and it's one
     // short string per open channel.
+    // Not a `chat://` event: this one is about the app, not a channel. Rust
+    // drives every stage, so the store only ever mirrors what it's told.
+    listen<UpdateState>("update://state", (event) => {
+      useChat.setState({ update: event.payload });
+    }),
     listen<Record<string, string>>("chat://channel-avatars", (event) => {
       useChat.setState({ channelAvatars: event.payload });
     }),

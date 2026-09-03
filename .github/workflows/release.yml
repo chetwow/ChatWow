@@ -1,9 +1,16 @@
 # Builds the installers on real machines of each kind and attaches them to a
 # draft GitHub release.
 #
-# Windows is why this exists: a .msi can only be produced on Windows (the WiX
-# toolset runs nowhere else), and Tauri treats cross-compiling the NSIS .exe
-# from macOS as a last resort it doesn't test. A Windows runner sidesteps both.
+# Windows is why this exists: Tauri treats cross-compiling the NSIS installer
+# from macOS as a last resort it doesn't test, and a Windows runner sidesteps
+# the question.
+#
+# This is also what makes the app able to update itself. Each job signs its
+# installers with the minisign key in TAURI_SIGNING_PRIVATE_KEY and merges its
+# platform into a `latest.json` on the release; `plugins.updater` in
+# tauri.conf.json points every installed copy at that file. Publishing the
+# draft is therefore the act of shipping the update -- a draft's assets 404 for
+# everyone without push access, `releases/latest` included.
 #
 # Run it from the Actions tab, or by pushing a tag:
 #
@@ -25,6 +32,13 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # One platform at a time, deliberately. tauri-action builds `latest.json`
+      # by downloading the copy already on the release, merging this platform
+      # in, and re-uploading it. Two jobs finishing together lose one
+      # platform's entry -- silently, and only that platform then never sees
+      # another update. Four sequential builds a few times a year is the
+      # cheaper side of that trade.
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest
@@ -65,6 +79,22 @@ jobs:
 
       - run: npm ci
 
+      # A release built without a real key is one nothing can ever update to,
+      # and the damage is only visible months later when the next version goes
+      # unnoticed. Both halves are checked: the public key is committed, the
+      # private one has to arrive as a secret.
+      - name: Check the updater is signable
+        shell: bash
+        run: |
+          if grep -q 'REPLACE_ME' src-tauri/tauri.conf.json; then
+            echo "::error::plugins.updater.pubkey is still the placeholder. Run 'npm run tauri signer generate' and commit the public key."
+            exit 1
+          fi
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. Without it the bundles get no signature and no latest.json is uploaded."
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,15 +102,25 @@ jobs:
           # this. Unset, it arrives empty and build.rs falls back to the
           # committed Client ID, which is the one this app ships with.
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          # Not optional, unlike the one above. This isn't Apple's or
+          # Microsoft's code signing -- it's the key an installed copy checks a
+          # download against before it replaces itself. Unset, the bundles get
+          # no `.sig`, tauri-action skips `latest.json` without failing, and
+          # the release ships that nothing can update to.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: ChatWow v__VERSION__
           releaseBody: |
             Download the installer for your platform below.
 
-            - **Windows** — `.msi`, or `-setup.exe` if you'd rather have the NSIS installer
+            - **Windows** — `-setup.exe`
             - **macOS** — `aarch64.dmg` for Apple Silicon, `x64.dmg` for Intel
             - **Linux** — `.AppImage`, `.deb` or `.rpm`
+
+            ChatWow updates itself from here — Settings → General → Updates.
+            The `.deb` and `.rpm` are the exception: replace those by hand.
 
             Nothing here is code-signed yet, so both Windows and macOS will want
             convincing on first launch.

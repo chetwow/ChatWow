@@ -208,6 +208,11 @@ export type Preferences = {
   notifyActiveTab: boolean;
   /** Load a channel's recent messages when you join it. */
   showMessageHistory: boolean;
+  /**
+   * Ask GitHub for a newer release a moment after launch. Nothing is
+   * downloaded until it's asked for either way.
+   */
+  checkForUpdates: boolean;
   /** Third-party emote providers, each on by default. */
   enableSeventv: boolean;
   enableBttv: boolean;
@@ -398,4 +403,39 @@ export type ChannelReadyEvent = {
 export type EmoteSetEvent = {
   channel: string;
   emoteCount: number;
+};
+
+/**
+ * Where the update machinery has got to. `ready` never happens on Windows --
+ * the installer takes the process with it and puts the app back up itself.
+ */
+export type UpdateStage =
+  | "idle"
+  | "checking"
+  | "upToDate"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "failed";
+
+/** Hand-mirrored from `updater::UpdateState`. */
+export type UpdateState = {
+  stage: UpdateStage;
+  /** This build. The only place the frontend learns what version it is. */
+  currentVersion: string;
+  /** The newer version, once one is known. */
+  version: string | null;
+  /** The release notes, as they were written on the release. */
+  notes: string | null;
+  downloaded: number;
+  /** `null` when the download had no declared length, so it has no percentage. */
+  total: number | null;
+  /** One short line. The detail is in the log. */
+  error: string | null;
+  /**
+   * Whether this build can replace itself. False for a `.deb` or `.rpm`
+   * install, where the new version is real but applying it belongs to the
+   * package manager.
+   */
+  canInstall: boolean;
 };

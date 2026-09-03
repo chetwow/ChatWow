@@ -28,13 +28,18 @@ cd src-tauri && cargo test -- --ignored --nocapture   # + livecheck.rs, hits rea
 TWITCH_CLIENT_ID=xxx npm run tauri build    # build against a different Twitch app
 CHATWOW_LOG=debug npm run tauri dev  # turn the log up for one run (see diagnostics.rs)
 python3 scripts/generate-emoji.py   # regenerate src/lib/emoji.json (don't hand-edit it)
+python3 scripts/bump-version.py 0.6.0   # set the version in all five files at once
 git tag v0.3.0 && git push origin v0.3.0    # build installers (see .github/workflows/release.yml)
+CHATWOW_UPDATE_ENDPOINT=https://.../latest.json npm run tauri dev  # rehearse an update
 ```
 
-The version lives in four files that have to agree: `package.json`, `package-lock.json`,
-`src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. The tag push is what builds the Windows,
-macOS and Linux installers -- on their own runners, since a `.msi` can only be made on Windows --
-and they land on a *draft* release, published by hand.
+The version lives in five files that have to agree: `package.json`, `package-lock.json` (in two
+places), `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.lock`. Use the
+bump script rather than doing it by hand -- a mismatch isn't cosmetic any more, since the tag
+comes from `tauri.conf.json` while the version the updater compares against is Cargo's. The tag
+push is what builds the Windows, macOS and Linux installers -- on their own runners, since Tauri
+doesn't test cross-compiling NSIS -- and they land on a *draft* release, published by hand.
+Publishing that draft is what ships the update to everyone: see the updater bullets below.
 
 Launch the desktop app only through `npm run tauri dev`. Running the built debug binary
 directly (`src-tauri/target/debug/chatwow`) opens a window that never loads the frontend --
@@ -62,6 +67,10 @@ a second identity they must not match, so a mention landing in the wrong tab is 
 signing in to Twitch. The accounts hold different scopes, so the command picker's locked rows are
 exercisable too. Preferences fall back to `localStorage` there, since there's no backend to write
 `settings.json`.
+
+The update flow has its own fake ([src/dev/mockUpdates.ts](src/dev/mockUpdates.ts)), behind the
+same dynamic import: pressing the button walks idle -> available -> downloading -> ready, and
+`?update=fail` or `?update=uptodate` reaches the two stages that walk can't.
 
 ## Non-obvious constraints (read before touching related code)
 
@@ -381,6 +390,33 @@ exercisable too. Preferences fall back to `localStorage` there, since there's no
   every time a message lands, so the title bar's split menu was shut before it could be read.
   Hence `closeOnScroll` ([src/components/ContextMenu.tsx](src/components/ContextMenu.tsx)); pass
   it `false` for anything anchored to a control rather than to content.
+- **The minisign private key is the one unrecoverable thing in this project.** It lives in the
+  `TAURI_SIGNING_PRIVATE_KEY` repo secret and nowhere in the tree. Every installed copy only
+  accepts a download signed with it, and there is no way to hand them a different key -- losing
+  it orphans every install permanently, and the only remedy is telling everyone to reinstall by
+  hand. It is not Apple's or Microsoft's code signing, which this app still doesn't have; the
+  updater verifies with minisign alone and never consults Gatekeeper.
+- **`bundle.targets` must keep `app` and `appimage`, and must not regain `msi`.** The macOS
+  updater artifact is built from the `.app` rather than the `.dmg`, and AppImage is the only
+  Linux format the bundler makes one for -- drop either and that platform's updates vanish with
+  no error anywhere. `msi` is out because Tauri's NSIS template force-uninstalls a WiX install
+  with no choice offered, which is what made Windows upgrades ask users to uninstall first.
+  `deb` and `rpm` stay: they build, they just can't self-update, which `updater::can_install`
+  detects from the `APPIMAGE` env var. Don't let that guard go -- the plugin's Linux path doesn't
+  check what it's running as, and would unpack an AppImage over a packaged binary.
+- **Don't re-parallelize the release matrix.** `tauri-action` builds `latest.json` by downloading
+  the copy on the release, merging its own platform in and re-uploading it, so two jobs finishing
+  together lose one platform's entry -- silently, and only that platform then stops seeing
+  updates. `max-parallel: 1` in [.github/workflows/release.yml](.github/workflows/release.yml) is
+  load-bearing. Check the file before publishing a draft; a missing key means the race bit, and
+  no `latest.json` at all means the signing secret never reached the runner.
+- **The update check is the only thing this app asks github.com**, and it's the only host here
+  besides Twitch, 7TV, BTTV, FFZ, ivr.fi and robotty -- which is why it has a preference of its
+  own (`check_for_updates`) rather than being unconditional. It never downloads; that waits to be
+  asked. Everything about it lives in Rust ([src-tauri/src/updater.rs](src-tauri/src/updater.rs)),
+  deliberately: granting `updater:default` would let the webview download and execute code in an
+  app that renders arbitrary chat under `csp: null`, and nothing about an update depends on which
+  login is reading. `capabilities/default.json` should stay untouched.
 - **A tab's rendered width must never change on hover** ([src/components/TabBar.tsx](src/components/TabBar.tsx)).
   The tab bar computes its own row-wrap breaks in JS (measuring each tab, reserving room for the
   add-channel button) and re-runs that via a `ResizeObserver` on real size changes. If hovering a

@@ -10,6 +10,7 @@ mod settings;
 mod state;
 mod twitch;
 mod linkinfo;
+mod updater;
 mod usercard;
 
 use std::collections::{HashMap, HashSet};
@@ -395,6 +396,43 @@ fn open_log_dir(app: AppHandle) -> Result<String, String> {
         log::warn!("couldn't open the log folder: {error}");
     }
     Ok(path)
+}
+
+/// What the update machinery is currently doing, and what version this is.
+///
+/// Read when the settings dialog mounts: the launch check may have finished
+/// long before anyone opened it, and a download may be running right now.
+/// Everything after this arrives on `update://state`.
+#[tauri::command]
+fn update_state(state: State<'_, Shared>) -> updater::UpdateState {
+    updater::snapshot(&state)
+}
+
+/// Ask GitHub whether there's something newer. Nothing is downloaded here.
+#[tauri::command]
+async fn check_for_updates(
+    app: AppHandle,
+    state: State<'_, Shared>,
+) -> Result<updater::UpdateState, String> {
+    Ok(updater::check(app, Arc::clone(&state)).await)
+}
+
+/// Fetch the update found by the last check and put it in place.
+///
+/// On Windows this doesn't return -- the installer takes over and the process
+/// exits. Elsewhere it leaves the app waiting to be restarted.
+#[tauri::command]
+async fn install_update(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    updater::install(app, Arc::clone(&state)).await
+}
+
+/// Restart into the version just installed. `request_restart` rather than
+/// `restart` so the exit runs the way a close does, and this call can answer
+/// before the process goes.
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    log::info!("restarting to finish an update");
+    app.request_restart();
 }
 
 /// Drop the signed-in session and everything that came with it. Badges are
@@ -1193,6 +1231,7 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // First, so that anything the others have to say on the way up
         // has somewhere to land.
         .plugin(diagnostics::plugin());
@@ -1299,6 +1338,15 @@ pub fn run() {
             // The restored tabs decide which sockets to open, and as whom.
             client::sync(&handle, &shared);
 
+            // Whether there's a newer release. Last, and after a pause of its
+            // own, because it's the only thing here nobody is waiting for.
+            if shared.preferences.read().check_for_updates {
+                diagnostics::supervise(
+                    "update check",
+                    updater::check_at_launch(handle.clone(), Arc::clone(&shared)),
+                );
+            }
+
             app.manage(shared);
             Ok(())
         })
@@ -1326,6 +1374,10 @@ pub fn run() {
             preferences,
             set_preferences,
             open_log_dir,
+            update_state,
+            check_for_updates,
+            install_update,
+            restart_app,
             emote_index,
             record_emote_uses,
         ])

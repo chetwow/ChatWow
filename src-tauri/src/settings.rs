@@ -111,6 +111,12 @@ pub struct Preferences {
     /// the one thing that talks to a third party, which is why it's a setting
     /// -- see `irc::history`.
     pub show_message_history: bool,
+    /// Ask GitHub whether there's a newer release, once, a moment after
+    /// launch. On by default: an unsigned app has no other way to say it's out
+    /// of date. Off means the check only happens when you press the button in
+    /// settings -- nothing is ever downloaded without being asked for either
+    /// way. This is the only request the app makes to github.com.
+    pub check_for_updates: bool,
     /// Third-party emote providers, each on by default. Off means we never
     /// ask that service for anything -- the emotes simply aren't there, and
     /// the ones already on screen fall back to the text that was typed.
@@ -201,6 +207,7 @@ impl Default for Preferences {
             notify_on_name: true,
             notify_active_tab: false,
             show_message_history: true,
+            check_for_updates: true,
             enable_seventv: true,
             enable_bttv: true,
             enable_ffz: true,

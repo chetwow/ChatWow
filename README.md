@@ -294,6 +294,25 @@ is the only one that isn't a service this app chose: a link preview loads from w
 linked, so hovering tells that host you're here. That's why it waits before fetching, and why
 it has a switch of its own.
 
+## Updates
+
+ChatWow updates itself. A moment after it starts it asks GitHub whether there's a newer
+release, and if there is, a dot appears on the settings cog. It stays there until you do
+something about it -- nothing pops up, and nothing is downloaded until you ask for it.
+
+Settings -> General -> Updates has the version you're on and a button. Press it and the new
+version is fetched and checked against a key built into the app, so a download that isn't
+the real thing won't install. On Windows the app closes and comes back on its own once it's
+done. On macOS and Linux the button turns into *Restart* when it's ready, and waits for you.
+
+The first switch on that page turns off the check on launch. The button still works; nothing
+else changes. It's the only thing this app asks github.com.
+
+Two things to know. If you installed the `.deb` or `.rpm`, the app will still tell you a new
+version is out, but the button is greyed out -- replacing those is your package manager's job,
+not the app's. And a version older than 0.6.0 has none of this, so that one has to be
+installed by hand.
+
 ## When something goes wrong
 
 The app keeps a log of what it was doing -- channels joined, connections dropped and remade,

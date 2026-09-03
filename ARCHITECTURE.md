@@ -828,6 +828,84 @@ is the whole story don't, which keeps the list scannable. A hint resets case, we
 rather than inheriting them: it hangs inside the label it explains, and a section heading's small
 caps were being inherited into whole sentences.
 
+## Updating itself
+
+The whole mechanism is one signed static file. The release workflow builds each platform's
+installer, signs it with a minisign key, and merges that platform's entry into a `latest.json`
+attached to the GitHub release; `plugins.updater` in `tauri.conf.json` points every installed
+copy at `releases/latest/download/latest.json`, and `tauri-plugin-updater` compares versions,
+downloads, checks the signature against the public key compiled in, and swaps the app. There is
+no service to run. A website would only start earning its place with staged rollouts, a beta
+channel, or download numbers, none of which anyone has asked for.
+
+That signing key is unrelated to Apple's or Microsoft's. Nothing here is code-signed and the
+updater doesn't care: it verifies with minisign only, and never consults Gatekeeper. What the
+key does mean is that **losing the private half permanently orphans every installed copy** --
+they will only accept a download signed with it, and there is no way to hand them a new one.
+
+**Rust owns it** ([src-tauri/src/updater.rs](src-tauri/src/updater.rs)), not the plugin's JS
+API. An update is an HTTPS fetch, a signature check and a filesystem swap, which is the Rust
+side of the boundary by the same rule as everything else -- unlike mentions or the emote
+blacklists, no part of it depends on which login is reading. Two things settle it beyond that:
+the launch check has to run in `setup()` under `diagnostics::supervise` regardless, and granting
+`updater:default` would hand the webview permission to download and execute code in an app that
+renders arbitrary chat under `csp: null`. Keeping that capability ungranted costs nothing, since
+the frontend only ever needs to see a stage and press a button. `capabilities/default.json` is
+untouched, and `AppHandle::request_restart` is core Tauri, so there's no process plugin either.
+
+The state is a **snapshot as well as an event**. Every transition goes through one `set()` that
+writes `AppState::updates.state` and emits `update://state` with the same value, so the two
+can't disagree. Events alone would be wrong: the settings dialog can be opened long after the
+launch check finished, or halfway through a download, and has to find the picture already
+painted. The dialog re-reads it on mount for exactly that.
+
+**Windows has no `ready` stage.** `Update::install` hands the installer to `ShellExecuteW` and
+exits the process; NSIS puts the app back up on its own. macOS and Linux swap the files in
+place and wait to be restarted, which is the only reason the button ever says *Restart*. The
+asymmetry is invisible to the user -- the state simply never arrives on Windows -- and nothing
+in the frontend has to know about it.
+
+The Windows arguments are `/P /UPDATE /R`, and they're why this fixes the upgrade friction.
+`/UPDATE` sets `$UpdateMode` in Tauri's NSIS template, which skips the reinstall page entirely;
+`/P` suppresses the "the app is running" box. Running that installer by hand instead gets both.
+The friction it replaces came from shipping `.msi` and `-setup.exe` side by side: the NSIS
+template detects an `msiexec` uninstall string and force-uninstalls, with no choice offered.
+`bundle.targets` now names its formats explicitly and `msi` isn't among them. Anyone still
+holding the old MSI gets that forced uninstall once, on the way to the first NSIS build.
+
+Two entries in `bundle.targets` are load-bearing beyond what they look like: `app`, because the
+macOS updater artifact is built from the `.app` bundle rather than the `.dmg`, and `appimage`,
+which is the only Linux format the bundler will make an updater artifact for. Drop either and
+that platform's updates disappear without any error. `deb` and `rpm` still build and still
+can't update -- and the plugin's Linux path doesn't check what it's running as, so handed the
+AppImage while installed from a `.deb` it would rename the packaged binary out of the way and
+unpack over it. Hence `can_install`, which gates on the `APPIMAGE` environment variable the
+AppImage runtime sets. The check still runs there: knowing a version exists is useful even when
+the button can't be what fetches it.
+
+**The release matrix is serialized on purpose.** `tauri-action` builds `latest.json` by
+downloading the copy already on the release, merging its own platform in, and re-uploading it.
+Four jobs finishing together is a lost update -- and the failure is silent and platform-shaped,
+one key missing from the file and that platform alone never seeing another update. `max-parallel:
+1` is the whole fix.
+
+**Publishing the draft is the act of shipping.** `releases/latest/download/` resolves only to a
+published, non-prerelease release, so the draft the workflow leaves is invisible to every
+installed copy until someone publishes it -- and the moment they do, every running app finds it
+at its next launch. There's no staged rollout and no recall: the NSIS template refuses
+downgrades and the updater only offers strictly newer versions, so the only fix for a bad
+release is a newer one carrying the old code. `CHATWOW_UPDATE_ENDPOINT` exists for the
+rehearsal that makes that unlikely -- point a hand-installed build at a pre-release's own
+`latest.json` and watch it update before anything reaches `latest`. It's safe to leave in a
+shipped build, since the public key is compiled in and a redirected endpoint still can't produce
+a download signed with the right key.
+
+The affordance is a dot on the settings cog, not a line in chat. Announcing it as a
+`localNotice`, the way `announce_emote_changes` and `announce_drop` do, fits the house style
+better -- but a notice scrolls away in a busy channel, and would either be seen once and lost or
+repeat in every tab. The dot persists until it's acted on, and it's an absolutely positioned
+overlay inside the cog's existing fixed box: it must never change what the title bar measures.
+
 ## Layout
 
 | Path | Purpose |

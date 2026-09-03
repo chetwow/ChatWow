@@ -319,6 +319,82 @@ function LogFolderButton() {
   );
 }
 
+/**
+ * The version, and the one button the whole update flow needs.
+ *
+ * Same shape as `LogFolderButton` above -- a pill and a line under it -- since
+ * it answers the same kind of question. The button's job changes with the
+ * stage rather than there being three buttons, because at most one of them is
+ * ever the thing to do next.
+ *
+ * There's no `ready` on Windows: the installer takes the process with it and
+ * puts the app back up, so the restart is never asked for. Nothing here has to
+ * know that -- the state simply never arrives.
+ */
+function UpdateButton() {
+  const update = useChat((state) => state.update);
+  const refreshUpdate = useChat((state) => state.refreshUpdate);
+  const checkForUpdate = useChat((state) => state.checkForUpdate);
+  const installUpdate = useChat((state) => state.installUpdate);
+  const restartForUpdate = useChat((state) => state.restartForUpdate);
+
+  // The launch check may have finished long before this dialog was opened.
+  useEffect(() => {
+    void refreshUpdate();
+  }, [refreshUpdate]);
+
+  const percent =
+    update.total && update.total > 0
+      ? Math.min(100, Math.round((update.downloaded / update.total) * 100))
+      : null;
+
+  const [action, line] = ((): [(() => void) | null, string] => {
+    switch (update.stage) {
+      case "checking":
+        return [null, "Checking..."];
+      case "upToDate":
+        return [checkForUpdate, `${update.currentVersion} -- up to date`];
+      case "available":
+        // A `.deb` or `.rpm` install: the version is worth knowing, but
+        // replacing it is the package manager's job, not this button's.
+        return update.canInstall
+          ? [installUpdate, `${update.version} is available`]
+          : [null, `${update.version} is available -- update your package`];
+      case "downloading":
+        return [null, percent === null ? "Downloading..." : `Downloading... ${percent}%`];
+      case "ready":
+        return [restartForUpdate, "Ready -- restart to finish"];
+      case "failed":
+        return [checkForUpdate, update.error ?? "Couldn't check"];
+      default:
+        return [checkForUpdate, update.currentVersion];
+    }
+  })();
+
+  const label =
+    update.stage === "available" ? "Install" : update.stage === "ready" ? "Restart" : "Check";
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={() => action?.()}
+        disabled={action === null}
+        className="shrink-0 rounded-md bg-accent/15 px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25 disabled:opacity-40 disabled:hover:bg-accent/15"
+      >
+        {label}
+      </button>
+      <span
+        className={`selectable max-w-[260px] truncate text-[10px] ${
+          update.stage === "failed" ? "text-rose-400" : "text-ink-faint"
+        }`}
+        title={update.notes ?? undefined}
+      >
+        {line}
+      </span>
+    </div>
+  );
+}
+
 function NameListEditor({
   entries,
   placeholder,
@@ -655,6 +731,24 @@ export function SettingsDialog({
                   hint="What the app was doing before something went wrong, kept across a few runs. No message text, no tokens -- safe to attach to a bug report."
                 >
                   <LogFolderButton />
+                </Row>
+              </Section>
+              <Section title="Updates">
+                <Row
+                  label="Check for updates on launch"
+                  hint="Asks GitHub once, a moment after the window opens, whether there's a newer release. Nothing is downloaded until you ask for it."
+                >
+                  <Toggle
+                    checked={preferences.checkForUpdates}
+                    onChange={(checkForUpdates) => updatePreferences({ checkForUpdates })}
+                    label="Check for updates on launch"
+                  />
+                </Row>
+                <Row
+                  label="Version"
+                  hint="Updates come from this app's own GitHub releases, and are checked against a key built into it -- a tampered download won't install."
+                >
+                  <UpdateButton />
                 </Row>
               </Section>
               <Section

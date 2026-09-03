@@ -260,6 +260,10 @@ pub struct AppState {
     /// connection and comes back with the new token, or idles here when
     /// there's no longer one to listen with.
     pub eventsub_restart: tokio::sync::Notify,
+    /// Whether a newer release is out, and the download once one is being
+    /// fetched. Snapshot as well as events because the settings dialog can be
+    /// opened mid-download -- see `updater`.
+    pub updates: crate::updater::Updates,
     /// Tells the 7TV event socket that the emote sets worth watching have
     /// moved -- a channel joined or parted, or 7TV switched off. It re-reads
     /// `seventv_sets` and subscribes or unsubscribes to match.
@@ -296,6 +300,7 @@ impl AppState {
             live_poll: tokio::sync::Notify::new(),
             eventsub_restart: tokio::sync::Notify::new(),
             seventv_events: tokio::sync::Notify::new(),
+            updates: crate::updater::Updates::new(env!("CARGO_PKG_VERSION").to_string()),
         }
     }
 
