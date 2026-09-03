@@ -465,6 +465,16 @@ function MessageRowInner({
     );
   }
 
+  // A row that isn't live: replayed from the history service on join, or
+  // recovered after a dropped connection. Dimmed rather than labelled, since
+  // a whole backlog is dimmed at once and the boundary is what carries the
+  // meaning -- it's the point where chat starts being now. Faint enough to
+  // read comfortably: this is most of what a freshly joined channel shows.
+  // Deleted wins where both apply, being the stronger thing to say about a
+  // row, and the two can't both be in the class list -- which of two Tailwind
+  // opacities lands is a question of stylesheet order, not of this string.
+  const dimmed = message.deleted ? "opacity-40" : message.historical ? "opacity-70" : "";
+
   const body = <MessageBody message={message} />;
 
   return (
@@ -472,7 +482,7 @@ function MessageRowInner({
       onContextMenu={handleContextMenu}
       className={[
         `msg-row rise group relative flex gap-1.5 ${leftPad} pr-1.5 py-[3px] leading-[1.45] hover:bg-surface-hover`,
-        message.deleted ? "opacity-40" : "",
+        dimmed,
         message.kind === "system" ? "border-l-2 border-accent bg-accent/[0.07]" : "",
         message.kind === "whisper" ? "border-l-2 border-fuchsia-400/70 bg-fuchsia-400/[0.06]" : "",
         message.isFirstMessage ? "border-l-2 border-emerald-400/70 bg-emerald-400/[0.05]" : "",

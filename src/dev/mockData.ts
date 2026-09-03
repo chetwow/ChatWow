@@ -408,12 +408,22 @@ function mockWhisper(account: string): ChatMessage {
   };
 }
 
-/** The initial backlog shown as soon as mock mode starts. */
+/**
+ * The initial backlog shown as soon as mock mode starts.
+ *
+ * All but the last two of each tab's are marked historical, the way the real
+ * ones replayed on join are -- so the dimming that says "this isn't live yet",
+ * and the boundary where it stops, are both visible without a backend.
+ */
 export function buildInitialMessages(tabs: Tab[]): ChatMessage[] {
   const now = Date.now();
+  const live = 2;
   return [
     ...tabs.flatMap((tab, tabIndex) =>
-      DRAFTS.map((draft, index) => toMessage(draft, tab, now + tabIndex * DRAFTS.length + index)),
+      DRAFTS.map((draft, index) => ({
+        ...toMessage(draft, tab, now + tabIndex * DRAFTS.length + index),
+        historical: index < DRAFTS.length - live,
+      })),
     ),
     mockWhisper(tabs[0]?.account ?? "1"),
   ];

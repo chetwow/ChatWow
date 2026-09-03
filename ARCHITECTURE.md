@@ -40,6 +40,12 @@ comes from [recent-messages.robotty.de](https://recent-messages.robotty.de), the
 service Chatterino uses: it runs a bot that joins the channels its users ask about and keeps the
 last few hundred lines.
 
+Those rows are drawn at 70% opacity, which is the whole of how a replayed message is marked: no
+label, no rule, because a backlog is dimmed all at once and it's the *boundary* that carries the
+meaning -- the point where chat starts being now. `rise`'s keyframes deliberately leave opacity
+out of the `to` frame so a row animates in towards its own value rather than flashing to 1 and
+dropping back, which matters for the deleted rows too.
+
 It answers with *raw IRC lines*, tagged `historical=1`, which is what makes it cheap here --
 [`src-tauri/src/irc/history.rs`](src-tauri/src/irc/history.rs) hands them to the same parser,
 emote resolution and renderer as the live socket, so a replayed message is indistinguishable from

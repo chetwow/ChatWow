@@ -108,13 +108,16 @@ body {
   font-size: var(--chat-font-size);
 }
 
+/* Deliberately no opacity in the `to` frame: a keyframe that omits a property
+   animates towards the element's own value, so a row that is meant to sit at
+   less than full opacity -- deleted, or replayed rather than live -- rises to
+   *its* opacity rather than flashing to 1 and dropping back. */
 @keyframes rise {
   from {
     opacity: 0;
     transform: translateY(3px);
   }
   to {
-    opacity: 1;
     transform: none;
   }
 }

@@ -240,7 +240,8 @@ gap. Those are fetched the same way the backlog on join is, so switching *Show r
 history on join* off in Settings leaves you the line without the messages.
 
 Recovered messages read like any other, mention highlighting included, but they don't ping or
-count towards a tab's unread badge.
+count towards a tab's unread badge. Like the backlog on join, they're drawn slightly dimmed --
+the point where that stops is the point where chat starts being live.
 
 ## Mentions and pings
 
