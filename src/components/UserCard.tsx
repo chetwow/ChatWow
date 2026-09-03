@@ -123,12 +123,37 @@ export function UserCard({ target, onClose }: { target: UserCardTarget; onClose:
     () => cachedUserCard(login, channel) ?? null,
   );
   const [error, setError] = useState<string | null>(null);
-  const messages = useChat((state) => state.messages[channel]);
+  // Messages are keyed by tab, not by channel, and a channel can be open under
+  // two accounts at once -- so the log is gathered from every tab on this
+  // channel rather than looked up by name. The two copies are the same
+  // messages arriving down two sockets, which is what the id dedupe is for.
+  // Going through the tabs also means a name clicked in the mentions tab shows
+  // that channel's whole log rather than only the lines that named you.
+  const allMessages = useChat((state) => state.messages);
+  const tabs = useChat((state) => state.tabs);
 
-  const theirs = useMemo(
-    () => (messages ?? []).filter((message: StoredMessage) => message.login === login),
-    [messages, login],
-  );
+  const theirs = useMemo(() => {
+    // A mentions tab carries no channel, so an empty one here would match it
+    // and gather a log that isn't about this room.
+    if (!channel) return [];
+    const seen = new Set<string>();
+    const found: StoredMessage[] = [];
+    for (const tab of tabs) {
+      if (tab.channel !== channel) continue;
+      for (const message of allMessages[tab.id] ?? []) {
+        if (message.login !== login) continue;
+        // A message Twitch didn't give an id (a local notice) can't be
+        // deduped, but can't be a duplicate either -- it was never sent twice.
+        if (message.id) {
+          if (seen.has(message.id)) continue;
+          seen.add(message.id);
+        }
+        found.push(message);
+      }
+    }
+    // Two tabs' worth interleave by time rather than landing in tab order.
+    return found.sort((a, b) => a.ts - b.ts);
+  }, [allMessages, tabs, channel, login]);
 
   useEffect(() => {
     if (card) return;
