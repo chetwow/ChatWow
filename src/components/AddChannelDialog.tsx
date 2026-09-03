@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
 import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
@@ -34,19 +34,28 @@ function Suggestion({
   joined,
   active,
   onHover,
+  onFocus,
+  onKeyDown,
   onPick,
+  buttonRef,
 }: {
   hit: ChannelHit;
   joined: boolean;
   active: boolean;
   onHover: () => void;
+  onFocus: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onPick: () => void;
+  buttonRef: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       disabled={joined}
       onMouseMove={onHover}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
       onClick={onPick}
       className={[
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
@@ -167,6 +176,7 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   /** -1 means "join exactly what's typed" -- the arrow keys step into the list. */
   const [active, setActive] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const suggestionButtons = useRef<Array<HTMLButtonElement | null>>([]);
   /** Only the newest search may write results; earlier ones land out of order. */
   const request = useRef(0);
 
@@ -216,6 +226,19 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
       if (next === -1 || !joinedChannels.includes(hits[next].login)) return next;
     }
     return -1;
+  };
+
+  /** Move keyboard focus between selectable results without scrolling the list. */
+  const focusAdjacentHit = (from: number, direction: 1 | -1) => {
+    let next = from;
+    for (let i = 0; i < hits.length; i++) {
+      next = (next + direction + hits.length) % hits.length;
+      if (!joinedChannels.includes(hits[next].login)) {
+        setActive(next);
+        suggestionButtons.current[next]?.focus();
+        return;
+      }
+    }
   };
 
   const submit = async (name: string) => {
@@ -279,6 +302,30 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
+        {hits.length > 0 && (
+          <div className="scroller max-h-[260px] overflow-y-auto border-b border-line p-1">
+            {hits.map((hit, index) => (
+              <Suggestion
+                key={hit.login}
+                hit={hit}
+                joined={joinedChannels.includes(hit.login)}
+                active={index === active}
+                onHover={() => setActive(index)}
+                onFocus={() => setActive(index)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                  event.preventDefault();
+                  focusAdjacentHit(index, event.key === "ArrowDown" ? 1 : -1);
+                }}
+                onPick={() => void submit(hit.login)}
+                buttonRef={(element) => {
+                  suggestionButtons.current[index] = element;
+                }}
+              />
+            ))}
+          </div>
+        )}
+
         {error && (
           <div className="border-b border-line bg-rose-500/10 px-3 py-2 text-[12px] text-rose-300">
             {error}
@@ -316,22 +363,6 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           defaultAccount={defaultAccount}
           onCreated={onClose}
         />
-
-        {hits.length > 0 && (
-          <div className="scroller max-h-[260px] overflow-y-auto p-1">
-            {hits.map((hit, index) => (
-              <Suggestion
-                key={hit.login}
-                hit={hit}
-                joined={joinedChannels.includes(hit.login)}
-                active={index === active}
-                onHover={() => setActive(index)}
-                onPick={() => void submit(hit.login)}
-              />
-            ))}
-          </div>
-        )}
-
       </div>
     </div>
   );

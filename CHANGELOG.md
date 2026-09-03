@@ -24,7 +24,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Moved the new-tab panel higher and increased its available height for listener configuration.
+- Moved the new-tab panel higher, increased its available height for listener configuration, and
+  kept channel search results directly below the join-channel input.
 - Reordered and clarified listener filter labels, and removed redundant helper and keyboard-
   instruction text.
 
@@ -43,3 +44,5 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Kept context menus open when incoming messages or manual scrolling move the chat beneath them.
 - Kept live messages arriving during recent-history loading in order and removed overlapping
   history copies of those messages.
+- Made the arrow keys move keyboard focus through channel search results instead of scrolling the
+  result list.
