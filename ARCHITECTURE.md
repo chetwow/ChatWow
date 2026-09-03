@@ -1,9 +1,8 @@
 # Architecture
 
 How ChatWow is put together, and why the awkward parts are the way they are.
-[README.md](README.md) describes the app from a user's side; [CLAUDE.md](CLAUDE.md) is the
-short list of rules to work by. This file is the long form: what talks to what, and which
-decisions have a reason behind them that isn't visible in the code.
+[README.md](README.md) describes the app from a user's side. This file is the long form: what
+talks to what, and which decisions have a reason behind them that isn't visible in the code.
 
 ## The Rust/React boundary
 
