@@ -61,6 +61,28 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // A right-click selects the word under it by default -- the browser
+  // preparing for a menu that isn't ours. `user-select: none` doesn't stop it,
+  // so this does, on the way in: the selection is made on mousedown, before
+  // the `contextmenu` event our own menus are opened from, which still fires.
+  // A selection made by dragging is untouched, since preventing a default is
+  // what stops one being made rather than what clears one.
+  //
+  // Window-wide rather than per-scroller: chat is not the only place with text
+  // in it, and the title bar and tabs were selecting too.
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (event.button !== 2) return;
+      // Except in a field you can type in, where right-click is how you reach
+      // Paste and needs to put the caret somewhere first.
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      event.preventDefault();
+    };
+    window.addEventListener("mousedown", onMouseDown, { capture: true });
+    return () => window.removeEventListener("mousedown", onMouseDown, { capture: true });
+  }, []);
+
   return (
     <div
       // Chat reads its text size off this; everything else is fixed.

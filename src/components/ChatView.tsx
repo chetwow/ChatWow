@@ -334,17 +334,6 @@ export function ChatView({
         <div
           ref={scroller}
           onScroll={onScroll}
-          // A right-click selects the word under it by default, which is the
-          // browser preparing for a menu that isn't ours -- and it means every
-          // right-click arrives with a selection, so Copy would offer that word
-          // as "the selection" whether or not anyone chose it. Swallowed on the
-          // way in, since the selection is made on mousedown, before the
-          // `contextmenu` event the menu itself is opened from. A selection
-          // made by dragging is untouched: preventing the default doesn't
-          // clear one, it only stops a new one being made.
-          onMouseDown={(event) => {
-            if (event.button === 2) event.preventDefault();
-          }}
           className="scroller h-full overflow-y-auto overflow-x-hidden py-2"
         >
           {!messages?.length && (
