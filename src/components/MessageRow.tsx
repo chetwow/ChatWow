@@ -473,7 +473,7 @@ function MessageRowInner({
   // Deleted wins where both apply, being the stronger thing to say about a
   // row, and the two can't both be in the class list -- which of two Tailwind
   // opacities lands is a question of stylesheet order, not of this string.
-  const dimmed = message.deleted ? "opacity-40" : message.historical ? "opacity-70" : "";
+  const dimmed = message.deleted ? "opacity-40" : message.historical ? "opacity-60" : "";
 
   const body = <MessageBody message={message} />;
 

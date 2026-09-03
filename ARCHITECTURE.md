@@ -40,7 +40,7 @@ comes from [recent-messages.robotty.de](https://recent-messages.robotty.de), the
 service Chatterino uses: it runs a bot that joins the channels its users ask about and keeps the
 last few hundred lines.
 
-Those rows are drawn at 70% opacity, which is the whole of how a replayed message is marked: no
+Those rows are drawn at 60% opacity, which is the whole of how a replayed message is marked: no
 label, no rule, because a backlog is dimmed all at once and it's the *boundary* that carries the
 meaning -- the point where chat starts being now. `rise`'s keyframes deliberately leave opacity
 out of the `to` frame so a row animates in towards its own value rather than flashing to 1 and
