@@ -28,10 +28,15 @@ cd src-tauri && cargo test -- --ignored --nocapture   # + livecheck.rs, hits rea
 TWITCH_CLIENT_ID=xxx npm run tauri build    # build against a different Twitch app
 CHATWOW_LOG=debug npm run tauri dev  # turn the log up for one run (see diagnostics.rs)
 python3 scripts/generate-emoji.py   # regenerate src/lib/emoji.json (don't hand-edit it)
+npx tauri icon app-icon.png         # regenerate src-tauri/icons (see the note below)
 python3 scripts/bump-version.py 0.6.0   # set the version in all five files at once
 git tag v0.3.0 && git push origin v0.3.0    # build installers (see .github/workflows/release.yml)
 CHATWOW_UPDATE_ENDPOINT=https://.../latest.json npm run tauri dev  # rehearse an update
 ```
+
+`app-icon.png` at the repo root is the source the icons are cut from, and the only one to edit.
+`tauri icon` also writes `src-tauri/icons/android/` and `ios/`, which this desktop-only app has
+no use for -- delete both after running it.
 
 The version lives in five files that have to agree: `package.json`, `package-lock.json` (in two
 places), `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.lock`. Use the
