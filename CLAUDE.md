@@ -197,6 +197,17 @@ exercisable too. Preferences fall back to `localStorage` there, since there's no
   message id, since the history runs up to now and the buffer starts partway through it. The
   `historical` flag rides all the way to the frontend, where it keeps a backlog from pinging or
   counting as unread.
+- **A dropped socket is announced in chat, and the gap is filled from the history service.**
+  `announce_drop` ([src-tauri/src/irc/client.rs](src-tauri/src/irc/client.rs)) writes a notice
+  into every channel the account was reading and stamps each session with `interrupted_at`;
+  `resume_channel` runs on the ROOMSTATE that comes with the rejoin, and is checked *before*
+  `needs_fetch` -- a dropped session is also not ready, and running the whole join would re-ask
+  Twitch for emotes it has and replay a backlog already on screen. Where the gap starts is
+  `Session::last_seen` frozen *at the drop*: live messages arrive the moment we're back and would
+  otherwise push the mark past the gap. `last_seen` is an `AtomicI64` so it can be written under
+  the read guard the readiness check already takes, and `load_channel_assets` seeds it from the
+  join backlog -- without that a channel quiet since the join has no mark and recovers everything.
+  Recovered messages stay `historical`, so they don't ping or count as unread.
 - **Whispers don't come over IRC.** Twitch delivers them through EventSub only, so
   [src-tauri/src/twitch/eventsub.rs](src-tauri/src/twitch/eventsub.rs) runs a second WebSocket
   subscribed to `user.whisper.message`. Don't go looking for a `WHISPER` IRC command to handle --

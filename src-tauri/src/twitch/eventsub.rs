@@ -21,7 +21,7 @@ use std::time::Duration;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::irc::client::MessageSink;
-use crate::render::{self, ChatMessage, EmoteLookup};
+use crate::render::{self, now_ms, ChatMessage, EmoteLookup};
 use crate::state::AppState;
 
 const WS_URL: &str = "wss://eventsub.wss.twitch.tv/ws";
@@ -88,16 +88,6 @@ pub fn classify(raw: &str) -> Incoming {
         }
         _ => Incoming::Ignored,
     }
-}
-
-/// Milliseconds since the epoch, for the timestamp EventSub doesn't put on the
-/// event itself. A clock before 1970 reads as 0, the same as a chat message
-/// that arrived without one.
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 /// Resolve a whisper against the global emote set. Whispers belong to no

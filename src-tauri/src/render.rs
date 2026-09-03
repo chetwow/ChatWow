@@ -316,8 +316,20 @@ pub fn build_badges(msg: &IrcMessage, badges: &BadgeLookup) -> Vec<Badge> {
         .collect()
 }
 
-fn timestamp(msg: &IrcMessage) -> i64 {
+pub fn timestamp(msg: &IrcMessage) -> i64 {
     msg.tag("tmi-sent-ts").and_then(|t| t.parse().ok()).unwrap_or(0)
+}
+
+/// Milliseconds since the epoch, in the same units a message's `tmi-sent-ts`
+/// is in. For the two places that need a time nothing handed us: a whisper,
+/// which EventSub sends without one, and the start of a gap in a channel that
+/// hasn't said anything for one to be measured from. A clock before 1970
+/// reads as 0, the same as a message that arrived without a timestamp.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Build a chat message from a PRIVMSG.

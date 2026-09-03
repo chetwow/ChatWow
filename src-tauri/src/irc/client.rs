@@ -11,6 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -36,6 +37,33 @@ const ASSET_TIMEOUT: Duration = Duration::from_secs(8);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
 
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
+
+/// Said in every channel an account was reading the moment its socket goes.
+/// The connection dot in the title bar says the same thing, but chat is where
+/// you're looking, and a channel that has simply stopped moving is otherwise
+/// indistinguishable from a quiet one.
+const DROPPED: &str = "Disconnected from Twitch -- reconnecting";
+
+/// A notice the app wrote itself, addressed to one account's view of a
+/// channel. Stamped like any other message, since that's what routes it to
+/// the right tab when a channel is open under two accounts.
+fn stamped(account: &str, channel: &str, text: impl Into<String>) -> ChatMessage {
+    let mut notice = render::notice(channel, text);
+    notice.account = account.to_string();
+    notice
+}
+
+/// The other half of `DROPPED`, once the gap has been filled in. It names a
+/// count because the messages above it are the answer to "what did I miss" --
+/// and because nothing recovered is worth saying plainly rather than leaving
+/// you to wonder whether the channel was quiet or the fetch failed.
+fn resumed(recovered: usize) -> String {
+    match recovered {
+        0 => "Reconnected".to_string(),
+        1 => "Reconnected -- 1 message recovered".to_string(),
+        many => format!("Reconnected -- {many} messages recovered"),
+    }
+}
 
 fn emit_status(app: &AppHandle, account: &str, state: &str, detail: Option<String>) {
     // The same line the UI's connection dot gets, written down: a log read
@@ -326,6 +354,15 @@ async fn load_channel_assets(
         let session = sessions.entry((account.clone(), channel.clone())).or_default();
         session.twitch_emotes = twitch_emote_names;
         session.ready = true;
+        // Where a later reconnect starts looking, set from everything about
+        // to go on screen rather than from the live messages alone: a channel
+        // that says nothing between the join and the drop would otherwise
+        // have no mark at all, and recover its whole history as though none
+        // of it had been seen.
+        let newest = backlog.iter().chain(session.pending.iter()).map(render::timestamp).max();
+        if let Some(newest) = newest {
+            session.last_seen.fetch_max(newest, Ordering::Relaxed);
+        }
         std::mem::take(&mut session.pending)
     };
 
@@ -351,6 +388,112 @@ async fn load_channel_assets(
     );
 
     purge_image_cache(&app, &state);
+}
+
+/// Pick one channel back up after its account's socket came back: fetch what
+/// was said while it was down, and say so.
+///
+/// The shape is the join's, and for the same reason -- the session is held
+/// un-ready while the history is fetched, so what was missed lands *above*
+/// the live messages that have started arriving rather than after them, and
+/// the whole gap reads in order. What differs is where it starts: the join
+/// replays whatever the service has, this replays only what is newer than the
+/// last message this session actually queued, so nothing already on screen
+/// comes back twice.
+///
+/// The history service is the same third party the join uses, so the same
+/// preference governs it. Off, this is only the line saying we're back.
+async fn resume_channel(
+    state: Arc<AppState>,
+    sink: MessageSink,
+    account: String,
+    channel: String,
+    since: i64,
+) {
+    let wants_history = state.preferences.read().show_message_history;
+    let backlog = match wants_history {
+        true => timeout(HISTORY_TIMEOUT, history::fetch(&state.http, &channel))
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .unwrap_or_default(),
+        false => Vec::new(),
+    };
+
+    let key = (account.clone(), channel.clone());
+    let pending = {
+        let mut sessions = state.sessions.write();
+        // Parted while we were asking -- there's no view left to fill in.
+        let Some(session) = sessions.get_mut(&key) else { return };
+        session.ready = true;
+        std::mem::take(&mut session.pending)
+    };
+
+    // The socket came back before the fetch did, so the newest of what the
+    // service has is also sitting in `pending`. Ids settle the overlap, the
+    // same way they do on a join.
+    let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
+
+    let recovered = missed(&backlog, since, &live);
+    for message in &recovered {
+        render_and_queue(&state, &sink, &account, &channel, message);
+    }
+
+    log::info!(
+        "resumed #{channel} as {account}: {} of {} history lines were missed",
+        recovered.len(),
+        backlog.len(),
+    );
+    let _ = sink.send(stamped(&account, &channel, resumed(recovered.len())));
+
+    for message in &pending {
+        render_and_queue(&state, &sink, &account, &channel, message);
+    }
+}
+
+/// The lines from a history fetch that actually belong in the gap.
+///
+/// Two ways one doesn't. It can be older than the mark, which means it was on
+/// screen before the socket went -- the service answers with the last hundred
+/// and fifty lines whatever we're missing, so most of a reply is usually
+/// this. Or it can be one the returning socket has already handed us, which
+/// is the overlap between "up to now" and "from the moment we were back".
+fn missed<'a>(
+    backlog: &'a [IrcMessage],
+    since: i64,
+    live: &HashSet<&str>,
+) -> Vec<&'a IrcMessage> {
+    backlog
+        .iter()
+        .filter(|message| render::timestamp(message) > since)
+        .filter(|message| !message.tag("id").is_some_and(|id| live.contains(id)))
+        .collect()
+}
+
+/// Say in every channel an account was reading that its socket has gone, and
+/// mark each session with where the gap begins.
+///
+/// Only sessions that were actually up: one still loading has nothing on
+/// screen for a gap to interrupt, and a connection that failed on its very
+/// first attempt has interrupted nothing. They're marked un-ready as well, so
+/// that anything arriving on the new socket waits for the missed messages to
+/// be placed above it.
+fn announce_drop(state: &AppState, sink: &MessageSink, account: &str) {
+    let mut sessions = state.sessions.write();
+    for ((id, channel), session) in sessions.iter_mut() {
+        if id != account || !session.ready {
+            continue;
+        }
+        // A channel that hasn't said a word since the join has no message to
+        // measure from, so the gap starts now. Our clock rather than
+        // Twitch's, which is the one case where the two have to agree.
+        session.interrupted_at = Some(match session.last_seen.load(Ordering::Relaxed) {
+            0 => render::now_ms(),
+            seen => seen,
+        });
+        session.ready = false;
+        let _ = sink.send(stamped(account, channel, DROPPED));
+    }
 }
 
 /// Re-fetch the emote sets after the enabled providers changed. Only the
@@ -423,7 +566,19 @@ fn handle_line(
             let Some(channel) = msg.channel() else { return None };
 
             let key = (account.to_string(), channel.clone());
-            let ready = state.sessions.read().get(&key).map(|s| s.ready).unwrap_or(false);
+            let ready = {
+                let sessions = state.sessions.read();
+                match sessions.get(&key) {
+                    Some(session) => {
+                        // Where the next reconnect will start looking. Under
+                        // this guard rather than its own, since it's written
+                        // for every message that arrives.
+                        session.last_seen.fetch_max(render::timestamp(&msg), Ordering::Relaxed);
+                        session.ready
+                    }
+                    None => false,
+                }
+            };
             if ready {
                 render_and_queue(state, sink, account, &channel, &msg);
             } else {
@@ -471,14 +626,12 @@ fn handle_line(
             // Per session, not per channel: a second account joining a room
             // the first is already in still needs its own backlog and its own
             // emotes, even though the room's sets are already in hand.
-            let needs_fetch = {
+            let (needs_fetch, interrupted_at) = {
                 state.data.write().entry(channel.clone()).or_default().room_id =
                     Some(room_id.clone());
-                !state
-                    .sessions
-                    .read()
-                    .get(&(account.to_string(), channel.clone()))
-                    .is_some_and(|session| session.ready)
+                let mut sessions = state.sessions.write();
+                let session = sessions.entry((account.to_string(), channel.clone())).or_default();
+                (!session.ready, session.interrupted_at.take())
             };
 
             let _ = app.emit(
@@ -486,7 +639,24 @@ fn handle_line(
                 json!({ "channel": channel, "roomId": room_id }),
             );
 
-            if needs_fetch {
+            // A rejoin rather than a join: the room's assets and this
+            // session's emotes are still in hand, and the only thing missing
+            // is whatever was said while the socket was down. Checked first
+            // because a dropped session is also not ready, and running the
+            // whole join would re-ask Twitch for emotes it already has and
+            // replay a backlog that's already on screen.
+            if let Some(since) = interrupted_at {
+                crate::diagnostics::supervise(
+                    format!("resume ({account} in #{channel})"),
+                    resume_channel(
+                        Arc::clone(state),
+                        sink.clone(),
+                        account.to_string(),
+                        channel,
+                        since,
+                    ),
+                );
+            } else if needs_fetch {
                 crate::diagnostics::supervise(
                     format!("channel assets ({account} in #{channel})"),
                     load_channel_assets(
@@ -650,6 +820,11 @@ pub async fn run(
             }
         }
 
+        // Everything below this point is a connection that ended and will be
+        // tried again -- a deliberate shutdown has already broken out of the
+        // loop, and says nothing.
+        announce_drop(&state, &sink, &account);
+
         let jitter = rand::thread_rng().gen_range(0..500);
         tokio::time::sleep(Duration::from_millis(backoff_secs * 1000 + jitter)).await;
         backoff_secs = (backoff_secs * 2).min(30);
@@ -719,5 +894,62 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
 pub fn reconnect_all(state: &Arc<AppState>) {
     for connection in state.connections.read().values() {
         let _ = connection.commands.send(IrcCommand::Reconnect);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(id: &str, ts: i64) -> IrcMessage {
+        parse::parse(&format!(
+            "@id={id};tmi-sent-ts={ts} :a!a@a.tmi.twitch.tv PRIVMSG #forsen :hi"
+        ))
+        .expect("a parseable line")
+    }
+
+    #[test]
+    fn only_what_the_gap_actually_holds_is_recovered() {
+        let backlog = [line("old", 1_000), line("gap-1", 2_000), line("gap-2", 3_000)];
+        let live = HashSet::new();
+
+        // The mark is the last message that was on screen, so it is not
+        // itself missed -- `>` rather than `>=`, or every reconnect repeats a
+        // line you were looking at.
+        let recovered = missed(&backlog, 1_000, &live);
+        let ids: Vec<&str> = recovered.iter().filter_map(|m| m.tag("id")).collect();
+        assert_eq!(ids, ["gap-1", "gap-2"]);
+
+        assert!(missed(&backlog, 3_000, &live).is_empty(), "nothing said while we were away");
+    }
+
+    #[test]
+    fn what_the_returning_socket_already_delivered_is_not_recovered() {
+        // The history runs up to now and the new connection started partway
+        // through it, so the two overlap by however long the fetch took.
+        let backlog = [line("gap", 2_000), line("both", 3_000)];
+        let live = HashSet::from(["both"]);
+
+        let ids: Vec<&str> =
+            missed(&backlog, 1_000, &live).iter().filter_map(|m| m.tag("id")).collect();
+        assert_eq!(ids, ["gap"]);
+    }
+
+    #[test]
+    fn the_line_says_how_much_came_back() {
+        assert_eq!(resumed(0), "Reconnected");
+        assert_eq!(resumed(1), "Reconnected -- 1 message recovered");
+        assert_eq!(resumed(12), "Reconnected -- 12 messages recovered");
+    }
+
+    #[test]
+    fn a_notice_the_app_wrote_is_addressed_like_any_other_message() {
+        // Unstamped it would land in whichever tab of that account you were
+        // reading, rather than in the channel it's about.
+        let notice = stamped("1234", "forsen", DROPPED);
+        assert_eq!(notice.account, "1234");
+        assert_eq!(notice.channel, "forsen");
+        assert_eq!(notice.kind, "notice");
+        assert_eq!(notice.system_message.as_deref(), Some(DROPPED));
     }
 }

@@ -3,6 +3,7 @@
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicI64;
 use tokio::sync::mpsc;
 
 use crate::emotes::Emote;
@@ -44,6 +45,21 @@ pub struct Session {
     pub ready: bool,
     /// Messages received before that finished.
     pub pending: Vec<IrcMessage>,
+    /// The `tmi-sent-ts` of the newest message this session has queued. Where
+    /// a reconnect starts looking for what it missed, so that nothing already
+    /// on screen comes back a second time.
+    ///
+    /// An atomic because it's written for every message that arrives, and can
+    /// therefore go under the read guard the readiness check already takes --
+    /// a write lock per message would be a real cost on a busy channel.
+    pub last_seen: AtomicI64,
+    /// Where the gap starts, when this session's socket has gone and what it
+    /// missed hasn't been fetched back yet. `None` the rest of the time.
+    ///
+    /// Frozen at the drop rather than read at the rejoin: live messages start
+    /// arriving the moment we're back, and reading `last_seen` then would put
+    /// the mark on the far side of the very gap it's meant to open.
+    pub interrupted_at: Option<i64>,
     /// What we are here, from our own USERSTATE. Decides which commands the
     /// picker offers -- there's no Helix endpoint that answers "am I a mod in
     /// this channel", so this tag is the only source. Per account by nature:

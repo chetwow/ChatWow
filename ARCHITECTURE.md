@@ -61,6 +61,46 @@ does that Twitch and 7TV don't see. Users can opt out of being recorded at
 <https://www.twitch.tv/recent_messages>, and Settings -> General -> *Show recent message history
 on join* turns it off here, after which the app only ever talks to Twitch and 7TV.
 
+## Losing the connection, and coming back
+
+A socket that drops takes chat with it, and a channel that has simply stopped moving looks
+exactly like a quiet one. So the app says both halves out loud, as ordinary notices in every
+channel the account was reading: `Disconnected from Twitch -- reconnecting` when the socket
+goes, and `Reconnected` when it's back, naming how many messages were recovered.
+
+The gap itself is filled from the same history service the join uses, which means the same
+preference governs it -- with *Show recent message history on join* off, a reconnect is the line
+alone. `announce_drop` ([client.rs](src-tauri/src/irc/client.rs)) writes the first line and marks
+each of that account's sessions with `interrupted_at`, and `resume_channel` is what runs on the
+ROOMSTATE that comes with the rejoin.
+
+Three things about it are load-bearing.
+
+**Where the gap starts is frozen at the drop, not read at the rejoin.** `Session::last_seen`
+carries the `tmi-sent-ts` of the newest message that session has queued, written for every
+message under the read guard the readiness check already takes -- an atomic precisely so it
+needn't be a write lock on a per-message path. But live messages start arriving the instant the
+socket is back, and reading the mark *then* would put it on the far side of the very gap it's
+meant to open, so `announce_drop` snapshots it. A channel that has said nothing at all since the
+join has no message to measure from, and falls back to the wall clock, which is the one place
+our clock and Twitch's have to agree.
+
+**A rejoin is not a join.** ROOMSTATE arrives on both, and a dropped session is also not ready,
+so `interrupted_at` is checked *first*: running the full join would re-ask Twitch for emotes it
+already has and replay a backlog that's already on screen. `load_channel_assets` also seeds
+`last_seen` from the backlog it just placed, or a channel quiet since the join would have no mark
+and recover its whole history as though none of it had been seen.
+
+**The session is held un-ready while the history is fetched**, exactly as the join does it, so
+what was missed lands *above* the live messages rather than after them and the whole gap reads in
+order: the disconnect line, then what was said, then the reconnect line. The overlap between "up
+to now" and "from the moment we were back" is settled by message id, the same way.
+
+Recovered messages keep their `historical` flag, since they come from the same service tagged the
+same way. They render normally, mention highlight included, but they don't ping, count as unread
+or reach the mentions tab -- which is deliberate for a 150-message ceiling on what one reconnect
+can deliver, and the one place this is a judgement call rather than a fact.
+
 ## Sending messages
 
 Outgoing messages go through Twitch's Helix `POST /helix/chat/messages` API rather than a raw

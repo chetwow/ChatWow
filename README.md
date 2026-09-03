@@ -232,6 +232,16 @@ Two switches in Settings -> General, for the two kinds of promise:
 - *Preview image links* — a picture: the image a link points at, or the emote behind a 7TV emote link
 - *Preview other links* — everything else, which means asking that page (or Twitch) about itself
 
+## Losing the connection
+
+If the connection to Twitch drops, every channel you're reading says so rather than just going
+quiet, and says so again when it's back -- along with how many messages it recovered from the
+gap. Those are fetched the same way the backlog on join is, so switching *Show recent message
+history on join* off in Settings leaves you the line without the messages.
+
+Recovered messages read like any other, mention highlighting included, but they don't ping or
+count towards a tab's unread badge.
+
 ## Mentions and pings
 
 A message naming you -- `@yourname` or just your name -- is highlighted, and plays a short ping.
