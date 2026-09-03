@@ -814,6 +814,15 @@ export function SettingsDialog({
 
           {tab === "appearance" && (
             <div className="flex flex-col gap-5">
+              <Section title="Window">
+                <Row label="Keep window on top">
+                  <Toggle
+                    checked={preferences.alwaysOnTop}
+                    onChange={(alwaysOnTop) => updatePreferences({ alwaysOnTop })}
+                    label="Keep window on top"
+                  />
+                </Row>
+              </Section>
               {/* No hints on this tab: every row here changes something you can
                   see the moment you flip it, which explains it better than a
                   sentence behind a dot would. */}

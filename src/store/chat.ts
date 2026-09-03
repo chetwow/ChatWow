@@ -67,6 +67,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   announceEmoteChanges: true,
   italicActions: true,
   showTimestamps: true,
+  alwaysOnTop: false,
   showComposerAvatar: true,
   newTabAvatarMode: "owner",
   tabAvatarOpacity: 0.4,
@@ -413,6 +414,7 @@ type ChatState = {
   /** Add or drop a login on the blocked list. */
   setUserBlocked: (login: string, blocked: boolean) => void;
   toggleMuted: () => void;
+  toggleAlwaysOnTop: () => void;
   /** Re-read where the update machinery got to. Called when settings opens. */
   refreshUpdate: () => Promise<void>;
   /** Ask GitHub whether there's something newer. Downloads nothing. */
@@ -923,6 +925,11 @@ export const useChat = create<ChatState>((set) => ({
 
   toggleMuted: () =>
     useChat.getState().updatePreferences({ muted: !useChat.getState().preferences.muted }),
+
+  toggleAlwaysOnTop: () =>
+    useChat
+      .getState()
+      .updatePreferences({ alwaysOnTop: !useChat.getState().preferences.alwaysOnTop }),
 
   refreshUpdate: async () => {
     const update = IS_TAURI

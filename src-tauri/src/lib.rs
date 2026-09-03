@@ -356,8 +356,16 @@ fn set_preferences(
     let before = emotes::Providers::from(&*state.preferences.read());
     let after = emotes::Providers::from(&preferences);
     let badges_before = state.preferences.read().show_seventv_badges;
+    let pinned_before = state.preferences.read().always_on_top;
     *state.preferences.write() = preferences;
     persist(&app, &state);
+
+    // The title bar's pin and the settings toggle both arrive here, so this is
+    // the only place the window has to be told.
+    let pinned = state.preferences.read().always_on_top;
+    if pinned_before != pinned {
+        apply_always_on_top(&app, pinned);
+    }
 
     // Switching a provider on has to go and fetch it -- nothing else will, the
     // sets being loaded on join. Switching one off goes through the same path,
@@ -377,6 +385,21 @@ fn set_preferences(
     }
 
     state.preferences.read().clone()
+}
+
+/// Put the window above every other one, or let it back down.
+///
+/// Best-effort by design: a window manager that won't honour it (some tiling
+/// ones on Linux simply don't) is not a reason to refuse the preference or
+/// unset it, since the setting is still what the user asked for and every
+/// other window manager will do it.
+fn apply_always_on_top(app: &AppHandle, pinned: bool) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if let Err(error) = window.set_always_on_top(pinned) {
+        log::warn!("couldn't put the window on top: {error}");
+    }
 }
 
 /// Show the log folder, and say where it is.
@@ -1294,6 +1317,12 @@ pub fn run() {
                     tab.avatar_mode = Some(stamped_avatar_mode(&shared, &tab.account));
                 }
                 *shared.tabs.write() = tabs;
+            }
+
+            // Restored rather than reset: a window pinned when the app was
+            // closed is pinned when it comes back.
+            if shared.preferences.read().always_on_top {
+                apply_always_on_top(&handle, true);
             }
 
             // After the plugin above, which is what these write into.

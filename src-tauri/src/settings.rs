@@ -135,6 +135,11 @@ pub struct Preferences {
     pub italic_actions: bool,
     /// Show the time beside each message.
     pub show_timestamps: bool,
+    /// Keep the window above every other one. Off by default: it's a thing you
+    /// turn on for a stream and turn off afterwards, and a window that won't
+    /// go behind anything is a nuisance to inherit on a restart you'd
+    /// forgotten about.
+    pub always_on_top: bool,
     /// Show the sending account's picture beside the message box. On by
     /// default -- with two accounts signed in it's the only thing that keeps
     /// saying which one a tab speaks as once the placeholder is typed over.
@@ -215,6 +220,7 @@ impl Default for Preferences {
             announce_emote_changes: true,
             italic_actions: true,
             show_timestamps: true,
+            always_on_top: false,
             show_composer_avatar: true,
             new_tab_avatar_mode: "owner".to_string(),
             tab_avatar_opacity: 0.4,

@@ -76,6 +76,47 @@ function MuteButton() {
 }
 
 /**
+ * Keep the window above the others. Beside the mute button for the same
+ * reason: it's reached for while a stream is running, not while settings are
+ * open. The appearance tab has the same switch.
+ */
+function PinButton() {
+  const pinned = useChat((state) => state.preferences.alwaysOnTop);
+  const toggleAlwaysOnTop = useChat((state) => state.toggleAlwaysOnTop);
+  const label = pinned ? "Stop keeping on top" : "Keep on top";
+
+  return (
+    <button
+      onClick={toggleAlwaysOnTop}
+      aria-label={label}
+      aria-pressed={pinned}
+      title={label}
+      className={`mr-1 grid h-6 w-6 place-items-center rounded transition-colors hover:bg-surface-hover ${
+        pinned ? "text-accent" : "text-ink-dim hover:text-ink"
+      }`}
+    >
+      {/* A drawing pin seen head-on: the disc, the shaft, and two shoulders.
+          Filled when it's holding, outlined when it isn't, so the state reads
+          from the weight of the mark rather than from colour alone. */}
+      <svg
+        viewBox="0 0 16 16"
+        width="13"
+        height="13"
+        fill={pinned ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.4"
+      >
+        <path
+          d="M6 1.8h4l-.5 3.4 2.2 2.3H4.3l2.2-2.3z"
+          strokeLinejoin="round"
+        />
+        <path d="M8 7.5v6.7" strokeLinecap="round" fill="none" />
+      </svg>
+    </button>
+  );
+}
+
+/**
  * Divide the window, or put it back. The four directions say where the new
  * pane goes, which is only a question while there isn't one -- once the
  * window is split there are two panes to arrange rather than one to add, so
@@ -192,6 +233,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
 
       <div data-tauri-drag-region className="flex-1" />
 
+      <PinButton />
       <MuteButton />
       <SplitButton />
 

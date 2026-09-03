@@ -225,6 +225,8 @@ export type Preferences = {
   italicActions: boolean;
   /** Show the time beside each message. */
   showTimestamps: boolean;
+  /** Keep the window above every other one. */
+  alwaysOnTop: boolean;
   /** Show the sending account's picture beside the message box. */
   showComposerAvatar: boolean;
   /** What a newly opened tab draws behind its name. Only new ones. */
