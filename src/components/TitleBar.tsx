@@ -202,10 +202,10 @@ function accountLabel(auth: AuthStatus): string {
  * AppKit's internals rather than a measurement. Matching the height it already
  * expects needs no number at all.
  *
- * The padding clears the lights: they start 14px in and the group is 52px
- * wide, so the name begins a comfortable distance after them.
+ * The padding clears the lights, which end about 66px in. The gap after them
+ * is the only part of this that's taste rather than arithmetic.
  */
-const BAR = IS_MACOS ? "h-7 pl-[84px]" : "h-8 pl-3";
+const BAR = IS_MACOS ? "h-7 pl-[76px]" : "h-8 pl-3";
 
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const auth = useChat((state) => state.auth);
