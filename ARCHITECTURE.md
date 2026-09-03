@@ -820,13 +820,51 @@ backend to write to and falls back to `localStorage`.
 The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100%)`, setting rows
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the
-window rather than the content, so switching tabs doesn't resize it. The settings that need
-explaining carry an info dot on the label -- history, the two link-preview switches, the blocked
-and ignored lists, the emote-change announcement, the two emote blacklists, the notification
-toggles -- and the ones whose label
-is the whole story don't, which keeps the list scannable. A hint resets case, weight and tracking
-rather than inheriting them: it hangs inside the label it explains, and a section heading's small
-caps were being inherited into whole sentences.
+window rather than the content, so switching tabs doesn't resize it. It also starts below the
+title bar rather than at the top of the window: on macOS the traffic lights are drawn by the
+system over everything the webview renders, so a dialog reaching the top of the window would
+have them sitting in its corner.
+
+Almost nothing carries an info dot. The reader is someone who went looking for a third-party
+Twitch client, so a hint explaining what a mention or a block is reads as condescension, and a
+hint restating its own label is worse than none -- the dot promises something the tooltip then
+fails to deliver. One survives, on the log folder, because what a log file contains is a fact
+about this app that nothing on screen reveals. Where two controls genuinely needed telling apart
+the fix was the label: "Notify on any mention" became "Notify on your name without the @". A hint
+resets case, weight and tracking rather than inheriting them: it hangs inside the label it
+explains, and a section heading's small caps were being inherited into whole sentences.
+
+## The window
+
+macOS gets its native frame and every other platform doesn't. `decorations: false` buys a custom
+title bar at the cost of square corners and no system shadow, which on macOS reads as a window
+from somewhere else; [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) turns
+decorations back on with `titleBarStyle: "Overlay"`, so the system draws the frame and the
+traffic lights over our own bar and we draw no window buttons of our own. `IS_MACOS`
+([src/lib/tauri.ts](src/lib/tauri.ts)) gates that, the padding the lights land in, and the sizes
+of everything else in the row.
+
+The lights are a fixed system size. Apps that shrink them call `setFrameSize` on the buttons
+AppKit hands back, which Tauri exposes no way to reach and which is fragile enough that Warp,
+which does it, has an open issue about the buttons going unresponsive after an OS update. So they
+stay stock and the bar grew around them instead, from 28px to 36. That costs the one thing 28px
+was worth: it's the standard title bar height, the height the system centres the lights for, so
+any other height has to place them by hand. `trafficLightPosition` does that, and its `y` is not
+a distance from the top -- tao resizes the title bar container to `buttonHeight + y` and leaves
+the buttons at their own offset inside it, so the value is calibration rather than arithmetic.
+
+Size and position are remembered by `tauri-plugin-window-state`, on three flags rather than its
+default `all()`. `DECORATIONS` would let a saved value argue with the config that gives this app
+its title bar, and `VISIBLE` can restore a window hidden -- an app that starts invisible and is
+only fixable by deleting a file the user has never heard of. The plugin is worth the dependency
+for one behaviour that is easy to get wrong alone: it restores a saved position only if a monitor
+currently attached intersects it, so unplugging the screen the window was last on leaves the app
+opening somewhere you can see.
+
+Keeping the window above the others is a preference like any other, so both the title bar's pin
+and the appearance tab write `alwaysOnTop` and the window is told in one place, in
+`set_preferences`. It's restored at launch and off by default: a window that won't go behind
+anything is an unpleasant thing to inherit from a session you'd forgotten about.
 
 ## Updating itself
 
@@ -959,7 +997,10 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src/lib/notify.ts` | The synthesized mention ping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |
 | `src/components/` | Title bar, tabs, chat view, composer, pickers, user card, settings |
+| `src-tauri/src/updater.rs` | The update check, download and restart |
+| `src/lib/tauri.ts` | Whether this is the real app, whether it's macOS, and the bar's height |
 | `scripts/generate-emoji.py` | Regenerates `src/lib/emoji.json` from Unicode |
+| `scripts/bump-version.py` | Sets the version in the five files that have to agree |
 
 ## Diagnostics
 

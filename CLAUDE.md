@@ -304,23 +304,18 @@ same dynamic import: pressing the button walks idle -> available -> downloading 
   and setting one on Windows would draw a menu bar into a window that has `decorations: false`.
   Don't swap it back for `Menu::default` or `enable_macos_default_menu` -- the first breaks
   `Cmd+W`, the second takes `Cmd+Q` and the Edit items (copy and paste in the composer) with it.
-- **macOS keeps its native window frame; every other platform doesn't.** Square corners and no
-  system shadow are what `decorations: false` gets you, and on macOS that reads as a foreign
-  window. [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) turns decorations
-  back on with `titleBarStyle: "Overlay"`, so the system draws the traffic lights over our own
-  title bar and we draw no window buttons of our own -- `IS_MACOS`
-  ([src/lib/tauri.ts](src/lib/tauri.ts)) gates both that and the left padding the lights sit in.
-  The bar is 36px there rather than 32, because the traffic lights are a fixed system size and
-  the only way to stop them dominating is to give them more room -- nothing Tauri exposes can
-  scale them. That is what `trafficLightPosition` is paying for: 28px is the standard title bar
-  height, and at exactly 28 the system centres the lights for free, so any other height has to
-  place them by hand. `y` is not an offset from the top -- tao resizes the title bar container to
-  `buttonHeight + y` and lets the buttons keep their own offset inside it, so a larger `y` moves
-  them down and the value that centres them is calibration rather than arithmetic.
-  Tauri *replaces* rather than merges the
-  `app.windows` array when it picks up a platform config, so that file repeats the whole window
-  object: change a size, a title or a background colour in `tauri.conf.json` and it has to change
-  in both. `hiddenTitle` is what stops macOS drawing the window title across our own.
+- **macOS keeps its native window frame; every other platform doesn't** -- see
+  [ARCHITECTURE.md](ARCHITECTURE.md#the-window) for why. Three rules fall out of it.
+  `IS_MACOS` ([src/lib/tauri.ts](src/lib/tauri.ts)) gates the bar's height, its padding and the
+  sizes of everything in it, and `TITLE_BAR_PX` in the same file is the one place that height
+  lives -- the modals offset themselves by it so the traffic lights are never drawn over a
+  dialog, and a bar that disagreed would overlap it or leave a stripe.
+  `trafficLightPosition` is calibration, not arithmetic: a larger `y` moves the lights down, and
+  the value that centres them was found by looking, so don't "correct" it from the numbers.
+  And Tauri *replaces* rather than merges the `app.windows` array when it picks up a platform
+  config, so [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) repeats the whole
+  window object: change a size, a title or a background colour in `tauri.conf.json` and it has to
+  change in both.
 
   The config is compiled in, and `build.rs` only asks Cargo to watch the files it found *last*
   time it ran. So creating a platform config for the first time changes nothing until something
