@@ -411,8 +411,8 @@ Right-clicking a tab (or the composer, which is the same tab speaking) opens
 [AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab.
 Clicking the composer's avatar opens the same menu, and is the only way in when the tab is
 anonymous -- a disabled input takes no mouse events at all, so the right-click never reaches it.
-It's a control's menu rather than a message's, so it doesn't close when chat scrolls underneath
--- see `closeOnScroll` on `ContextMenu`, which the split menu needs for the same reason.
+Context menus stay open when chat scrolls underneath them. They still close on selection, outside
+click, Escape, window blur, or when the caller replaces them with another menu.
 
 The single-row mode ([src/components/TabBar.tsx](src/components/TabBar.tsx), behind the
 `singleRowTabs` preference, and the default) skips that measurement entirely and clears any
@@ -531,10 +531,8 @@ drop -- so the tab being dragged lives in a small store of its own
 ([src/store/tabDrag.ts](src/store/tabDrag.ts)) that both bars and both panes can see. A pane
 accepts a drop anywhere in its body, not just on its tab bar: an empty one has no tab to aim at.
 
-The split menu hangs off a title-bar button, which is why `ContextMenu` grew `closeOnScroll`.
-A menu opened *on* a message has to close when chat scrolls out from under it; a menu belonging
-to a fixed control must not, or it would be unopenable in a busy channel -- chat scrolls itself
-every time a message lands.
+The split menu hangs off a title-bar button. Like message, tab, and account menus, it remains open
+while chat moves; incoming messages and manual scrolling are not dismissal actions.
 
 ## Message history
 

@@ -171,7 +171,6 @@ function SplitButton() {
           x={menu.x}
           y={menu.y}
           options={options}
-          closeOnScroll={false}
           onClose={() => setMenu(null)}
         />
       )}

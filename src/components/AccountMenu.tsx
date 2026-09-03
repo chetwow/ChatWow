@@ -86,5 +86,5 @@ export function AccountMenu({
     { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
   ];
 
-  return <ContextMenu x={x} y={y} options={options} closeOnScroll={false} onClose={onClose} />;
+  return <ContextMenu x={x} y={y} options={options} onClose={onClose} />;
 }

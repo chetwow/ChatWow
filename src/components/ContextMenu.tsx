@@ -14,25 +14,17 @@ export type ContextMenuOption =
 /**
  * A minimal fixed-position menu, positioned at the (x, y) it's opened at and
  * clamped back on-screen once its size is known. Closes itself on an outside
- * click, Escape, window blur, or scroll -- callers just supply `options`.
+ * click, Escape, or window blur -- callers just supply `options`.
  */
 export function ContextMenu({
   x,
   y,
   options,
-  closeOnScroll = true,
   onClose,
 }: {
   x: number;
   y: number;
   options: ContextMenuOption[];
-  /**
-   * Whether a scroll anywhere closes the menu. True for a menu opened *on*
-   * something, which slides out from under it. False for one belonging to a
-   * fixed control: chat scrolls on its own every time a message lands, and a
-   * menu that closed on that would be unopenable in a busy channel.
-   */
-  closeOnScroll?: boolean;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -59,14 +51,12 @@ export function ContextMenu({
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", onClose);
-    if (closeOnScroll) window.addEventListener("scroll", onClose, true);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", onClose);
-      window.removeEventListener("scroll", onClose, true);
     };
-  }, [onClose, closeOnScroll]);
+  }, [onClose]);
 
   return (
     <div
