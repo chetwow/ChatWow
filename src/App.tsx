@@ -61,26 +61,69 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // A right-click selects the word under it by default -- the browser
-  // preparing for a menu that isn't ours. `user-select: none` doesn't stop it,
-  // so this does, on the way in: the selection is made on mousedown, before
-  // the `contextmenu` event our own menus are opened from, which still fires.
-  // A selection made by dragging is untouched, since preventing a default is
-  // what stops one being made rather than what clears one.
+  // A right-click selects the word under it, which is the webview preparing
+  // for a menu that isn't ours -- and it means a right-click arrives carrying a
+  // word nobody chose, which Copy would then offer as "the selection".
   //
-  // Window-wide rather than per-scroller: chat is not the only place with text
-  // in it, and the title bar and tabs were selecting too.
+  // Three defences, because one isn't portable. Chromium (Windows, Linux)
+  // honours the prevented default on mousedown. WebKit makes the selection in
+  // its own layer as part of opening its menu, where no DOM default is
+  // consulted at all, so there it's taken back afterwards instead -- and on a
+  // later tick as well as immediately, since it can be made after `contextmenu`
+  // has already fired.
+  //
+  // Only ever a selection this right-click created: one made by dragging is
+  // still there when the button goes down, and right-clicking inside it to copy
+  // it has to keep working.
   useEffect(() => {
+    let fromRightClick = false;
+    let hadSelection = false;
+
+    const editable = (target: EventTarget | null) =>
+      !!(target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']");
+
+    const clearIfOurs = () => {
+      if (!hadSelection) window.getSelection()?.removeAllRanges();
+    };
+
     const onMouseDown = (event: MouseEvent) => {
       if (event.button !== 2) return;
       // Except in a field you can type in, where right-click is how you reach
       // Paste and needs to put the caret somewhere first.
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (editable(event.target)) return;
+      fromRightClick = true;
+      hadSelection = !!window.getSelection()?.toString();
       event.preventDefault();
     };
-    window.addEventListener("mousedown", onMouseDown, { capture: true });
-    return () => window.removeEventListener("mousedown", onMouseDown, { capture: true });
+
+    const onSelectStart = (event: Event) => {
+      if (fromRightClick && !editable(event.target)) event.preventDefault();
+    };
+
+    // Capture, so this runs before the menus that read the selection to decide
+    // what Copy should offer.
+    const onContextMenu = () => {
+      if (!fromRightClick) return;
+      clearIfOurs();
+      setTimeout(clearIfOurs, 0);
+      fromRightClick = false;
+    };
+
+    const onMouseUp = () => {
+      fromRightClick = false;
+    };
+
+    const options = { capture: true } as const;
+    window.addEventListener("mousedown", onMouseDown, options);
+    window.addEventListener("selectstart", onSelectStart, options);
+    window.addEventListener("contextmenu", onContextMenu, options);
+    window.addEventListener("mouseup", onMouseUp, options);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown, options);
+      window.removeEventListener("selectstart", onSelectStart, options);
+      window.removeEventListener("contextmenu", onContextMenu, options);
+      window.removeEventListener("mouseup", onMouseUp, options);
+    };
   }, []);
 
   return (
