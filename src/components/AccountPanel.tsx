@@ -33,7 +33,11 @@ function Permissions({
 
   const holders = (group: PermissionGroup) =>
     auth.accounts.filter((account) =>
-      group.scopes.some((scope) => account.scopes.includes(scope)),
+      group.scopes.every((scope) => account.scopes.includes(scope)),
+    );
+  const missing = (group: PermissionGroup) =>
+    auth.accounts.filter(
+      (account) => !group.scopes.every((scope) => account.scopes.includes(scope)),
     );
   const isChecked = (group: PermissionGroup) =>
     group.required || auth.permissionGroups.includes(group.id);
@@ -54,12 +58,15 @@ function Permissions({
     }
   };
 
-  // Ticked, and some signed-in account is missing it. Signed out this is just
-  // the plan for the next sign-in; with accounts in hand it's a real gap, and
-  // the only way to close it is another trip through the consent screen.
-  const short = auth.permissionCatalog.filter(
-    (group) => isChecked(group) && holders(group).length < auth.accounts.length,
+  // Only opt-in groups belong in this notice: required scopes weren't a
+  // permission the user just changed and old tokens may legitimately report
+  // them differently. Their row still shows the token's actual state.
+  const pending = auth.permissionCatalog.filter(
+    (group) => !group.required && isChecked(group) && missing(group).length > 0,
   );
+  const pendingAccounts = [
+    ...new Set(pending.flatMap((group) => missing(group).map((account) => account.login))),
+  ];
 
   return (
     <Section
@@ -69,6 +76,7 @@ function Permissions({
       <div className="space-y-1.5">
         {auth.permissionCatalog.map((group) => {
           const held = holders(group);
+          const absent = missing(group);
           return (
             <div key={group.id} className="flex items-center gap-2">
               <input
@@ -98,18 +106,18 @@ function Permissions({
                     ? "granted"
                     : held.length === 0
                       ? "not granted"
-                      : held.map((account) => account.login).join(", ")}
+                      : `missing: ${absent.map((account) => account.login).join(", ")}`}
               </span>
             </div>
           );
         })}
       </div>
 
-      {short.length > 0 && auth.accounts.length > 0 && (
+      {pending.length > 0 && auth.accounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-amber-400/10 px-2 py-1.5">
           <span className="min-w-0 flex-1 text-[11px] text-amber-200/90">
-            Twitch only grants permissions at sign-in, so an account signed in before you ticked
-            one doesn't have it. Sign that account in again to catch it up.
+            Re-add {pendingAccounts.join(", ")} to grant the newly enabled permissions. This
+            reminder will disappear once every listed account has them.
           </span>
           <button
             onClick={onGrant}
