@@ -33,3 +33,5 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   made listeners created from a chatter's context menu start with notifications disabled while
   retaining their one-time backfill of that user's current-channel messages.
 - Kept context menus open when incoming messages or manual scrolling move the chat beneath them.
+- Kept live messages arriving during recent-history loading in order and removed overlapping
+  history copies of those messages.

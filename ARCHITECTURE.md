@@ -51,10 +51,12 @@ emote resolution and renderer as the live socket, so a replayed message is indis
 one that just arrived except for the flag. That flag matters: a backlog isn't news, so it never
 pings, reddens a tab or counts as unread, however recently it was said.
 
-Two details it's easy to get wrong. The fetch happens *before* the session is marked ready, so
-live messages keep buffering and the backlog can be placed above them rather than under them.
-And the history runs up to now while the buffer starts partway through it, so the two overlap by
-however long the fetches took -- Twitch's message ids settle that exactly.
+Two details it's easy to get wrong. The session remains unready until the backlog and every live
+message buffered behind it have been queued in final order. That transition is protected by the
+session write lock, so a new socket message cannot observe readiness and jump into the middle of
+the backlog. And the history runs up to now while the buffer starts partway through it, so the two
+overlap by however long the fetches took -- Twitch's message ids settle that exactly, preferring
+the live copy so it is not treated as historical.
 
 It's fetched per *session*, not per channel: a second account opening a channel the first is
 already in is a fresh join with its own backlog, even though the room's emotes and badges are

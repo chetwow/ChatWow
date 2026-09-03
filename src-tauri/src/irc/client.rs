@@ -156,6 +156,22 @@ fn render_and_queue(
     let _ = sink.send(message);
 }
 
+/// Backlog first, then the live lines buffered while it loaded.
+///
+/// The history service can contain the same Twitch message the socket already
+/// delivered. Prefer the live copy so it keeps its non-historical behavior.
+fn initial_join_messages<'a>(
+    backlog: &'a [IrcMessage],
+    pending: &'a [IrcMessage],
+) -> Vec<&'a IrcMessage> {
+    let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
+    backlog
+        .iter()
+        .filter(|message| !message.tag("id").is_some_and(|id| live.contains(id)))
+        .chain(pending)
+        .collect()
+}
+
 /// One provider's answer, or nothing -- a provider that's switched off is
 /// never asked, and one that's down or slow costs only its own emotes.
 async fn or_empty<T: Default>(
@@ -349,37 +365,33 @@ async fn load_channel_assets(
     };
 
     let emote_count = state.data.read().get(&channel).map(|data| data.emotes.len()).unwrap_or(0);
-    let pending = {
+    let key = (account.clone(), channel.clone());
+    {
+        // Keep the session write-locked and unready until every queued line is
+        // in the sink. The socket cannot observe `ready` halfway through and
+        // interleave a new line above the remaining history.
         let mut sessions = state.sessions.write();
-        let session = sessions.entry((account.clone(), channel.clone())).or_default();
+        // The tab may have been closed while its network requests were in flight.
+        let Some(session) = sessions.get_mut(&key) else { return };
         session.twitch_emotes = twitch_emote_names;
-        session.ready = true;
+        let pending = std::mem::take(&mut session.pending);
         // Where a later reconnect starts looking, set from everything about
         // to go on screen rather than from the live messages alone: a channel
         // that says nothing between the join and the drop would otherwise
         // have no mark at all, and recover its whole history as though none
         // of it had been seen.
-        let newest = backlog.iter().chain(session.pending.iter()).map(render::timestamp).max();
+        let newest = backlog.iter().chain(pending.iter()).map(render::timestamp).max();
         if let Some(newest) = newest {
             session.last_seen.fetch_max(newest, Ordering::Relaxed);
         }
-        std::mem::take(&mut session.pending)
-    };
 
-    // The history runs up to now and `pending` starts partway through it, so
-    // the two overlap by however long the fetches took. Twitch's message ids
-    // settle it exactly.
-    let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
-
-    for message in &backlog {
-        if message.tag("id").is_some_and(|id| live.contains(id)) {
-            continue;
+        // The history runs up to now and `pending` starts partway through it,
+        // so the two overlap by however long the fetches took. Twitch's
+        // message ids settle it exactly.
+        for message in initial_join_messages(&backlog, &pending) {
+            render_and_queue(&state, &sink, &account, &channel, message);
         }
-        render_and_queue(&state, &sink, &account, &channel, message);
-    }
-
-    for message in &pending {
-        render_and_queue(&state, &sink, &account, &channel, message);
+        session.ready = true;
     }
 
     let _ = app.emit(
@@ -421,34 +433,44 @@ async fn resume_channel(
     };
 
     let key = (account.clone(), channel.clone());
-    let pending = {
+    let (recovered_len, backlog_len) = {
         let mut sessions = state.sessions.write();
         // Parted while we were asking -- there's no view left to fill in.
         let Some(session) = sessions.get_mut(&key) else { return };
+        let pending = std::mem::take(&mut session.pending);
+
+        // The socket came back before the fetch did, so the newest of what the
+        // service has is also sitting in `pending`. Ids settle the overlap,
+        // the same way they do on a join.
+        let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
+        let recovered = missed(&backlog, since, &live);
+        let newest = recovered
+            .iter()
+            .copied()
+            .chain(pending.iter())
+            .map(render::timestamp)
+            .max();
+        if let Some(newest) = newest {
+            session.last_seen.fetch_max(newest, Ordering::Relaxed);
+        }
+
+        // Stay unready, under the write lock, until the recovered and buffered
+        // lines are queued in their final order. New socket traffic follows
+        // only after this guard is released.
+        for message in &recovered {
+            render_and_queue(&state, &sink, &account, &channel, message);
+        }
+        let _ = sink.send(stamped(&account, &channel, resumed(recovered.len())));
+        for message in &pending {
+            render_and_queue(&state, &sink, &account, &channel, message);
+        }
         session.ready = true;
-        std::mem::take(&mut session.pending)
+        (recovered.len(), backlog.len())
     };
 
-    // The socket came back before the fetch did, so the newest of what the
-    // service has is also sitting in `pending`. Ids settle the overlap, the
-    // same way they do on a join.
-    let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
-
-    let recovered = missed(&backlog, since, &live);
-    for message in &recovered {
-        render_and_queue(&state, &sink, &account, &channel, message);
-    }
-
     log::info!(
-        "resumed #{channel} as {account}: {} of {} history lines were missed",
-        recovered.len(),
-        backlog.len(),
+        "resumed #{channel} as {account}: {recovered_len} of {backlog_len} history lines were missed",
     );
-    let _ = sink.send(stamped(&account, &channel, resumed(recovered.len())));
-
-    for message in &pending {
-        render_and_queue(&state, &sink, &account, &channel, message);
-    }
 }
 
 /// The lines from a history fetch that actually belong in the gap.
@@ -582,10 +604,16 @@ fn handle_line(
             if ready {
                 render_and_queue(state, sink, account, &channel, &msg);
             } else {
-                // Hold the message until emotes land so it renders correctly.
+                // Hold the message until emotes and history land so it renders
+                // correctly and in order. Recheck readiness under the write
+                // lock: the join may have completed after the read above.
                 let mut sessions = state.sessions.write();
                 let session = sessions.entry(key).or_default();
-                if session.pending.len() < MAX_PENDING {
+                session.last_seen.fetch_max(render::timestamp(&msg), Ordering::Relaxed);
+                if session.ready {
+                    drop(sessions);
+                    render_and_queue(state, sink, account, &channel, &msg);
+                } else if session.pending.len() < MAX_PENDING {
                     session.pending.push(msg);
                 }
             }
@@ -906,6 +934,24 @@ mod tests {
             "@id={id};tmi-sent-ts={ts} :a!a@a.tmi.twitch.tv PRIVMSG #forsen :hi"
         ))
         .expect("a parseable line")
+    }
+
+    fn historical_line(id: &str, ts: i64) -> IrcMessage {
+        parse::parse(&format!(
+            "@historical=1;id={id};tmi-sent-ts={ts} :a!a@a.tmi.twitch.tv PRIVMSG #forsen :hi"
+        ))
+        .expect("a parseable historical line")
+    }
+
+    #[test]
+    fn initial_history_precedes_live_and_overlap_prefers_the_live_copy() {
+        let backlog = [historical_line("old", 1_000), historical_line("both", 2_000)];
+        let pending = [line("both", 2_000), line("new", 3_000)];
+
+        let joined = initial_join_messages(&backlog, &pending);
+        let ids: Vec<&str> = joined.iter().filter_map(|message| message.tag("id")).collect();
+        assert_eq!(ids, ["old", "both", "new"]);
+        assert_eq!(joined[1].tag("historical"), None, "the live duplicate wins");
     }
 
     #[test]
