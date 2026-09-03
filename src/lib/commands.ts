@@ -49,7 +49,7 @@ export const COMMANDS: ChatCommand[] = [
   {
     name: "color",
     args: "<color>",
-    summary: "Set your name color -- a Twitch color name, or a hex code with Turbo or Prime.",
+    summary: "Set your name color. Hex codes need Turbo or Prime.",
     scope: "user:manage:chat_color",
   },
   {
@@ -110,7 +110,7 @@ export const COMMANDS: ChatCommand[] = [
   {
     name: "timeout",
     args: "<user> [duration] [reason]",
-    summary: "Time someone out -- 10 minutes unless you give a duration like 30s or 1h.",
+    summary: "Time someone out. 10 minutes unless you give a duration.",
     scope: MODERATE_USERS,
   },
   {
@@ -339,7 +339,7 @@ export function helpLines(query: string, auth: AuthStatus, account: string): str
     // together, so one being present means the group was approved.
     const held = scopesOf(auth, account);
     const granted = group.scopes.some((scope) => held.includes(scope));
-    const suffix = granted ? "" : " -- not granted yet, see Settings, under Accounts";
+    const suffix = granted ? "" : " (not granted, see Settings, Accounts)";
     lines.push(`${group.label}${suffix}: ${names(covered)}`);
   }
   lines.push("Type /help <command> for one command's arguments.");

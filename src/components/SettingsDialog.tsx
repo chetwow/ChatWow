@@ -376,7 +376,7 @@ function UpdateButton() {
       case "downloading":
         return [null, percent === null ? "Downloading..." : `Downloading... ${percent}%`];
       case "ready":
-        return [restartForUpdate, "Ready -- restart to finish"];
+        return [restartForUpdate, "Restart to finish"];
       case "failed":
         return [checkForUpdate, update.error ?? "Couldn't check"];
       default:
@@ -649,7 +649,6 @@ export function SettingsDialog({
   const updatePreferences = useChat((state) => state.updatePreferences);
   const setMentionIgnored = useChat((state) => state.setMentionIgnored);
   const setUserBlocked = useChat((state) => state.setUserBlocked);
-  const auth = useChat((state) => state.auth);
 
   // Escape closes, matching every other dialog in the app.
   useEffect(() => {
@@ -720,20 +719,14 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Links">
-                <Row
-                  label="Preview image links"
-                  hint="Covers direct image links and 7TV emote links."
-                >
+                <Row label="Preview image links">
                   <Toggle
                     checked={preferences.previewImages}
                     onChange={(previewImages) => updatePreferences({ previewImages })}
                     label="Preview image links"
                   />
                 </Row>
-                <Row
-                  label="Preview other links"
-                  hint="Shows the page's own title and thumbnail."
-                >
+                <Row label="Preview other links">
                   <Toggle
                     checked={preferences.previewPages}
                     onChange={(previewPages) => updatePreferences({ previewPages })}
@@ -750,10 +743,7 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Updates">
-                <Row
-                  label="Check for updates on launch"
-                  hint="Nothing is downloaded until you choose to install it."
-                >
+                <Row label="Check for updates on launch">
                   <Toggle
                     checked={preferences.checkForUpdates}
                     onChange={(checkForUpdates) => updatePreferences({ checkForUpdates })}
@@ -764,10 +754,7 @@ export function SettingsDialog({
                   <UpdateButton />
                 </Row>
               </Section>
-              <Section
-                title="Blocked"
-                hint="Hides their messages everywhere. Twitch is not told."
-              >
+              <Section title="Blocked">
                 <NameListEditor
                   entries={preferences.blockedUsers}
                   placeholder="Twitch username"
@@ -933,10 +920,7 @@ export function SettingsDialog({
               <Section title="Changes">
                 {/* Off only stops the line. A set that changes while you're
                     reading still changes what you can type either way. */}
-                <Row
-                  label="Announce 7TV emote changes"
-                  hint="The emotes change either way."
-                >
+                <Row label="Announce 7TV emote changes">
                   <Toggle
                     checked={preferences.announceEmoteChanges}
                     onChange={(announceEmoteChanges) =>
@@ -946,22 +930,16 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section
-                title="Hidden emotes"
-                hint="Shown as their name instead of a picture."
-              >
+              <Section title="Hidden emotes">
                 <BlacklistEditor
                   list="emoteBlacklist"
                   empty="Nothing hidden. Right-click an emote in chat to add one."
                 />
               </Section>
-              <Section
-                title="Hidden from autocomplete"
-                hint="Separate from the hidden emotes above."
-              >
+              <Section title="Hidden from autocomplete">
                 <BlacklistEditor
                   list="emoteCompleteBlacklist"
-                  empty="Nothing blocked. Every loaded emote is completable."
+                  empty="Nothing hidden from Tab or the : picker."
                 />
               </Section>
             </div>
@@ -970,32 +948,21 @@ export function SettingsDialog({
           {tab === "notifications" && (
             <div className="flex flex-col gap-5">
               <Section title="Mentions">
-                <Row
-                  label="Notify when tagged"
-                  hint={`Sounds when someone writes @${
-                    auth.accounts[0]?.login ?? "yourname"
-                  }.`}
-                >
+                <Row label="Notify when tagged">
                   <Toggle
                     checked={preferences.notifyOnTag}
                     onChange={(notifyOnTag) => updatePreferences({ notifyOnTag })}
                     label="Notify when tagged"
                   />
                 </Row>
-                <Row
-                  label="Notify on any mention"
-                  hint="Also sounds when your name is used without the @."
-                >
+                <Row label="Notify on your name without the @">
                   <Toggle
                     checked={preferences.notifyOnName}
                     onChange={(notifyOnName) => updatePreferences({ notifyOnName })}
-                    label="Notify on any mention"
+                    label="Notify on your name without the @"
                   />
                 </Row>
-                <Row
-                  label="Notify for active tab"
-                  hint="Also sounds for mentions in the channel you are already reading."
-                >
+                <Row label="Notify for active tab">
                   <Toggle
                     checked={preferences.notifyActiveTab}
                     onChange={(notifyActiveTab) => updatePreferences({ notifyActiveTab })}
@@ -1003,10 +970,7 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section
-                title="Ignored"
-                hint="@name for one person, #name for a whole channel."
-              >
+              <Section title="Ignored">
                 <NameListEditor
                   entries={preferences.mentionIgnores}
                   placeholder="@user or #channel"

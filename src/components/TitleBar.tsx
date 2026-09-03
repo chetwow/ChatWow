@@ -197,7 +197,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
 
       <button
         onClick={() => onOpenSettings("general")}
-        aria-label={updatePending ? "Settings -- an update is waiting" : "Settings"}
+        aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
         title={updatePending ? "An update is waiting" : "Settings"}
         className="relative mr-1 grid h-6 w-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
       >
