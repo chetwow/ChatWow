@@ -143,7 +143,31 @@ export function MentionFilterEditor({
         </label>
 
         <div>
-          <div className="mb-1 text-[11px] text-ink-faint">Your accounts</div>
+          <div className="mb-1 text-[11px] text-ink-faint">Listen in these channels</div>
+          <div className="flex flex-wrap gap-1">
+            {channels.length > 0 ? (
+              channels.map((channel) => (
+                <Choice
+                  key={channel}
+                  label={`#${channel}`}
+                  selected={selectedChannels.includes(channel)}
+                  onClick={() =>
+                    setSelectedChannels((held) =>
+                      toggle(held, channel, held.includes(channel)),
+                    )
+                  }
+                />
+              ))
+            ) : (
+              <span className="text-[11px] text-ink-faint">Open a channel tab first.</span>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1 text-[11px] text-ink-faint">
+            Listen for mentions of your accounts
+          </div>
           <div className="flex flex-wrap gap-1">
             {accounts.length > 0 ? (
               accounts.map((account) => (
@@ -167,7 +191,9 @@ export function MentionFilterEditor({
         </div>
 
         <div>
-          <div className="mb-1 text-[11px] text-ink-faint">Other users</div>
+          <div className="mb-1 text-[11px] text-ink-faint">
+            Listen for messages from other users
+          </div>
           <div className="flex gap-1">
             <input
               value={user}
@@ -209,35 +235,10 @@ export function MentionFilterEditor({
               ))}
             </div>
           )}
-          <div className="mt-1 text-[10px] text-ink-faint">
-            Every message these users send in the selected channels is included.
-          </div>
         </div>
 
         <div>
-          <div className="mb-1 text-[11px] text-ink-faint">Channels</div>
-          <div className="flex flex-wrap gap-1">
-            {channels.length > 0 ? (
-              channels.map((channel) => (
-                <Choice
-                  key={channel}
-                  label={`#${channel}`}
-                  selected={selectedChannels.includes(channel)}
-                  onClick={() =>
-                    setSelectedChannels((held) =>
-                      toggle(held, channel, held.includes(channel)),
-                    )
-                  }
-                />
-              ))
-            ) : (
-              <span className="text-[11px] text-ink-faint">Open a channel tab first.</span>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1 text-[11px] text-ink-faint">Phrases</div>
+          <div className="mb-1 text-[11px] text-ink-faint">Listen for the phrases</div>
           <div className="flex gap-1">
             <input
               value={phrase}

@@ -253,12 +253,12 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     <div
       data-modal
       style={{ top: TITLE_BAR_PX }}
-      className="fixed inset-x-0 bottom-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[18vh] backdrop-blur-[2px]"
+      className="fixed inset-x-0 bottom-0 z-50 flex items-start justify-center bg-black/60 px-4 py-[8vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="scroller max-h-[78vh] w-[min(460px,100%)] overflow-y-auto rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
+        className="scroller max-h-full w-[min(460px,100%)] overflow-y-auto rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
       >
         <div className="flex items-center gap-2 border-b border-line px-3">
           <span className="text-[15px] text-ink-faint">#</span>
@@ -332,19 +332,6 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <div className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
-          {!canSearch ? (
-            // Helix has no unauthenticated channel search, so this is a real
-            // limit rather than something to paper over -- but typing a name
-            // still works, which is worth saying in the same breath.
-            <>Sign in to search channels, or type a name and press Enter</>
-          ) : (
-            <>
-              Press <kbd className="rounded bg-line px-1">Enter</kbd> to join,{" "}
-              <kbd className="rounded bg-line px-1">Esc</kbd> to close
-            </>
-          )}
-        </div>
       </div>
     </div>
   );

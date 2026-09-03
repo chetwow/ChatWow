@@ -20,6 +20,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a listener for that user in the current channel.
 - Added a configurable warning before closing the last channel tab feeding a mentions listener.
 
+### Changed
+
+- Moved the new-tab panel higher and increased its available height for listener configuration.
+- Reordered and clarified listener filter labels, and removed redundant helper and keyboard-
+  instruction text.
+
 ### Fixed
 
 - Fixed the account permission reminder so required scopes cannot hold it open and it disappears
