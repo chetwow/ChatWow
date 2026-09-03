@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useChat } from "../store/chat";
-import { IS_MACOS, IS_TAURI } from "../lib/tauri";
+import { IS_MACOS } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
 import type { AuthStatus } from "../types";
@@ -49,11 +49,11 @@ function MuteButton() {
       aria-label={label}
       aria-pressed={muted}
       title={label}
-      className={`mr-1 grid h-6 w-6 place-items-center rounded transition-colors hover:bg-surface-hover ${
+      className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         muted ? "text-rose-400/80 hover:text-rose-300" : "text-ink-dim hover:text-ink"
       }`}
     >
-      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <svg viewBox="0 0 16 16" width={GLYPH} height={GLYPH} fill="none" stroke="currentColor" strokeWidth="1.4">
         <path d="M8.5 3 5 6H2.5v4H5l3.5 3z" strokeLinejoin="round" />
         {muted ? (
           <path d="M11 6.5l3.5 3.5M14.5 6.5L11 10" strokeLinecap="round" />
@@ -84,7 +84,7 @@ function PinButton() {
       aria-label={label}
       aria-pressed={pinned}
       title={label}
-      className={`mr-1 grid h-6 w-6 place-items-center rounded transition-colors hover:bg-surface-hover ${
+      className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         pinned ? "text-accent" : "text-ink-dim hover:text-ink"
       }`}
     >
@@ -93,8 +93,8 @@ function PinButton() {
           from the weight of the mark rather than from colour alone. */}
       <svg
         viewBox="0 0 16 16"
-        width="13"
-        height="13"
+        width={GLYPH}
+        height={GLYPH}
         fill={pinned ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth="1.4"
@@ -154,14 +154,14 @@ function SplitButton() {
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         title="Split view"
-        className={`mr-1 grid h-6 w-6 place-items-center rounded transition-colors hover:bg-surface-hover ${
+        className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
           layout === "none" ? "text-ink-dim hover:text-ink" : "text-accent hover:text-accent"
         }`}
       >
         {/* A pane with a divider through it, turned the way the window is
             actually divided -- upright while there's no split, since that's
             what picking one would give you. */}
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.3">
+        <svg viewBox="0 0 16 16" width={GLYPH} height={GLYPH} fill="none" stroke="currentColor" strokeWidth="1.3">
           <rect x="1.7" y="2.7" width="12.6" height="10.6" rx="1.6" />
           {layout === "column" ? <path d="M1.7 8h12.6" /> : <path d="M8 2.7v10.6" />}
         </svg>
@@ -193,19 +193,24 @@ function accountLabel(auth: AuthStatus): string {
 /**
  * The bar itself, which macOS shapes differently.
  *
- * 28px because that is the height of a standard macOS title bar, and standard
- * is exactly what the traffic lights are placed for: leave the bar that tall
- * and the system centres them in it with no help. `trafficLightPosition` is
- * deliberately not set -- it doesn't mean "put them here", it resizes the
- * title bar container to `buttonHeight + y` and lets the buttons keep their
- * own offset inside it, so the number that centres them is a guess about
- * AppKit's internals rather than a measurement. Matching the height it already
- * expects needs no number at all.
+ * Taller on macOS, so the traffic lights stop dominating it. They are a system
+ * size and can't be scaled through any API Tauri exposes, so the only way to
+ * make them look smaller is to give them more room.
+ *
+ * That costs the free vertical centring a 28px bar got: 28 is the standard
+ * macOS title bar height, which is the height the lights are placed for, so
+ * anything taller needs `trafficLightPosition` in tauri.macos.conf.json to put
+ * them back in the middle. Everything else here centres itself, since the bar
+ * is a flex row with `items-center`.
  *
  * The padding clears the lights, which end about 66px in. The gap after them
  * is the only part of this that's taste rather than arithmetic.
  */
-const BAR = IS_MACOS ? "h-7 pl-[76px]" : "h-8 pl-3";
+const BAR = IS_MACOS ? "h-9 pl-[76px]" : "h-8 pl-3";
+
+/** The icon buttons, sized to the bar they sit in. */
+const ICON_BOX = IS_MACOS ? "h-7 w-7" : "h-6 w-6";
+const GLYPH = IS_MACOS ? 14 : 13;
 
 export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab) => void }) {
   const auth = useChat((state) => state.auth);
@@ -231,11 +236,6 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         >
           ChatWow
         </span>
-        {!IS_TAURI && (
-          <span className="shrink-0 whitespace-nowrap rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-400">
-            PREVIEW · MOCK DATA
-          </span>
-        )}
       </div>
 
       <div data-tauri-drag-region className="flex-1" />
@@ -255,12 +255,12 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         onClick={() => onOpenSettings("general")}
         aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
         title={updatePending ? "An update is waiting" : "Settings"}
-        className="relative mr-1 grid h-6 w-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+        className={`relative mr-1 grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
       >
         {/* A cog, not a sun: the teeth are a heavy dashed ring around the
             body circle, which reads as a gear at 13px without hand-plotting
             eight trapezoids. */}
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor">
+        <svg viewBox="0 0 16 16" width={GLYPH} height={GLYPH} fill="none" stroke="currentColor">
           <circle cx="8" cy="8" r="5.15" strokeWidth="2.1" strokeDasharray="2.15 2.25" />
           <circle cx="8" cy="8" r="4.15" strokeWidth="1.3" />
           <circle cx="8" cy="8" r="1.75" strokeWidth="1.3" />
