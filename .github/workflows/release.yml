@@ -120,7 +120,13 @@ jobs:
             - **Linux** — `.AppImage`, `.deb` or `.rpm`
 
             ChatWow updates itself from here — Settings → General → Updates.
-            The `.deb` and `.rpm` are the exception: replace those by hand.
+            You only need to come back to this page once: install this version by
+            hand, and it will offer you the next one on its own.
+
+            **macOS is the exception**, until the app is signed: it will tell you
+            when a new version is out, but you'll download it from here. Swapping
+            an unsigned app bundle in place is what makes macOS declare the app
+            damaged, which is worse than an honest link.
 
             Nothing here is code-signed yet, so both Windows and macOS will want
             convincing on first launch.
