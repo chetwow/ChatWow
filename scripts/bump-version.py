@@ -13,7 +13,10 @@ what's on the release. If the two disagree, an installed copy will either offer
 an update to a version it already is or refuse the one it isn't.
 
 Refuses to run on a dirty tree: this rewrites five files at once, and `git
-checkout` is the only sane undo.
+checkout` is the only sane undo. Commits them too, unless `--no-commit` is
+passed -- a tag put on the commit *before* the bump names a version the build
+doesn't contain, and the release then goes out as the previous one. Committing
+here is what makes the tag command this prints safe to run as printed.
 """
 
 import json
@@ -74,9 +77,11 @@ def set_cargo_lock(path: Path, version: str) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        fail("usage: bump-version.py <version>, e.g. 0.6.0")
-    version = sys.argv[1].lstrip("v")
+    args = [a for a in sys.argv[1:] if a != "--no-commit"]
+    commit = "--no-commit" not in sys.argv[1:]
+    if len(args) != 1:
+        fail("usage: bump-version.py [--no-commit] <version>, e.g. 0.6.0")
+    version = args[0].lstrip("v")
     if not VERSION_RE.match(version):
         fail(f'"{version}" is not a version -- expected something like 0.6.0 or 0.6.0-rc.1')
 
@@ -92,8 +97,28 @@ def main() -> None:
     set_json(ROOT / "src-tauri" / "tauri.conf.json", version, [["version"]])
     set_cargo_lock(ROOT / "src-tauri" / "Cargo.lock", version)
 
+    files = [
+        "package.json",
+        "package-lock.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/tauri.conf.json",
+        "src-tauri/Cargo.lock",
+    ]
     print(f"set five files to {version}")
-    print("review, commit, then:")
+
+    if not commit:
+        # Deliberately no tag command here: running one before the bump is
+        # committed is the exact mistake this script exists to prevent.
+        print("not committed, as asked. Commit them before you tag anything:")
+        print(f'  git commit -am "Version {version}"')
+        return
+
+    subprocess.run(["git", "add", *files], cwd=ROOT, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", f"Version {version}"], cwd=ROOT, check=True)
+    head = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    print(f"committed as {head}. To build the installers:")
     print(f"  git tag v{version} && git push origin v{version}")
 
 
