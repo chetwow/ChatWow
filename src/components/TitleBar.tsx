@@ -49,7 +49,7 @@ function MuteButton() {
       aria-label={label}
       aria-pressed={muted}
       title={label}
-      className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
+      className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         muted ? "text-rose-400/80 hover:text-rose-300" : "text-ink-dim hover:text-ink"
       }`}
     >
@@ -84,7 +84,7 @@ function PinButton() {
       aria-label={label}
       aria-pressed={pinned}
       title={label}
-      className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
+      className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         pinned ? "text-accent" : "text-ink-dim hover:text-ink"
       }`}
     >
@@ -154,7 +154,7 @@ function SplitButton() {
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         title="Split view"
-        className={`mr-1 grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
+        className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
           layout === "none" ? "text-ink-dim hover:text-ink" : "text-accent hover:text-accent"
         }`}
       >
@@ -206,10 +206,13 @@ function accountLabel(auth: AuthStatus): string {
  * The padding clears the lights, which end about 66px in. The gap after them
  * is the only part of this that's taste rather than arithmetic.
  */
-const BAR = IS_MACOS ? "pl-[84px]" : "pl-3";
+const BAR = IS_MACOS ? "pl-[84px] pr-1" : "pl-3";
 
 /** Everything else in the bar, sized to the bar it sits in. */
-const ICON_BOX = IS_MACOS ? "h-8 w-8" : "h-6 w-6";
+// The box is the hover target, not the icon. Squeezing it tightens the row
+// without shrinking anything you can see, so the glyphs stay at 16.
+const ICON_BOX = IS_MACOS ? "h-7 w-7" : "h-6 w-6";
+const ICON_GAP = IS_MACOS ? "" : "mr-1";
 const GLYPH = IS_MACOS ? 16 : 13;
 const TEXT = IS_MACOS ? "text-[12px]" : "text-[11px]";
 
@@ -257,7 +260,7 @@ export function TitleBar({ onOpenSettings }: { onOpenSettings: (tab: SettingsTab
         onClick={() => onOpenSettings("general")}
         aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
         title={updatePending ? "An update is waiting" : "Settings"}
-        className={`relative mr-1 grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
+        className={`relative ${ICON_GAP} grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
       >
         {/* A cog, not a sun: the teeth are a heavy dashed ring around the
             body circle, which reads as a gear at 13px without hand-plotting
