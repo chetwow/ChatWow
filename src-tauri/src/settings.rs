@@ -42,7 +42,41 @@ pub struct Account {
 /// you ever sign in, and it stays available per tab afterwards.
 pub const ANONYMOUS: &str = "";
 
-/// One tab: a channel read as some account, or the mentions collected for one.
+/// What a custom mentions tab listens for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MentionFilter {
+    /// The label drawn in the tab bar.
+    pub name: String,
+    /// Signed-in account ids whose logins should count as "you".
+    pub accounts: Vec<String>,
+    /// Chatter logins whose every message should qualify.
+    pub users: Vec<String>,
+    /// Channel logins to listen in. This list never joins a room by itself.
+    pub channels: Vec<String>,
+    /// Case-insensitive substrings that also qualify a message.
+    pub phrases: Vec<String>,
+    /// Whether matches use the mention sound and rose tab-bar indication.
+    pub notify: bool,
+}
+
+impl Default for MentionFilter {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            accounts: Vec::new(),
+            users: Vec::new(),
+            channels: Vec::new(),
+            phrases: Vec::new(),
+            // Preserve notifications for listeners saved before this option
+            // was added; users can explicitly turn them off when creating a
+            // new listener.
+            notify: true,
+        }
+    }
+}
+
+/// One tab: a channel read as some account, or a filtered mentions listener.
 ///
 /// Tabs are the unit the app is built around now, not channels -- the same
 /// channel can be open twice under two accounts, so the channel name no longer
@@ -70,6 +104,10 @@ pub struct Tab {
     /// here -- see the note on `chat_font_size`.
     #[serde(default)]
     pub avatar_mode: Option<String>,
+    /// Present for custom mentions tabs. `None` on channel tabs and on legacy
+    /// mentions tabs, whose old behavior is preserved by the frontend.
+    #[serde(default)]
+    pub mention: Option<MentionFilter>,
 }
 
 impl Tab {
@@ -106,6 +144,8 @@ pub struct Preferences {
     /// Ping for mentions in the channel you're currently reading. Off by
     /// default -- you can see that tab, so the sound is just noise.
     pub notify_active_tab: bool,
+    /// Ask before closing the last channel tab feeding a mentions listener.
+    pub warn_on_listener_close: bool,
     /// Load a channel's recent messages when you join it. On by default: an
     /// empty pane tells you nothing about a channel you've just opened. It's
     /// the one thing that talks to a third party, which is why it's a setting
@@ -211,6 +251,7 @@ impl Default for Preferences {
             notify_on_tag: true,
             notify_on_name: true,
             notify_active_tab: false,
+            warn_on_listener_close: true,
             show_message_history: true,
             check_for_updates: true,
             enable_seventv: true,
@@ -324,6 +365,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             channel: channel.clone(),
             account: account.clone(),
             avatar_mode: None,
+            mention: None,
         })
         .collect();
 
@@ -351,6 +393,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             channel: String::new(),
             account,
             avatar_mode: None,
+            mention: None,
         },
     );
     if at <= split {
@@ -375,6 +418,24 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Existing custom listeners predate the per-listener notification switch
+    /// and should keep notifying after their first load in the new build.
+    #[test]
+    fn a_listener_without_a_notify_field_still_notifies() {
+        let filter: MentionFilter = serde_json::from_str(
+            r#"{
+                "name": "Watching",
+                "accounts": ["123"],
+                "channels": ["somewhere"],
+                "phrases": ["something"]
+            }"#,
+        )
+        .unwrap();
+
+        assert!(filter.notify);
+        assert!(filter.users.is_empty());
+    }
 
     /// A file from before accounts existed comes back as one account and a tab
     /// per channel, rather than as a signed-out app with nothing open.

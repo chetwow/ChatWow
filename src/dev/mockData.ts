@@ -80,10 +80,38 @@ export const MOCK_ACCOUNTS: AccountInfo[] = [
 export function mockTabs(): Tab[] {
   return [
     // Three of the modes across four tabs, since a tab carries its own now.
-    { id: "mock-tab-1", kind: "channel", channel: MOCK_CHANNELS[0], account: "1", avatarMode: "account" },
-    { id: "mock-tab-2", kind: "channel", channel: MOCK_CHANNELS[1], account: "1", avatarMode: "none" },
-    { id: "mock-tab-3", kind: "channel", channel: MOCK_CHANNELS[2], account: "2", avatarMode: "owner" },
-    { id: "mock-tab-4", kind: "channel", channel: MOCK_CHANNELS[0], account: "2", avatarMode: "account" },
+    {
+      id: "mock-tab-1",
+      kind: "channel",
+      channel: MOCK_CHANNELS[0],
+      account: "1",
+      avatarMode: "account",
+      mention: null,
+    },
+    {
+      id: "mock-tab-2",
+      kind: "channel",
+      channel: MOCK_CHANNELS[1],
+      account: "1",
+      avatarMode: "none",
+      mention: null,
+    },
+    {
+      id: "mock-tab-3",
+      kind: "channel",
+      channel: MOCK_CHANNELS[2],
+      account: "2",
+      avatarMode: "owner",
+      mention: null,
+    },
+    {
+      id: "mock-tab-4",
+      kind: "channel",
+      channel: MOCK_CHANNELS[0],
+      account: "2",
+      avatarMode: "account",
+      mention: null,
+    },
   ];
 }
 
@@ -418,13 +446,18 @@ function mockWhisper(account: string): ChatMessage {
 export function buildInitialMessages(tabs: Tab[]): ChatMessage[] {
   const now = Date.now();
   const live = 2;
+  const channels = [...new Set(tabs.map((tab) => tab.channel))];
   return [
-    ...tabs.flatMap((tab, tabIndex) =>
-      DRAFTS.map((draft, index) => ({
-        ...toMessage(draft, tab, now + tabIndex * DRAFTS.length + index),
+    ...tabs.flatMap((tab) => {
+      const channelIndex = channels.indexOf(tab.channel);
+      return DRAFTS.map((draft, index) => ({
+        ...toMessage(draft, tab, now + channelIndex * DRAFTS.length + index),
+        // Copies of one room message received by two account sockets have one
+        // Twitch id. Custom listeners use it to collapse those copies.
+        id: `mock-initial-${channelIndex}-${index}`,
         historical: index < DRAFTS.length - live,
-      })),
-    ),
+      }));
+    }),
     mockWhisper(tabs[0]?.account ?? "1"),
   ];
 }

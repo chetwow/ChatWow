@@ -56,6 +56,11 @@ export function emoteAt(target: EventTarget | null): EmoteTarget | null {
   };
 }
 
+/** Whether a context-menu event landed specifically on the chatter's name. */
+export function chatterNameAt(target: EventTarget | null): boolean {
+  return !!(target as Element | null)?.closest?.("[data-chatter-login]");
+}
+
 /**
  * A blacklisted emote: its name as underlined text, hovering into the same
  * preview the image would have shown. The underline is what marks the word as
@@ -405,6 +410,7 @@ function MessageRowInner({
   onNameClick,
   onChannelClick,
   searchMatch,
+  listenerMatch = false,
 }: {
   message: StoredMessage;
   onContextMenu?: (event: MouseEvent, message: StoredMessage) => void;
@@ -417,6 +423,8 @@ function MessageRowInner({
   onChannelClick?: (channel: string) => void;
   /** A find result in the active tab; only the current one gets the stronger ring. */
   searchMatch?: "match" | "current";
+  /** Every row in a mentions tab is a listener match, including phrase-only ones. */
+  listenerMatch?: boolean;
 }) {
   const time = messageTime(message.ts);
   // Who "you" are for this row: the account whose connection received it, not
@@ -438,7 +446,8 @@ function MessageRowInner({
   // mentions tab collects exactly what this is true of, ignore rules included:
   // a mention you've asked not to hear about shouldn't still be shouting in
   // the one place it does appear.
-  const aboutYou = isAboutYou(message, myLogin) && !mentionIgnored(message, mentionIgnores);
+  const aboutYou =
+    listenerMatch || (isAboutYou(message, myLogin) && !mentionIgnored(message, mentionIgnores));
   const handleContextMenu = onContextMenu
     ? (event: MouseEvent) => {
         event.preventDefault();
@@ -546,6 +555,7 @@ function MessageRowInner({
               // segment: both are things inside selectable text that you click.
               <button
                 type="button"
+                data-chatter-login={message.login}
                 onClick={(event) => onNameClick(event, message)}
                 className="cursor-pointer font-semibold hover:underline"
                 style={{ color: message.color }}

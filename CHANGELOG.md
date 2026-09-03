@@ -13,6 +13,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in a new account.
 - Added search for the active chat tab, with a title-bar control, match navigation, and
   `Ctrl/Cmd+F` shortcut.
+- Added named mentions tabs that can listen for multiple signed-in accounts and phrases across
+  selected open channels, with optional sound and mention badges, a rename action, and a full
+  options editor for changing the listener after creation.
+- Added followed users to listener tabs, including a chatter-name context-menu action that creates
+  a listener for that user in the current channel.
+- Added a configurable warning before closing the last channel tab feeding a mentions listener.
 
 ### Fixed
 
@@ -22,3 +28,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   changing the search bar's height.
 - Cleared message highlighting and returned chat to the present when tab search closes, and made
   its title-bar icon toggle the search bar.
+- Excluded messages sent by signed-in accounts from a listener's phrase matches.
+- Prevented the full listener form and edited filters from retroactively collecting messages, and
+  made listeners created from a chatter's context menu start with notifications disabled while
+  retaining their one-time backfill of that user's current-channel messages.

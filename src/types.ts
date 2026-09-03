@@ -157,6 +157,23 @@ export type Tab = {
    * changing that preference leaves the open tabs where they were.
    */
   avatarMode: TabAvatarMode;
+  /** Custom listener definition; null on channels and legacy mentions tabs. */
+  mention: MentionFilter | null;
+};
+
+/** The persisted filter owned by a custom mentions tab. */
+export type MentionFilter = {
+  name: string;
+  /** Signed-in account ids whose logins are watched. */
+  accounts: string[];
+  /** Chatter logins whose every message is watched. */
+  users: string[];
+  /** Open channel names whose incoming messages are watched. */
+  channels: string[];
+  /** Case-insensitive substrings that also qualify a message. */
+  phrases: string[];
+  /** Whether matches play the mention sound and use the rose tab badge. */
+  notify: boolean;
 };
 
 /** Which picture a tab draws behind its name. */
@@ -206,6 +223,8 @@ export type Preferences = {
   notifyOnName: boolean;
   /** Ping for mentions in the channel you're currently reading. */
   notifyActiveTab: boolean;
+  /** Ask before the last channel feeding a mentions listener is closed. */
+  warnOnListenerClose: boolean;
   /** Load a channel's recent messages when you join it. */
   showMessageHistory: boolean;
   /**

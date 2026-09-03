@@ -18,17 +18,22 @@ export function AccountMenu({
   tabId,
   x,
   y,
+  onOptions,
+  onRename,
   onClose,
 }: {
   tabId: string;
   x: number;
   y: number;
+  onOptions?: () => void;
+  onRename?: () => void;
   onClose: () => void;
 }) {
   const accounts = useChat((state) => state.auth.accounts);
   const tab = useChat((state) => state.tabs.find((open) => open.id === tabId));
   const setTabAccount = useChat((state) => state.setTabAccount);
-  const closeTab = useChat((state) => state.closeTab);
+  const requestCloseTab = useChat((state) => state.requestCloseTab);
+  const setMentionsTabNotify = useChat((state) => state.setMentionsTabNotify);
   const setTabAvatarMode = useChat((state) => state.setTabAvatarMode);
   if (!tab) return null;
 
@@ -54,7 +59,20 @@ export function AccountMenu({
     onSelect: () => void setTabAvatarMode(tabId, mode),
   });
 
-  const options: ContextMenuOption[] = [
+  const options: ContextMenuOption[] = tab.kind === "mentions" ? [
+    ...(tab.mention && onOptions && onRename
+      ? [
+          { label: "Options", onSelect: onOptions } satisfies ContextMenuOption,
+          { label: "Rename tab", onSelect: onRename } satisfies ContextMenuOption,
+          {
+            label: tab.mention.notify ? "Notify for matches ✓" : "Notify for matches",
+            onSelect: () => void setMentionsTabNotify(tabId, !tab.mention!.notify),
+          } satisfies ContextMenuOption,
+          { separator: true } satisfies ContextMenuOption,
+        ]
+      : []),
+    { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
+  ] : [
     ...accounts.map((account) => choose(account.id)),
     choose(ANONYMOUS),
     { separator: true },
@@ -65,7 +83,7 @@ export function AccountMenu({
     { heading: "Background avatar" },
     ...TAB_AVATAR_MODES.map((mode) => background(mode.id, mode.label)),
     { separator: true },
-    { label: "Close tab", onSelect: () => void closeTab(tabId) },
+    { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
   ];
 
   return <ContextMenu x={x} y={y} options={options} closeOnScroll={false} onClose={onClose} />;

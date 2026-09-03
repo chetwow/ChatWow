@@ -1019,6 +1019,15 @@ export function SettingsDialog({
                     label="Notify for active tab"
                   />
                 </Row>
+                <Row label="Warn before closing listened channels">
+                  <Toggle
+                    checked={preferences.warnOnListenerClose}
+                    onChange={(warnOnListenerClose) =>
+                      updatePreferences({ warnOnListenerClose })
+                    }
+                    label="Warn before closing listened channels"
+                  />
+                </Row>
               </Section>
               <Section title="Ignored">
                 <NameListEditor

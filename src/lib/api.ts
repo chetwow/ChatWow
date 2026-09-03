@@ -5,6 +5,7 @@ import type {
   DeviceCode,
   EmoteIndex,
   LinkPreview,
+  MentionFilter,
   Preferences,
   Tab,
   TabAvatarMode,
@@ -34,6 +35,15 @@ export const api = {
   /** The id is ours to mint, so a new view has a key before the round trip. */
   addTab: (tab: Tab) => invoke<Tab[]>("add_tab", tab),
   closeTab: (id: string) => invoke<Tab[]>("close_tab", { id }),
+  /** Change a custom mentions listener's visible name. */
+  renameMentionsTab: (id: string, name: string) =>
+    invoke<Tab[]>("rename_mentions_tab", { id, name }),
+  /** Enable or disable sound and rose-badge notifications for one listener. */
+  setMentionsTabNotify: (id: string, notify: boolean) =>
+    invoke<Tab[]>("set_mentions_tab_notify", { id, notify }),
+  /** Replace every editable setting on one custom mentions listener. */
+  updateMentionsTab: (id: string, mention: MentionFilter) =>
+    invoke<Tab[]>("update_mentions_tab", { id, mention }),
   /** Read (and send) as a different account, keeping the tab and its messages. */
   setTabAccount: (id: string, account: string) =>
     invoke<Tab[]>("set_tab_account", { id, account }),

@@ -17,6 +17,7 @@ import {
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
+import { messageText } from "../lib/messageText";
 import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
@@ -35,6 +36,7 @@ import type {
   PaneIndex,
   ReplyInfo,
   NewTabAvatarMode,
+  MentionFilter,
   SplitLayout,
   TabAvatarMode,
   StatusEvent,
@@ -58,6 +60,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notifyOnTag: true,
   notifyOnName: true,
   notifyActiveTab: false,
+  warnOnListenerClose: true,
   showMessageHistory: true,
   checkForUpdates: true,
   enableSeventv: true,
@@ -224,6 +227,158 @@ export function loginOf(state: { auth: AuthStatus }, account: string | undefined
   return state.auth.accounts.find((held) => held.id === account)?.login ?? null;
 }
 
+/** The visible name of a listener, including the pre-custom-tab fallback. */
+export function mentionTabName(tab: Tab): string {
+  return tab.mention?.name.trim() || "Mentions";
+}
+
+/** A stable identity for collapsing copies received through multiple account sockets. */
+function mentionIdentity(message: ChatMessage): string {
+  if (message.id) return `${message.channel}\0${message.id}`;
+  return [
+    message.channel,
+    message.ts,
+    message.login,
+    message.kind,
+    message.systemMessage,
+    messageText(message),
+  ].join("\0");
+}
+
+/** Whether a phrase qualifies, excluding anything sent by a signed-in user. */
+function listenerPhraseMatches(
+  state: Pick<ChatState, "auth">,
+  tab: Tab,
+  message: ChatMessage,
+): boolean {
+  if (!tab.mention) return false;
+  const sender = message.login.toLocaleLowerCase();
+  if (state.auth.accounts.some((account) => account.login.toLocaleLowerCase() === sender)) {
+    return false;
+  }
+  const text = [messageText(message), message.systemMessage]
+    .filter(Boolean)
+    .join("\n")
+    .toLocaleLowerCase();
+  return tab.mention.phrases.some((phrase) => text.includes(phrase.toLocaleLowerCase()));
+}
+
+/** Legacy listeners notify as before; custom listeners own the new switch. */
+function listenerNotifies(tab: Tab): boolean {
+  return tab.mention?.notify ?? true;
+}
+
+/** Whether this listener explicitly follows the message's author. */
+function listenerWatchesSender(tab: Tab, message: ChatMessage): boolean {
+  const sender = message.login.toLocaleLowerCase();
+  return !!sender && !!tab.mention?.users?.some((user) => user.toLocaleLowerCase() === sender);
+}
+
+/** Whether one incoming message belongs in one mentions tab. */
+function listenerMatches(
+  state: Pick<ChatState, "auth" | "tabs">,
+  tab: Tab,
+  message: ChatMessage,
+): boolean {
+  if (tab.kind !== "mentions") return false;
+
+  // A tab saved before custom listeners existed keeps its old behavior:
+  // mentions/replies/whispers for its one account, from every open channel.
+  if (!tab.mention) {
+    if (message.account !== tab.account) return false;
+    const hasSource = state.tabs.some(
+      (source) =>
+        source.kind === "channel" &&
+        source.account === tab.account &&
+        (message.kind === "whisper" || source.channel === message.channel),
+    );
+    return (
+      hasSource &&
+      (message.kind === "whisper" || isAboutYou(message, loginOf(state, tab.account)))
+    );
+  }
+
+  if (message.kind === "notice") return false;
+  if (!message.channel || !tab.mention.channels.includes(message.channel)) return false;
+  if (!state.tabs.some((source) => source.kind === "channel" && source.channel === message.channel)) {
+    return false;
+  }
+  const named = tab.mention.accounts.some((account) =>
+    isAboutYou(message, loginOf(state, account)),
+  );
+  if (named) return true;
+
+  if (listenerWatchesSender(tab, message)) return true;
+
+  return listenerPhraseMatches(state, tab, message);
+}
+
+/** Whether a listener match respects the sound-specific notification toggles. */
+function listenerWouldSound(state: ChatState, tab: Tab, message: StoredMessage): boolean {
+  if (!tab.mention) {
+    if (message.kind === "whisper") return true;
+    const login = loginOf(state, tab.account);
+    if (!isAboutYou(message, login)) return false;
+    const kind = mentionKind(message, login);
+    if (!kind) return true;
+    return kind === "tag" ? state.preferences.notifyOnTag : state.preferences.notifyOnName;
+  }
+
+  if (listenerPhraseMatches(state, tab, message)) return true;
+  if (listenerWatchesSender(tab, message)) return true;
+
+  return tab.mention.accounts.some((account) => {
+    const login = loginOf(state, account);
+    if (!isAboutYou(message, login)) return false;
+    const kind = mentionKind(message, login);
+    // A reply is about the account without necessarily spelling its name.
+    if (!kind) return true;
+    return kind === "tag" ? state.preferences.notifyOnTag : state.preferences.notifyOnName;
+  });
+}
+
+function unseenMentionMessages(
+  existing: StoredMessage[],
+  incoming: StoredMessage[],
+): StoredMessage[] {
+  const seen = new Set(existing.map(mentionIdentity));
+  return incoming.filter((message) => {
+    const identity = mentionIdentity(message);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
+/** Append without retaining duplicate copies delivered through two account sockets. */
+function appendMentionMessages(
+  existing: StoredMessage[],
+  incoming: StoredMessage[],
+): StoredMessage[] {
+  let next = existing.concat(unseenMentionMessages(existing, incoming));
+  if (next.length > MAX_MESSAGES + TRIM_SLACK) next = next.slice(next.length - MAX_MESSAGES);
+  return next;
+}
+
+/** Existing live matches used only to seed a quick-created user listener. */
+function heldListenerMessages(state: ChatState, tab: Tab): StoredMessage[] {
+  const heard = (message: StoredMessage) =>
+    !mentionIgnored(message, state.preferences.mentionIgnores) &&
+    !userBlocked(message, state.preferences.blockedUsers);
+  const matches = Object.values(state.messages)
+    .flat()
+    .filter(
+      (message) => !message.historical && heard(message) && listenerMatches(state, tab, message),
+    );
+  return appendMentionMessages([], matches);
+}
+
+export type ListenerCloseWarning = {
+  tabId: string;
+  channel: string;
+  listeners: string[];
+};
+
 /**
  * The profile picture a tab sends as, empty when it's anonymous, the account
  * has been signed out, or Twitch had no picture for it. The composer draws the
@@ -318,16 +473,10 @@ type ChatState = {
    * stored message is immutable -- `MessageRow` subscribes to this instead.
    */
   seventvBadges: Record<string, Badge>;
-  /**
-   * Everything addressed to each account, from every channel, newest last --
-   * what that account's mentions tab renders. Per account because a mention is
-   * addressed to a login: what names one of yours names only that one.
-   *
-   * Kept whether or not a mentions tab is open, so opening one isn't opening
-   * an empty pane. Replayed backlog never lands here -- it would arrive
-   * stamped with times older than what's already in the list.
-   */
+  /** Matching live messages per mentions-tab id, newest last. */
   mentionLog: Record<string, StoredMessage[]>;
+  /** A channel close waiting for the user to acknowledge stopped listeners. */
+  listenerCloseWarning: ListenerCloseWarning | null;
   /** Send count per emote name, shared across channels and accounts. */
   emoteUses: Record<string, number>;
   /**
@@ -370,9 +519,22 @@ type ChatState = {
    * set to use; the same channel under a *different* account is a new tab
    * rather than a duplicate, which is the point of the whole thing.
    */
-  openTab: (kind: Tab["kind"], channel: string, account?: string) => Promise<void>;
-  /** Close a tab, and forget everything that was only ever about that view. */
-  closeTab: (id: string) => Promise<void>;
+  openTab: (kind: "channel", channel: string, account?: string) => Promise<void>;
+  /** Create and persist a listener, optionally seeding its current matches. */
+  openMentionsTab: (
+    mention: MentionFilter,
+    options?: { seedCurrentMatches?: boolean },
+  ) => Promise<void>;
+  /** Change a custom listener's visible name without replacing its log. */
+  renameMentionsTab: (id: string, name: string) => Promise<void>;
+  /** Enable or disable its mention sound and rose tab badge. */
+  setMentionsTabNotify: (id: string, notify: boolean) => Promise<void>;
+  /** Persist all editable listener settings for messages received from then on. */
+  updateMentionsTab: (id: string, mention: MentionFilter) => Promise<void>;
+  /** Close immediately, or open the listener warning when this is a source tab. */
+  requestCloseTab: (id: string) => void;
+  cancelListenerClose: () => void;
+  confirmListenerClose: (dontShowAgain: boolean) => Promise<void>;
   /** Read (and send) as a different account, keeping the tab and its messages. */
   setTabAccount: (id: string, account: string) => Promise<void>;
   /** Change which picture one tab draws behind its name. */
@@ -555,7 +717,54 @@ function forgetTab(state: ChatState, id: string) {
     roles: drop(state.roles),
     emoteEntries: drop(state.emoteEntries),
     sentHistory: drop(state.sentHistory),
+    mentionLog: drop(state.mentionLog),
   };
+}
+
+/** Which listeners would lose this channel source if its tab were closed. */
+function listenersStoppedByClosing(state: ChatState, closing: Tab): string[] {
+  if (closing.kind !== "channel") return [];
+
+  return state.tabs
+    .filter((tab) => tab.kind === "mentions")
+    .filter((tab) => {
+      if (tab.mention) {
+        if (!tab.mention.channels.includes(closing.channel)) return false;
+        return !state.tabs.some(
+          (other) =>
+            other.id !== closing.id &&
+            other.kind === "channel" &&
+            other.channel === closing.channel,
+        );
+      }
+
+      // A legacy listener consumes only the copy received by its one account,
+      // so another account's tab on the room does not keep it fed.
+      if (tab.account !== closing.account) return false;
+      return !state.tabs.some(
+        (other) =>
+          other.id !== closing.id &&
+          other.kind === "channel" &&
+          other.channel === closing.channel &&
+          other.account === closing.account,
+      );
+    })
+    .map(mentionTabName);
+}
+
+/** The one unguarded close operation; only the request/confirmation flow calls it. */
+async function closeTabNow(id: string) {
+  const tabs = IS_TAURI
+    ? await api.closeTab(id)
+    : useChat.getState().tabs.filter((tab) => tab.id !== id);
+
+  useChat.setState((state) => ({
+    tabs,
+    listenerCloseWarning: null,
+    ...forgetTab(state, id),
+  }));
+  const settled = useChat.getState();
+  useChat.setState({ active: settleActive(settled, settled.active) });
 }
 
 export const useChat = create<ChatState>((set) => ({
@@ -576,6 +785,7 @@ export const useChat = create<ChatState>((set) => ({
   emoteEntries: {},
   seventvBadges: {},
   mentionLog: {},
+  listenerCloseWarning: null,
   emoteUses: {},
   sentHistory: {},
   connections: {},
@@ -694,16 +904,17 @@ export const useChat = create<ChatState>((set) => ({
   openTab: async (kind, channel, account) => {
     const state = useChat.getState();
     const name = channel.trim().replace(/^[#@]/, "").toLowerCase();
-    if (kind === "channel" && !/^[a-z0-9_]{3,25}$/.test(name)) {
+    if (!/^[a-z0-9_]{3,25}$/.test(name)) {
       throw new Error(`"${channel}" is not a valid Twitch channel name`);
     }
 
     const tab: Tab = {
       id: newTabId(),
       kind,
-      channel: kind === "mentions" ? "" : name,
+      channel: name,
       account: account ?? state.auth.defaultAccount,
       avatarMode: "none",
+      mention: null,
     };
     // Stamped once, here, exactly as `add_tab` does it in Rust: the preference
     // is a rule for new tabs, not something a tab keeps re-reading.
@@ -738,14 +949,131 @@ export const useChat = create<ChatState>((set) => ({
     placeNewTab(tab.id);
   },
 
-  closeTab: async (id) => {
-    const tabs = IS_TAURI
-      ? await api.closeTab(id)
-      : useChat.getState().tabs.filter((tab) => tab.id !== id);
+  openMentionsTab: async (mention, options) => {
+    const state = useChat.getState();
+    const listener: MentionFilter = {
+      ...mention,
+      name: mention.name.trim(),
+      accounts: [...mention.accounts],
+      users: mention.users.map((user) => user.trim().replace(/^@/, "").toLocaleLowerCase()),
+      channels: [...mention.channels],
+      phrases: mention.phrases.map((phrase) => phrase.trim()).filter(Boolean),
+    };
+    const tab: Tab = {
+      id: newTabId(),
+      kind: "mentions",
+      channel: "",
+      account: listener.accounts[0] ?? ANONYMOUS,
+      avatarMode: "none",
+      mention: listener,
+    };
 
-    set((state) => ({ tabs, ...forgetTab(state, id) }));
-    const settled = useChat.getState();
-    set({ active: settleActive(settled, settled.active) });
+    const tabs = IS_TAURI ? await api.addTab(tab) : [...state.tabs, tab];
+    const opened = tabs.find((candidate) => candidate.id === tab.id);
+    if (!opened) {
+      set({ tabs });
+      return;
+    }
+    set((current) => ({
+      tabs,
+      // General listeners start at creation time. The chatter-name shortcut
+      // opts into seeding that user's messages already held in its channel.
+      mentionLog: {
+        ...current.mentionLog,
+        [opened.id]: options?.seedCurrentMatches
+          ? heldListenerMessages(current, opened)
+          : [],
+      },
+    }));
+    placeNewTab(opened.id);
+  },
+
+  renameMentionsTab: async (id, name) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    const clean = name.trim();
+    if (!tab?.mention || !clean || clean.length > 40 || tab.mention.name === clean) return;
+
+    set({
+      tabs: IS_TAURI
+        ? await api.renameMentionsTab(id, clean)
+        : state.tabs.map((open) =>
+            open.id === id && open.mention
+              ? { ...open, mention: { ...open.mention, name: clean } }
+              : open,
+          ),
+    });
+  },
+
+  setMentionsTabNotify: async (id, notify) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab?.mention || tab.mention.notify === notify) return;
+
+    const tabs = IS_TAURI
+      ? await api.setMentionsTabNotify(id, notify)
+      : state.tabs.map((open) =>
+          open.id === id && open.mention
+            ? { ...open, mention: { ...open.mention, notify } }
+            : open,
+        );
+    set((current) => ({
+      tabs,
+      // Turning notifications off should remove an existing rose indication
+      // immediately; the ordinary unread tally is deliberately untouched.
+      ...(notify ? {} : { mentions: { ...current.mentions, [id]: 0 } }),
+    }));
+  },
+
+  updateMentionsTab: async (id, mention) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab?.mention) return;
+
+    const tabs = IS_TAURI
+      ? await api.updateMentionsTab(id, mention)
+      : state.tabs.map((open) =>
+          open.id === id
+            ? { ...open, account: mention.accounts[0] ?? ANONYMOUS, mention }
+            : open,
+        );
+    const updated = tabs.find((open) => open.id === id);
+    if (!updated?.mention) return;
+    const notificationsEnabled = updated.mention.notify;
+
+    set((current) => ({
+      tabs,
+      // Existing rows record what matched while the previous definition was
+      // active. Editing a filter only changes which future messages append.
+      ...(notificationsEnabled
+        ? {}
+        : { mentions: { ...current.mentions, [id]: 0 } }),
+    }));
+  },
+
+  requestCloseTab: (id) => {
+    const state = useChat.getState();
+    const tab = tabById(state, id);
+    if (!tab) return;
+    const listeners = state.preferences.warnOnListenerClose
+      ? listenersStoppedByClosing(state, tab)
+      : [];
+    if (listeners.length > 0) {
+      set({ listenerCloseWarning: { tabId: id, channel: tab.channel, listeners } });
+      return;
+    }
+    void closeTabNow(id);
+  },
+
+  cancelListenerClose: () => set({ listenerCloseWarning: null }),
+
+  confirmListenerClose: async (dontShowAgain) => {
+    const state = useChat.getState();
+    const pending = state.listenerCloseWarning;
+    if (!pending) return;
+    if (dontShowAgain) state.updatePreferences({ warnOnListenerClose: false });
+    set({ listenerCloseWarning: null });
+    await closeTabNow(pending.tabId);
   },
 
   setTabAvatarMode: async (id, mode) => {
@@ -869,7 +1197,17 @@ export const useChat = create<ChatState>((set) => ({
       for (const tab of state.tabs) {
         if (tab.account !== ANONYMOUS && !held.has(tab.account)) delete roles[tab.id];
       }
-      return { auth, roles };
+      const tabs = state.tabs.map((tab) => ({
+        ...tab,
+        account: tab.account && !held.has(tab.account) ? ANONYMOUS : tab.account,
+        mention: tab.mention
+          ? {
+              ...tab.mention,
+              accounts: tab.mention.accounts.filter((account) => held.has(account)),
+            }
+          : null,
+      }));
+      return { auth, roles, tabs };
     }),
 
   updatePreferences: (patch) => {
@@ -1057,45 +1395,55 @@ export const useChat = create<ChatState>((set) => ({
         }
       }
 
-      // The mentions logs, taken from the whole batch in one pass rather than
-      // per tab -- they span every channel by definition, and they're per
-      // account because what names one of your logins names only that one.
+      // Each mentions tab owns its own log and filter. A listener never opens
+      // a channel: it can only match copies delivered through channel tabs
+      // that are already open.
       const mentionLog = { ...state.mentionLog };
-      const byAccount = new Map<string, StoredMessage[]>();
-      for (const message of stamped) {
-        if (message.historical || !heard(message)) continue;
-        const login = loginOf(state, message.account);
-        // A whisper qualifies without being read: it was sent to this account
-        // and to nobody else.
-        if (message.kind !== "whisper" && !isAboutYou(message, login)) continue;
-        const list = byAccount.get(message.account) ?? [];
-        list.push(message);
-        byAccount.set(message.account, list);
-      }
+      for (const tab of state.tabs) {
+        if (tab.kind !== "mentions") continue;
+        const existing = mentionLog[tab.id] ?? [];
+        const matching = stamped.filter(
+          (message) =>
+            !message.historical && heard(message) && listenerMatches(state, tab, message),
+        );
+        const addressed = unseenMentionMessages(existing, matching);
+        if (addressed.length === 0) continue;
 
-      for (const [account, addressed] of byAccount) {
-        let log = (mentionLog[account] ?? []).concat(addressed);
-        if (log.length > MAX_MESSAGES + TRIM_SLACK) {
-          log = log.slice(log.length - MAX_MESSAGES);
-        }
-        mentionLog[account] = log;
+        mentionLog[tab.id] = appendMentionMessages(existing, addressed);
 
-        // Counted the way a channel tab is: a tally of what you haven't looked
-        // at. Everything in here names you, so its badge is always the rose
-        // one -- both counters move together.
-        for (const tab of state.tabs) {
-          if (tab.kind !== "mentions" || tab.account !== account) continue;
-          if (state.active.includes(tab.id)) continue;
+        // Unread counts every unseen match. The rose mention counter is the
+        // listener's optional notification indication, so it moves only when
+        // that listener has notifications enabled.
+        if (!state.active.includes(tab.id)) {
           unread[tab.id] = (unread[tab.id] ?? 0) + addressed.length;
-          mentions[tab.id] = (mentions[tab.id] ?? 0) + addressed.length;
+          if (listenerNotifies(tab)) {
+            mentions[tab.id] = (mentions[tab.id] ?? 0) + addressed.length;
+          }
+        }
+
+        const sourceVisible = addressed.some((message) =>
+          state.active.some((id) => {
+            const activeTab = tabById(state, id);
+            return activeTab?.kind === "channel" && activeTab.channel === message.channel;
+          }),
+        );
+        const watching = state.active.includes(tab.id) || sourceVisible;
+        if (
+          listenerNotifies(tab) &&
+          !state.preferences.muted &&
+          (!watching || state.preferences.notifyActiveTab) &&
+          addressed.some((message) => listenerWouldSound(state, tab, message))
+        ) {
+          mentioned = true;
         }
       }
 
       return { messages, unread, mentions, chatters, mentionLog };
     });
 
-    // Muting, and the toggles above, only take the sound -- the highlight and
-    // the badge are the quiet half of a mention and always happen.
+    // Global mute and mention-kind toggles only take the sound. A listener's
+    // own notification switch also gates its rose badge, while its ordinary
+    // unread count and highlighted rows remain.
     if (mentioned) playMentionSound();
   },
 
@@ -1116,13 +1464,12 @@ export const useChat = create<ChatState>((set) => ({
         if (existing) messages[tab.id] = existing.map(strike);
       }
 
-      // The mentions log holds its own reference to the same messages, so a
-      // deletion has to reach both -- otherwise a timed-out mention stays
-      // standing in the one place you'd go looking for it.
+      // Every matching listener holds a reference to one of the account
+      // copies. A room deletion applies to them all, regardless of which
+      // account's socket delivered the moderation event.
       const mentionLog = { ...state.mentionLog };
-      const log = mentionLog[account];
-      if (log) {
-        mentionLog[account] = log.map((message) =>
+      for (const [id, log] of Object.entries(mentionLog)) {
+        mentionLog[id] = log.map((message) =>
           message.channel === channel ? strike(message) : message,
         );
       }

@@ -22,7 +22,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::irc::client;
-use crate::settings::{Tab, ANONYMOUS};
+use crate::settings::{MentionFilter, Tab, ANONYMOUS};
 use crate::state::{AppState, AuthStatus};
 use crate::twitch::chat;
 
@@ -38,6 +38,19 @@ fn normalize_channel(input: &str) -> Result<String, String> {
         Ok(name)
     } else {
         Err(format!("\"{input}\" is not a valid Twitch channel name"))
+    }
+}
+
+/// Normalize an arbitrary Twitch chatter login used by a listener filter.
+fn normalize_login(input: &str) -> Result<String, String> {
+    let name = input.trim().trim_start_matches('@').to_ascii_lowercase();
+    let valid = !name.is_empty()
+        && name.len() <= 25
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if valid {
+        Ok(name)
+    } else {
+        Err(format!("\"{input}\" is not a valid Twitch username"))
     }
 }
 
@@ -471,6 +484,9 @@ fn clear_session(state: &AppState) {
     }
     for tab in state.tabs.write().iter_mut() {
         tab.account = ANONYMOUS.to_string();
+        if let Some(listener) = &mut tab.mention {
+            listener.accounts.clear();
+        }
     }
     state.global_badges.write().clear();
     for data in state.data.write().values_mut() {
@@ -866,8 +882,13 @@ fn remove_account(app: AppHandle, state: State<'_, Shared>, id: String) -> AuthS
             auth.default_account = ANONYMOUS.to_string();
         }
     }
-    for tab in state.tabs.write().iter_mut().filter(|tab| tab.account == id) {
-        tab.account = ANONYMOUS.to_string();
+    for tab in state.tabs.write().iter_mut() {
+        if tab.account == id {
+            tab.account = ANONYMOUS.to_string();
+        }
+        if let Some(listener) = &mut tab.mention {
+            listener.accounts.retain(|account| account != &id);
+        }
     }
     state.global_badges.write().clear();
     for data in state.data.write().values_mut() {
@@ -961,6 +982,65 @@ fn live_channels(state: State<'_, Shared>) -> Vec<String> {
     state.live.read().iter().cloned().collect()
 }
 
+/// Apply the one validation and normalization path shared by creation and Options.
+fn normalize_mention_filter(
+    state: &AppState,
+    mut listener: MentionFilter,
+) -> Result<MentionFilter, String> {
+    listener.name = listener.name.trim().to_string();
+    if listener.name.is_empty() || listener.name.chars().count() > 40 {
+        return Err("A mentions tab name must be between 1 and 40 characters".to_string());
+    }
+
+    let known_accounts: HashSet<String> = state
+        .auth
+        .read()
+        .accounts
+        .iter()
+        .map(|held| held.id.clone())
+        .collect();
+    let mut seen_accounts = HashSet::new();
+    listener.accounts.retain(|account| {
+        known_accounts.contains(account) && seen_accounts.insert(account.clone())
+    });
+
+    let mut seen_users = HashSet::new();
+    listener.users = listener
+        .users
+        .iter()
+        .map(|user| normalize_login(user))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|user| seen_users.insert(user.clone()))
+        .collect();
+
+    let mut seen_channels = HashSet::new();
+    listener.channels = listener
+        .channels
+        .iter()
+        .map(|channel| normalize_channel(channel))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|channel| seen_channels.insert(channel.clone()))
+        .collect();
+    if listener.channels.is_empty() {
+        return Err("Choose at least one open channel".to_string());
+    }
+
+    let mut seen_phrases = HashSet::new();
+    listener.phrases = listener
+        .phrases
+        .into_iter()
+        .map(|phrase| phrase.trim().to_string())
+        .filter(|phrase| !phrase.is_empty() && seen_phrases.insert(phrase.to_lowercase()))
+        .collect();
+    if listener.accounts.is_empty() && listener.users.is_empty() && listener.phrases.is_empty() {
+        return Err("Choose an account, user, or phrase to listen for".to_string());
+    }
+
+    Ok(listener)
+}
+
 /// Open a tab. The id is the frontend's -- it mints one when it opens the view,
 /// so the view has a key from the first frame rather than after a round trip --
 /// and everything else is validated here.
@@ -976,18 +1056,44 @@ fn add_tab(
     kind: String,
     channel: String,
     account: String,
+    mention: Option<MentionFilter>,
 ) -> Result<Vec<Tab>, String> {
     if id.trim().is_empty() {
         return Err("A tab needs an id".to_string());
     }
-    let account = resolve_account(&state, &account);
-
-    let avatar_mode = Some(stamped_avatar_mode(&state, &account));
     let tab = match kind.as_str() {
-        "mentions" => Tab { id, kind, channel: String::new(), account, avatar_mode },
+        "mentions" => {
+            let Some(listener) = mention else {
+                return Err("A mentions tab needs a listener".to_string());
+            };
+            let listener = normalize_mention_filter(&state, listener)?;
+
+            let account = listener
+                .accounts
+                .first()
+                .cloned()
+                .unwrap_or_else(|| ANONYMOUS.to_string());
+            Tab {
+                id,
+                kind,
+                channel: String::new(),
+                account,
+                avatar_mode: Some("none".to_string()),
+                mention: Some(listener),
+            }
+        }
         _ => {
             let channel = normalize_channel(&channel)?;
-            Tab { id, kind: "channel".to_string(), channel, account, avatar_mode }
+            let account = resolve_account(&state, &account);
+            let avatar_mode = Some(stamped_avatar_mode(&state, &account));
+            Tab {
+                id,
+                kind: "channel".to_string(),
+                channel,
+                account,
+                avatar_mode,
+                mention: None,
+            }
         }
     };
 
@@ -995,7 +1101,10 @@ fn add_tab(
         let mut tabs = state.tabs.write();
         let duplicate = tabs.iter().any(|open| {
             open.id == tab.id
-                || (open.kind == tab.kind && open.channel == tab.channel && open.account == tab.account)
+                || (tab.is_channel()
+                    && open.kind == tab.kind
+                    && open.channel == tab.channel
+                    && open.account == tab.account)
         });
         if duplicate {
             return Ok(tabs.clone());
@@ -1010,6 +1119,88 @@ fn add_tab(
 fn close_tab(app: AppHandle, state: State<'_, Shared>, id: String) -> Vec<Tab> {
     state.tabs.write().retain(|tab| tab.id != id);
     tabs_changed(&app, &state)
+}
+
+/// Rename a custom mentions listener without rebuilding its log or filter.
+#[tauri::command]
+fn rename_mentions_tab(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    id: String,
+    name: String,
+) -> Result<Vec<Tab>, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.chars().count() > 40 {
+        return Err("A mentions tab name must be between 1 and 40 characters".to_string());
+    }
+    {
+        let mut tabs = state.tabs.write();
+        let Some(listener) = tabs
+            .iter_mut()
+            .find(|tab| tab.id == id)
+            .and_then(|tab| tab.mention.as_mut())
+        else {
+            return Err("That mentions tab cannot be renamed".to_string());
+        };
+        if listener.name == name {
+            return Ok(tabs.clone());
+        }
+        listener.name = name;
+    }
+    Ok(tabs_changed(&app, &state))
+}
+
+/// Toggle the existing mention notification path for one custom listener.
+#[tauri::command]
+fn set_mentions_tab_notify(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    id: String,
+    notify: bool,
+) -> Result<Vec<Tab>, String> {
+    {
+        let mut tabs = state.tabs.write();
+        let Some(listener) = tabs
+            .iter_mut()
+            .find(|tab| tab.id == id)
+            .and_then(|tab| tab.mention.as_mut())
+        else {
+            return Err("That mentions tab has no notification setting".to_string());
+        };
+        if listener.notify == notify {
+            return Ok(tabs.clone());
+        }
+        listener.notify = notify;
+    }
+    Ok(tabs_changed(&app, &state))
+}
+
+/// Replace every editable setting on one custom mentions listener.
+#[tauri::command]
+fn update_mentions_tab(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    id: String,
+    mention: MentionFilter,
+) -> Result<Vec<Tab>, String> {
+    let mention = normalize_mention_filter(&state, mention)?;
+    let account = mention
+        .accounts
+        .first()
+        .cloned()
+        .unwrap_or_else(|| ANONYMOUS.to_string());
+    {
+        let mut tabs = state.tabs.write();
+        let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id && tab.mention.is_some()) else {
+            return Err("That mentions tab has no editable options".to_string());
+        };
+        if tab.mention.as_ref() == Some(&mention) && tab.account == account {
+            return Ok(tabs.clone());
+        }
+        tab.account = account;
+        tab.mention = Some(mention);
+    }
+    Ok(tabs_changed(&app, &state))
 }
 
 /// Read a tab as a different account -- the right-click on a tab, and the one
@@ -1410,6 +1601,9 @@ pub fn run() {
             list_tabs,
             add_tab,
             close_tab,
+            rename_mentions_tab,
+            set_mentions_tab_notify,
+            update_mentions_tab,
             set_tab_account,
             set_tab_avatar_mode,
             channel_avatars,
@@ -1442,7 +1636,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_channel, prepare_outgoing, REFRESH_MARGIN_SECS, TOKEN_CHECK_SECS};
+    use super::{
+        normalize_channel, normalize_login, prepare_outgoing, REFRESH_MARGIN_SECS,
+        TOKEN_CHECK_SECS,
+    };
 
     #[test]
     fn tokens_are_renewed_further_ahead_than_the_gap_between_checks() {
@@ -1474,6 +1671,15 @@ mod tests {
     #[test]
     fn allows_underscores_and_digits() {
         assert_eq!(normalize_channel("some_user123").unwrap(), "some_user123");
+    }
+
+    #[test]
+    fn listener_usernames_are_normalized_and_validated() {
+        assert_eq!(normalize_login("  @Some_User  ").unwrap(), "some_user");
+        assert_eq!(normalize_login("a").unwrap(), "a");
+        assert!(normalize_login("").is_err());
+        assert!(normalize_login("bad-user").is_err());
+        assert!(normalize_login("has spaces").is_err());
     }
 
     #[test]

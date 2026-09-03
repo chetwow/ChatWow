@@ -7,7 +7,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { MessageRow, emoteAt, type EmoteTarget } from "./MessageRow";
+import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
@@ -57,16 +57,17 @@ export function ChatView({
   const tab = useChat((state) => state.tabs.find((open) => open.id === id));
   const channel = tab?.channel ?? "";
   const account = tab?.account ?? "";
-  // A mentions tab has no channel behind it and reads from its account's
+  // A mentions tab has no channel behind it and reads from its own filtered
   // cross-channel log instead. Everything below -- scroll pinning, the
   // context menu, user cards -- is the same view either way; only the source
   // and the composer differ.
   const isMentions = tab?.kind === "mentions";
   const channelMessages = useChat((state) => state.messages[id]);
-  const mentionLog = useChat((state) => state.mentionLog[account]);
+  const mentionLog = useChat((state) => state.mentionLog[id]);
   const ready = useChat((state) => state.ready[id]);
   const tabs = useChat((state) => state.tabs);
   const setActive = useChat((state) => state.setActive);
+  const openMentionsTab = useChat((state) => state.openMentionsTab);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -75,6 +76,8 @@ export function ChatView({
     y: number;
     message: StoredMessage;
     emote: EmoteTarget | null;
+    /** Only true when the right-click landed on the chatter-name button. */
+    chatterName: boolean;
     /**
      * What was selected when the menu opened, if anything. Read then rather
      * than when Copy is clicked: pressing a menu button collapses the
@@ -242,6 +245,7 @@ export function ChatView({
       y: event.clientY,
       message,
       emote: emoteAt(event.target),
+      chatterName: chatterNameAt(event.target),
       selection: (window.getSelection()?.toString() ?? "").trim(),
     });
   }, []);
@@ -333,7 +337,7 @@ export function ChatView({
    * than buried in settings -- which is where you are when you decide. Not on
    * your own messages, and not on notices, which have no author.
    */
-  const personOptions = (message: StoredMessage): ContextMenuOption[] => {
+  const personOptions = (message: StoredMessage, onName: boolean): ContextMenuOption[] => {
     const login = message.login.toLowerCase();
     if (!login || message.kind === "notice") return [];
     if (myLogin && login === myLogin.toLowerCase()) return [];
@@ -344,6 +348,25 @@ export function ChatView({
 
     return [
       { separator: true },
+      ...(onName && message.kind !== "whisper" && message.channel
+        ? [
+            {
+              label: "Create listener tab for this user",
+              onSelect: () =>
+                void openMentionsTab(
+                  {
+                    name,
+                    accounts: [],
+                    users: [login],
+                    channels: [message.channel],
+                    phrases: [],
+                    notify: false,
+                  },
+                  { seedCurrentMatches: true },
+                ),
+            },
+          ]
+        : []),
       {
         label: ignoring ? `Hear mentions from ${name} again` : `Ignore mentions from ${name}`,
         onSelect: () => setMentionIgnored(ignoreForUser(login), !ignoring),
@@ -398,7 +421,7 @@ export function ChatView({
         ...(menu.message.kind === "chat" && !isMentions
           ? [{ label: "Reply", onSelect: () => setReplyTo(menu.message) }]
           : []),
-        ...personOptions(menu.message),
+        ...personOptions(menu.message, menu.chatterName),
         ...(menu.emote ? emoteOptions(menu.emote) : []),
       ]
     : [];
@@ -504,14 +527,14 @@ export function ChatView({
             <div className="flex h-full flex-col items-center justify-center gap-1 text-ink-faint">
               <div className="text-[13px]">
                 {isMentions
-                  ? "Nothing addressed to you yet"
+                  ? "No matching messages yet"
                   : ready
                     ? `Waiting for messages in #${channel}`
                     : `Connecting to #${channel}...`}
               </div>
               <div className="text-[11px]">
                 {isMentions
-                  ? "Mentions, replies and whispers from every channel land here."
+                  ? "Matches from the selected open channels land here."
                   : ready
                     ? "Quiet in here."
                     : "Loading emotes and badges."}
@@ -529,6 +552,7 @@ export function ChatView({
                     onContextMenu={openMenu}
                     onNameClick={openCard}
                     onChannelClick={isMentions ? goToChannel : undefined}
+                    listenerMatch={isMentions}
                     searchMatch={
                       !searchOpen || match === undefined
                         ? undefined

@@ -7,10 +7,12 @@ import {
   useState,
   type DragEvent,
 } from "react";
-import { paneTabs, useChat } from "../store/chat";
+import { mentionTabName, paneTabs, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
 import { AccountMenu } from "./AccountMenu";
+import { MentionOptionsDialog } from "./MentionOptionsDialog";
+import { RenameListenerDialog } from "./RenameListenerDialog";
 import type { PaneIndex, Tab } from "../types";
 
 /** Matches the row's gap-x-1. */
@@ -35,10 +37,12 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const auth = useChat((state) => state.auth);
   const channelAvatars = useChat((state) => state.channelAvatars);
   const setActive = useChat((state) => state.setActive);
-  const closeTab = useChat((state) => state.closeTab);
+  const requestCloseTab = useChat((state) => state.requestCloseTab);
   const moveTab = useChat((state) => state.moveTab);
   /** Which tab's account menu is open, and where it was opened. */
   const [accountMenu, setAccountMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [optionsTab, setOptionsTab] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   // One scrolling row, or as many wrapped rows as the tabs need.
   const singleRow = preferences.singleRowTabs;
 
@@ -371,7 +375,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             )}
             <span className="relative">
               <span className="text-ink-faint">{isMentions ? "@" : "#"}</span>
-              {isMentions ? "mentions" : tab.channel}
+              {isMentions ? mentionTabName(tab) : tab.channel}
             </span>
           </span>
 
@@ -409,9 +413,9 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             <button
               onClick={(event) => {
                 event.stopPropagation();
-                void closeTab(tab.id);
+                requestCloseTab(tab.id);
               }}
-              aria-label={isMentions ? "Close the mentions tab" : `Leave ${tab.channel}`}
+              aria-label={isMentions ? `Close ${mentionTabName(tab)}` : `Leave ${tab.channel}`}
               // Square, and pinned to the right of the slot rather than
               // filling or centring in it. The slot has to stay as wide as
               // "99+" for the badge it shares, but the X shouldn't inherit
@@ -467,8 +471,23 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       tabId={accountMenu.id}
       x={accountMenu.x}
       y={accountMenu.y}
+      onOptions={() => setOptionsTab(accountMenu.id)}
+      onRename={() => {
+        const tab = tabs_.find((candidate) => candidate.id === accountMenu.id);
+        if (tab?.mention) setRenaming({ id: tab.id, name: mentionTabName(tab) });
+      }}
       onClose={() => setAccountMenu(null)}
     />
+  );
+  const renameDialog = renaming && (
+    <RenameListenerDialog
+      tabId={renaming.id}
+      currentName={renaming.name}
+      onClose={() => setRenaming(null)}
+    />
+  );
+  const optionsDialog = optionsTab && (
+    <MentionOptionsDialog tabId={optionsTab} onClose={() => setOptionsTab(null)} />
   );
 
   if (singleRow) {
@@ -498,6 +517,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
         {hiddenMentions.left && <MentionEdge side="left" />}
         {hiddenMentions.right && <MentionEdge side="right" />}
         {menu}
+        {optionsDialog}
+        {renameDialog}
       </div>
     );
   }
@@ -512,6 +533,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       {breakBeforeAdd && <div className="h-1 basis-full" />}
       {addButton}
       {menu}
+      {optionsDialog}
+      {renameDialog}
     </div>
   );
 }

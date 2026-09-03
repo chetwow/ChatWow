@@ -268,8 +268,9 @@ Mentions are counted per tab alongside unread, and a tab holding any turns its u
 from accent to rose. The badge only changes color, never size -- see below.
 
 `isAboutYou` in [src/lib/mentions.ts](src/lib/mentions.ts) is the single answer to "is chat
-talking to me": named, or replied to, and never your own message. The row highlight and the
-mentions tab below both read it, so a message can't be one and not the other.
+talking to this login": named, or replied to, and never that login's own message. Ordinary
+channel-row highlighting reads it directly. A custom mentions listener applies that same answer
+to any of its selected accounts, or independently matches one of its phrases.
 
 Which "me" is the tab's, not the app's: it takes the login of the account that tab reads as, so
 the same message highlights in one tab and passes unremarked in the one beside it on the same
@@ -278,42 +279,63 @@ who's signed in, which changes without the already-resolved backlog being rebuil
 
 ## The mentions tab
 
-A tab that isn't a channel: everything addressed to one account, from everywhere, in one list.
-Opened from the join dialog (which offers it whenever the account you're joining as hasn't got
-one and nothing has been typed) and stored in `tabs` like any other, so it survives a restart.
+A mentions tab is a named listener across selected open channels. The join dialog creates any
+number of them from a collapsible form: a name, one or more channel logins, zero or more signed-in
+account ids to detect mentions of, zero or more arbitrary chatter logins to follow, zero or more
+phrases, and whether matches should notify. At least one account, followed user, or phrase is
+required. Its persisted `Tab::mention` groups that definition together; channel tabs have
+`mention: None`. Renaming changes that definition in place, preserving the listener's tab identity
+and log; its right-click menu can also change the notification flag or open Options to replace the
+full definition. Saving Options preserves the existing log and changes matching only for messages
+received after the updated definition takes effect.
 
-It's an ordinary `Tab` with `kind: "mentions"` and an empty channel -- not a sentinel key beside
-the real ones. That's what lets it share `active`, `unread`, `mentions` and the whole tab bar
-with the channel tabs and behave like one everywhere those are read: selecting it clears its
-counts, its badge is drawn by the same code, dragging and wrapping measure it like any other,
-`Ctrl+W` closes it through the same call. The only thing it does differently is render
-`mentionLog[account]` instead of `messages[id]`, and have no composer -- there's no one room a
-message typed into it would belong to.
+A message qualifies when its channel is selected **and** either it addresses any selected
+account (through `isAboutYou`), was authored by a followed chatter login, or its visible
+body/system text contains any phrase. Chatter-login matching is case-insensitive and includes
+every message that user sends. Phrase matching is a case-insensitive substring and ignores
+messages authored by any currently signed-in login; that exclusion applies only to the phrase
+branch, so a message that genuinely addresses a different selected account still qualifies.
+Selected accounts are identities to match, not the socket a message arrived on: if two selected
+accounts both have the room open, the two IRC copies of one Twitch message collapse to one
+listener row by message id.
 
-There is one per account, because a mention is addressed to a login: what names one of yours
-names only that one. Two accounts, two possible mentions tabs, each collecting its own.
+Right-clicking a chatter's name offers a one-step listener for that login in the message's channel.
+It uses the chatter's display name as the tab name, follows only that login and channel, and starts
+with notifications disabled. As the one backfill exception, it immediately seeds the log with that
+user's live messages still held by the current channel; Options can expand or change it afterwards.
 
-One exemption: the rose bar at a scrolled-off edge skips it. That bar means "something past this
-edge named you", and pointing at the tab those are already gathered in says nothing you didn't
-know.
+The listener is deliberately not a connection owner. `AppState::wanted` derives sockets only
+from channel tabs, so closing the last tab on a selected channel stops that listener's input from
+the room; reopening the channel resumes it. Every close path first checks whether it would remove
+a listener's last source and, while `warnOnListenerClose` is enabled, shows the warning dialog.
+The dialog's "Do not show this warning in the future" choice persists through that preference,
+which can also be restored in Notifications settings.
 
-The messages live in `mentionLog`, appended in `ingest` from the same pass that files them into
-their channels, and kept whether or not the tab is open -- opening it shouldn't open an empty
-pane. A message enters the log as the same object (same `key`) its channel holds, so a row shown
-in both places is one memoized component rather than two that happen to look alike. A deletion
-has to reach both copies, which is why `clear` rewrites the log as well: a timed-out mention left
-standing in the one place you'd go looking for it is worse than not having the tab.
+It remains an ordinary `Tab` with `kind: "mentions"` and an empty channel, sharing `active`,
+`unread`, `mentions`, ordering, split placement and close behavior with channel tabs. The visible
+label is the listener's name. Its only view-level differences are that `ChatView` renders
+`mentionLog[tab.id]`, highlights every row as a match, draws a channel chip, and omits the
+composer and Reply action because there is no single destination channel.
 
-Replayed backlog never lands there. It arrives stamped older than what's already in the list, so
-a channel joined at noon would file this morning's mentions below this minute's -- and the same
-rule already keeps it from pinging or counting as unread.
+`ingest` appends only live, non-ignored matches to each listener's own log. A listener created from
+the full form starts empty; the chatter-name shortcut alone seeds the selected user's live messages
+already held by that channel. Later filter edits never backfill or remove rows: the active
+definition applies only to messages received from then on. The stored row is the same immutable
+message object as its channel copy; `clear` therefore rewrites every listener log as well as the
+affected channel view. Replayed and recovered backlog never enters a listener or triggers its
+unread count or notification. A custom listener's notification flag gates both the existing
+mention sound and rose tab badge; collection and the ordinary unread count continue when it is off.
 
-[ChatView.tsx](src/components/ChatView.tsx) renders it with the same scroller, context menu and
-user cards as a channel; only the source and the composer differ. There's no composer because
-there's no one channel to send to -- the row's channel chip is the way back to one -- and Reply
-is dropped from the context menu for the same reason. The user card takes its channel from the
-clicked *message* rather than the view, which is what keeps the follow and subscription lines
-about the channel the message was actually said in.
+Tabs saved before custom listeners have `mention: None`. They retain the old behavior -- one
+account's mentions, replies and whispers across its open channels -- while still obeying the new
+rule that the mentions tab itself does not keep an account socket alive.
+
+One exemption: the rose bar at a scrolled-off edge skips mentions tabs. That bar means "something
+past this edge named you", and pointing at the tab where those matches are gathered adds no useful
+information.
+
+The user card takes its channel from the clicked *message* rather than the view, which keeps its
+follow and subscription lines about the channel where the message was actually said.
 
 ## Ignoring and blocking
 
@@ -415,12 +437,13 @@ a menu key equivalent is matched before the keystroke ever reaches the webview.
 
 ## Accounts and tabs
 
-Several Twitch accounts can be signed in at once, and **a tab picks one**. That single
+Several Twitch accounts can be signed in at once, and **a channel tab picks one**. That single
 sentence is what re-keys the app: the same channel can be open twice under two logins, so a
-channel name no longer identifies a view. A `settings::Tab` -- `{ id, kind, channel, account }`
--- does, and everything kept per view (messages, unread, scroll position, sent history,
-completable emotes, role) is keyed by its id. `channel` still keys what belongs to the *room*:
-emote sets, badge sets, room id, who's live.
+channel name no longer identifies a view. A `settings::Tab` -- `{ id, kind, channel, account,
+mention }` -- does, and everything kept per view (messages, unread, scroll position, sent
+history, completable emotes, role) is keyed by its id. `channel` still keys what belongs to the
+*room*: emote sets, badge sets, room id, who's live. A mentions tab instead owns a `mention`
+filter and uses `account` only as a legacy/compatibility field.
 
 `Settings::tabs` is the whole list, in bar order, and it's what the connections are derived
 from. `AppState::wanted` reduces it to "which account needs to be in which channels", and
@@ -444,8 +467,8 @@ What was one question is now two:
   (account, channel) -- a second account joining a room the first is already in still needs all
   of them.
 - **"Is this about me?" is per tab.** `isAboutYou` takes the login the tab reads as, so the same
-  message highlights in one tab and not in the one beside it. Mention logs are per account for
-  the same reason, which is why a mentions tab belongs to an account like any other tab.
+  message highlights in one tab and not in the one beside it. Custom mention logs are per
+  listener tab, because each independently selects accounts, channels and phrases.
 
 Calls that ask Twitch about the *world* rather than about you -- badge images, who's live,
 channel search, a link preview -- go through `Auth::any_credentials` instead: any token answers

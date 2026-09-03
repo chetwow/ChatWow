@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
 import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
-import { ANONYMOUS, type ChannelHit } from "../types";
+import { ANONYMOUS, type AccountInfo, type ChannelHit } from "../types";
+import { MentionFilterEditor } from "./MentionFilterEditor";
 
 /** Wait this long after the last keystroke before asking Twitch. */
 const DEBOUNCE_MS = 250;
@@ -76,6 +77,71 @@ function Suggestion({
   );
 }
 
+function MentionTabCreator({
+  accounts,
+  channels,
+  defaultAccount,
+  onCreated,
+}: {
+  accounts: AccountInfo[];
+  channels: string[];
+  defaultAccount: string;
+  onCreated: () => void;
+}) {
+  const openMentionsTab = useChat((state) => state.openMentionsTab);
+  const initialAccount = accounts.some((account) => account.id === defaultAccount)
+    ? defaultAccount
+    : (accounts[0]?.id ?? "");
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border-t border-line">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+      >
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rose-400/15 text-[12px] font-semibold text-rose-300">
+          @
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] text-ink">Create new listener tab</span>
+          <span className="block text-[11px] text-ink-faint">
+            Listen for accounts, users, or phrases in open channels
+          </span>
+        </span>
+        <span className={`text-[10px] text-ink-faint transition-transform ${open ? "rotate-90" : ""}`}>
+          ▶
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-line/70 px-3 py-3">
+          <MentionFilterEditor
+            initial={{
+              name: "Mentions",
+              accounts: initialAccount ? [initialAccount] : [],
+              users: [],
+              channels,
+              phrases: [],
+              notify: true,
+            }}
+            accounts={accounts}
+            channels={channels}
+            submitLabel="Create listener tab"
+            busyLabel="Creating…"
+            onSave={async (mention) => {
+              await openMentionsTab(mention);
+              onCreated();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   const openTab = useChat((state) => state.openTab);
   const tabs = useChat((state) => state.tabs);
@@ -88,9 +154,11 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
    * you already have open -- as somebody else.
    */
   const [account, setAccount] = useState(defaultAccount);
-  const openTabs = tabs.filter((tab) => tab.account === account);
+  const openTabs = tabs.filter((tab) => tab.kind === "channel" && tab.account === account);
   const joinedChannels = openTabs.map((tab) => tab.channel);
-  const hasMentions = openTabs.some((tab) => tab.kind === "mentions");
+  const listenerChannels = [...new Set(
+    tabs.filter((tab) => tab.kind === "channel").map((tab) => tab.channel),
+  )];
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,18 +174,6 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
 
   const query = value.trim();
   const canSearch = IS_TAURI ? loggedIn : true;
-
-  /**
-   * The other kind of tab, offered here because this is the dialog you reach
-   * for when you want one. Only while the input is empty: once you're typing a
-   * channel name it's in the way, and the search results take the space.
-   */
-  const offerMentions = !hasMentions && query.length === 0;
-
-  const openMentions = () => {
-    void openTab("mentions", "", account);
-    onClose();
-  };
 
   useEffect(() => {
     setActive(-1);
@@ -182,9 +238,6 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     if (event.key === "Escape") return onClose();
 
     if (event.key === "Enter") {
-      // Nothing typed and the mentions row on offer: it's the only thing on
-      // screen to take, and Enter on an empty box otherwise does nothing.
-      if (offerMentions) return openMentions();
       const hit = active >= 0 ? hits[active] : null;
       return void submit(hit ? hit.login : value);
     }
@@ -205,7 +258,7 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-[min(420px,100%)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
+        className="scroller max-h-[78vh] w-[min(460px,100%)] overflow-y-auto rounded-xl border border-line bg-surface-raised shadow-2xl shadow-black/60"
       >
         <div className="flex items-center gap-2 border-b border-line px-3">
           <span className="text-[15px] text-ink-faint">#</span>
@@ -232,51 +285,15 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {offerMentions && (
-          <div className="p-1">
-            <button
-              type="button"
-              onClick={openMentions}
-              className="flex w-full items-center gap-2 rounded-md bg-surface-hover px-2 py-1.5 text-left"
-            >
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rose-400/15 text-[12px] font-semibold text-rose-300">
-                @
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] text-ink">Mentions</span>
-                <span className="block truncate text-[11px] text-ink-faint">
-                  Every mention, reply and whisper, from all channels at once
-                </span>
-              </span>
-            </button>
-          </div>
-        )}
-
-        {hits.length > 0 && (
-          <div className="scroller max-h-[260px] overflow-y-auto p-1">
-            {hits.map((hit, index) => (
-              <Suggestion
-                key={hit.login}
-                hit={hit}
-                joined={joinedChannels.includes(hit.login)}
-                active={index === active}
-                onHover={() => setActive(index)}
-                onPick={() => void submit(hit.login)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Which account the new tab reads as. Only worth a row when there's
-            more than one answer -- and it's what makes opening a channel you
-            already have open a sensible thing to do rather than a duplicate. */}
+        {/* The account for an ordinary channel belongs above the separate
+            mentions creator, so the two choices don't read as one form. */}
         {accounts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 border-t border-line px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1 border-b border-line px-3 py-2">
             <span className="mr-1 text-[11px] text-ink-faint">Join as</span>
-            {[...accounts.map((held) => ({ id: held.id, label: held.login })), {
-              id: ANONYMOUS,
-              label: "anonymous",
-            }].map((choice) => (
+            {[
+              ...accounts.map((held) => ({ id: held.id, label: held.login })),
+              { id: ANONYMOUS, label: "anonymous" },
+            ].map((choice) => (
               <button
                 key={choice.id || "anon"}
                 type="button"
@@ -293,13 +310,30 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        <MentionTabCreator
+          accounts={accounts}
+          channels={listenerChannels}
+          defaultAccount={defaultAccount}
+          onCreated={onClose}
+        />
+
+        {hits.length > 0 && (
+          <div className="scroller max-h-[260px] overflow-y-auto p-1">
+            {hits.map((hit, index) => (
+              <Suggestion
+                key={hit.login}
+                hit={hit}
+                joined={joinedChannels.includes(hit.login)}
+                active={index === active}
+                onHover={() => setActive(index)}
+                onPick={() => void submit(hit.login)}
+              />
+            ))}
+          </div>
+        )}
+
         <div className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
-          {offerMentions ? (
-            <>
-              Press <kbd className="rounded bg-line px-1">Enter</kbd> for a mentions tab, or type a
-              channel name
-            </>
-          ) : !canSearch ? (
+          {!canSearch ? (
             // Helix has no unauthenticated channel search, so this is a real
             // limit rather than something to paper over -- but typing a name
             // still works, which is worth saying in the same breath.

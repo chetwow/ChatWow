@@ -359,12 +359,10 @@ impl AppState {
     pub fn wanted(&self) -> HashMap<String, HashSet<String>> {
         let mut wanted: HashMap<String, HashSet<String>> = HashMap::new();
         for tab in self.tabs.read().iter() {
-            // A mentions tab joins nothing, but it still needs its account's
-            // socket up: whispers arrive on it and land there.
-            let channels = wanted.entry(tab.account.clone()).or_default();
-            if tab.is_channel() {
-                channels.insert(tab.channel.clone());
+            if !tab.is_channel() {
+                continue;
             }
+            wanted.entry(tab.account.clone()).or_default().insert(tab.channel.clone());
         }
         wanted
     }
@@ -593,6 +591,7 @@ mod tests {
             channel: channel.to_string(),
             account: account.to_string(),
             avatar_mode: None,
+            mention: None,
         }
     }
 
@@ -663,8 +662,8 @@ mod tests {
         assert!(!state.emote_sets_are_loaded(), "the global set is still fetching");
     }
 
-    /// Every account needs its own socket, and a mentions tab needs one too --
-    /// it joins nothing, but whispers arrive on that connection.
+    /// Only accounts with channel tabs need sockets. Mentions tabs stop
+    /// listening when the channel tabs feeding them close.
     #[test]
     fn connections_are_wanted_per_account() {
         let state = AppState::new();
@@ -677,13 +676,14 @@ mod tests {
             channel: String::new(),
             account: "333".to_string(),
             avatar_mode: None,
+            mention: None,
         });
 
         let wanted = state.wanted();
-        assert_eq!(wanted.len(), 3);
+        assert_eq!(wanted.len(), 2);
         assert_eq!(wanted["111"].len(), 2, "both channels on one socket");
         assert_eq!(wanted["222"], HashSet::from(["forsen".to_string()]));
-        assert!(wanted["333"].is_empty(), "a mentions tab joins nothing");
+        assert!(!wanted.contains_key("333"), "a mentions tab keeps no socket alive");
     }
 
     #[test]
@@ -787,4 +787,3 @@ mod tests {
         assert!(!auth.has_scope(ANONYMOUS, "chat:read"));
     }
 }
-

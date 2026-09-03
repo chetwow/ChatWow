@@ -4,6 +4,7 @@ import { Panes, type TabSearchSession } from "./components/Panes";
 import { AddChannelDialog } from "./components/AddChannelDialog";
 import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
 import { HoverPreview } from "./components/HoverPreview";
+import { ListenerCloseDialog } from "./components/ListenerCloseDialog";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -86,9 +87,9 @@ export default function App() {
         event.preventDefault();
         // The pane you were last in owns the shortcut -- closing the tab
         // you can see in the other one isn't what Ctrl+W means here.
-        const { active, focusedPane, closeTab } = useChat.getState();
+        const { active, focusedPane, requestCloseTab } = useChat.getState();
         const id = active[focusedPane];
-        if (id) void closeTab(id);
+        if (id) requestCloseTab(id);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -187,6 +188,7 @@ export default function App() {
           onClose={() => setSettingsTab(null)}
         />
       )}
+      <ListenerCloseDialog />
       <HoverPreview />
     </div>
   );
