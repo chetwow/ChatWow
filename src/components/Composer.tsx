@@ -10,9 +10,15 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { avatarOf, loginOf, useChat } from "../store/chat";
-import { matchChatters } from "../lib/chatterComplete";
+import {
+  chatterQuery,
+  findChatters,
+  matchChatters,
+  type ChatterMatch,
+} from "../lib/chatterComplete";
 import { EmotePicker } from "./EmotePicker";
 import { CommandHint, CommandPicker } from "./CommandPicker";
+import { ChatterPicker } from "./ChatterPicker";
 import { AccountMenu } from "./AccountMenu";
 import { IS_TAURI } from "../lib/tauri";
 import { messageText } from "../lib/messageText";
@@ -112,6 +118,9 @@ export function Composer({
   const [commandSelected, setCommandSelected] = useState(0);
   /** Whether the command picker was Escape'd out of for the line being typed. */
   const [commandDismissed, setCommandDismissed] = useState(false);
+  const [chatterSelected, setChatterSelected] = useState(0);
+  /** Where an `@` picker was dismissed, so it stays shut for that token. */
+  const [chatterDismissedAt, setChatterDismissedAt] = useState<number | null>(null);
   const [emoji, setEmoji] = useState<Emoji[]>([]);
   /**
    * How far back through this channel's sent messages the arrows have walked:
@@ -215,6 +224,26 @@ export function Composer({
   useEffect(() => {
     if (commandTrigger === null) setCommandDismissed(false);
   }, [commandTrigger]);
+
+  // A username token opens the visible equivalent of the existing `@` Tab
+  // completion, using the same per-tab session chatter inventory.
+  const chatterTrigger = useMemo(() => chatterQuery(value, caret), [value, caret]);
+  const chatterMatches = useMemo(
+    () => (chatterTrigger ? findChatters(chatters, chatterTrigger.query).slice(0, 50) : []),
+    [chatters, chatterTrigger],
+  );
+  const chatterOpen =
+    chatterTrigger !== null &&
+    chatterDismissedAt !== chatterTrigger.start &&
+    chatterMatches.length > 0;
+  const chatterHighlighted = Math.min(chatterSelected, chatterMatches.length - 1);
+
+  useEffect(() => {
+    setChatterSelected(0);
+  }, [chatterTrigger?.query, chatterTrigger?.start]);
+  useEffect(() => {
+    if (chatterTrigger === null) setChatterDismissedAt(null);
+  }, [chatterTrigger]);
 
   // The `:` token being typed, if any -- this is the picker's whole trigger.
   const trigger = useMemo(() => pickerQuery(value, caret), [value, caret]);
@@ -413,6 +442,21 @@ export function Composer({
     input.current?.focus();
   };
 
+  /** Replace the active `@query` with the selected display name. */
+  const pickChatter = (chatter: ChatterMatch) => {
+    if (!chatterTrigger) return;
+    const completed = applyCompletion(
+      value.slice(0, chatterTrigger.start),
+      value.slice(caret),
+      `@${chatter.name}`,
+      ", ",
+    );
+    completion.current = null;
+    pendingCaret.current = completed.caret;
+    applyText(completed.value, completed.caret);
+    input.current?.focus();
+  };
+
   /** Swap the `:query` token for what the picked row inserts. */
   const pick = (item: PickerItem) => {
     if (!trigger) return;
@@ -464,6 +508,27 @@ export function Composer({
       if (event.key === "Tab" || (event.key === "Enter" && completes)) {
         event.preventDefault();
         pickCommand(picked);
+        return;
+      }
+    }
+
+    if (chatterOpen && chatterTrigger) {
+      const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      if (step !== 0) {
+        event.preventDefault();
+        setChatterSelected(
+          (chatterHighlighted + step + chatterMatches.length) % chatterMatches.length,
+        );
+        return;
+      }
+      if (event.key === "Tab" || event.key === "Enter") {
+        event.preventDefault();
+        pickChatter(chatterMatches[chatterHighlighted]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setChatterDismissedAt(chatterTrigger.start);
         return;
       }
     }
@@ -581,6 +646,15 @@ export function Composer({
           selected={commandHighlighted}
           onSelect={setCommandSelected}
           onPick={(match: CommandMatch) => pickCommand(match.name)}
+        />
+      )}
+      {chatterOpen && (
+        <ChatterPicker
+          matches={chatterMatches}
+          selected={chatterHighlighted}
+          placement="above"
+          onSelect={setChatterSelected}
+          onPick={pickChatter}
         />
       )}
       {pickerOpen && (

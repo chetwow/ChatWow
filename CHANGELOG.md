@@ -19,6 +19,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added followed users to listener tabs, including a chatter-name context-menu action that creates
   a listener for that user in the current channel.
 - Added a configurable warning before closing the last channel tab feeding a mentions listener.
+- Added username suggestion popups when typing `@` in chat and when entering users in listener
+  settings, populated from chatters seen during the current session.
 
 ### Changed
 

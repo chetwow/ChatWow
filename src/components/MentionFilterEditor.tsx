@@ -1,5 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { AccountInfo, MentionFilter } from "../types";
+import { useChat } from "../store/chat";
+import {
+  findChatters,
+  mergeChatters,
+  type ChatterMatch,
+} from "../lib/chatterComplete";
+import { ChatterPicker } from "./ChatterPicker";
 
 function Choice({
   selected,
@@ -51,6 +58,9 @@ export function MentionFilterEditor({
   const [selectedAccounts, setSelectedAccounts] = useState([...initial.accounts]);
   const [users, setUsers] = useState([...(initial.users ?? [])]);
   const [user, setUser] = useState("");
+  const [userFocused, setUserFocused] = useState(false);
+  const [userSelected, setUserSelected] = useState(0);
+  const [userDismissedFor, setUserDismissedFor] = useState<string | null>(null);
   const [selectedChannels, setSelectedChannels] = useState([...initial.channels]);
   const [phrases, setPhrases] = useState([...initial.phrases]);
   const [phrase, setPhrase] = useState("");
@@ -58,6 +68,9 @@ export function MentionFilterEditor({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
+  const userInput = useRef<HTMLInputElement>(null);
+  const tabs = useChat((state) => state.tabs);
+  const chatterMaps = useChat((state) => state.chatters);
 
   useEffect(() => {
     if (autoFocusName) nameInput.current?.select();
@@ -69,6 +82,41 @@ export function MentionFilterEditor({
   const normalizeUser = (value: string) =>
     value.trim().replace(/^@/, "").toLocaleLowerCase();
   const validUser = (value: string) => /^[a-z0-9_]{1,25}$/i.test(value);
+
+  // Suggestions come only from the selected source channels, merging copies
+  // seen through different account tabs into one session-local inventory.
+  const availableChatters = useMemo(
+    () =>
+      mergeChatters(
+        tabs
+          .filter(
+            (tab) => tab.kind === "channel" && selectedChannels.includes(tab.channel),
+          )
+          .map((tab) => chatterMaps[tab.id]),
+      ),
+    [tabs, chatterMaps, selectedChannels],
+  );
+  const userMatches = useMemo(
+    () =>
+      user.trim()
+        ? findChatters(availableChatters, normalizeUser(user))
+            .filter(({ login }) => !users.includes(login))
+            .slice(0, 50)
+        : [],
+    [availableChatters, user, users],
+  );
+  const userPickerOpen =
+    userFocused && userDismissedFor !== user && userMatches.length > 0;
+  const userHighlighted = Math.min(userSelected, userMatches.length - 1);
+
+  const pickUser = (chatter: ChatterMatch) => {
+    if (!users.includes(chatter.login)) setUsers((held) => [...held, chatter.login]);
+    setUser("");
+    setUserSelected(0);
+    setUserDismissedFor(null);
+    setError(null);
+    userInput.current?.focus();
+  };
 
   const addUser = () => {
     const next = normalizeUser(user);
@@ -194,11 +242,39 @@ export function MentionFilterEditor({
           <div className="mb-1 text-[11px] text-ink-faint">
             Listen for messages from other users
           </div>
-          <div className="flex gap-1">
+          <div className="relative flex gap-1">
             <input
+              ref={userInput}
               value={user}
-              onChange={(event) => setUser(event.target.value)}
+              onChange={(event) => {
+                setUser(event.target.value);
+                setUserSelected(0);
+                setUserDismissedFor(null);
+              }}
+              onFocus={() => setUserFocused(true)}
+              onBlur={() => setUserFocused(false)}
               onKeyDown={(event) => {
+                if (userPickerOpen) {
+                  const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+                  if (step !== 0) {
+                    event.preventDefault();
+                    setUserSelected(
+                      (userHighlighted + step + userMatches.length) % userMatches.length,
+                    );
+                    return;
+                  }
+                  if (event.key === "Tab" || event.key === "Enter") {
+                    event.preventDefault();
+                    pickUser(userMatches[userHighlighted]);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setUserDismissedFor(user);
+                    return;
+                  }
+                }
                 if (event.key === "Enter") {
                   event.preventDefault();
                   addUser();
@@ -219,6 +295,15 @@ export function MentionFilterEditor({
             >
               Add
             </button>
+            {userPickerOpen && (
+              <ChatterPicker
+                matches={userMatches}
+                selected={userHighlighted}
+                placement="below"
+                onSelect={setUserSelected}
+                onPick={pickUser}
+              />
+            )}
           </div>
           {users.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">

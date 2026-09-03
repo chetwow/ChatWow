@@ -803,10 +803,16 @@ results once letters are typed and rank below every emote, including emoji that 
 what you typed. Tab completion stays prefix-only: it has no list to look at, so a surprise
 substring match would be hard to predict.
 
-Chatter names are matched against both login and display name, ordered alphabetically, and always
-inserted with the display name's own casing. The candidate list is built from incoming messages
-and lasts only for the session: Twitch gives a plain chat client no roster to read, and a stale
-name is worse than a missing one when you're replying to someone. You're never in your own list.
+Typing an `@` token opens a username picker above the composer; arrows choose a row, Tab or Enter
+inserts it, and Escape dismisses that token's picker. The older Tab-only path cycles the same
+matches. Chatter names are matched against both login and display name, ordered alphabetically,
+and inserted into chat with the display name's own casing. The listener editor reuses that picker
+without requiring `@`, merging the chatter inventories of its selected source channels and storing
+the picked login rather than the display label.
+
+The candidate lists are built from incoming messages and last only for the session: Twitch gives
+a plain chat client no roster to read, and a stale name is worse than a missing one when you're
+replying to someone. You're never in your own channel tab's list.
 
 Both order their *emote* matches by how often you've sent each one, falling back to alphabetical
 (chatter names are only ever alphabetical -- there are no counts to rank them by). Counts are per
