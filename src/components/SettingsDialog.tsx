@@ -95,6 +95,46 @@ function Section({
   );
 }
 
+/**
+ * A section that starts closed. For the things you go looking for rather than
+ * the things you browse: leaving them open would push everything above them
+ * further from the top of the panel for no one's benefit.
+ *
+ * Closed on every open of the dialog rather than remembering. Whether a
+ * disclosure was left open isn't worth a preference, and a settings panel that
+ * looks different each time it opens is harder to navigate than one that
+ * doesn't.
+ */
+function CollapsibleSection({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <h3>
+        <button
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="mb-1 flex w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-faint transition-colors hover:text-ink-dim"
+        >
+          {/* Rotated rather than swapped for a second glyph, so the arrow
+              turns into place instead of blinking. */}
+          <svg
+            viewBox="0 0 16 16"
+            width="9"
+            height="9"
+            fill="currentColor"
+            className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            <path d="M5 2.5 12 8l-7 5.5z" />
+          </svg>
+          {title}
+        </button>
+      </h3>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
 function Toggle({
   checked,
   onChange,
@@ -734,14 +774,6 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section title="Diagnostics">
-                <Row
-                  label="Log folder"
-                  hint="Safe to attach to a bug report."
-                >
-                  <LogFolderButton />
-                </Row>
-              </Section>
               <Section title="Updates">
                 <Row label="Check for updates on launch">
                   <Toggle
@@ -770,6 +802,11 @@ export function SettingsDialog({
                   onRemove={(login) => setUserBlocked(login, false)}
                 />
               </Section>
+              <CollapsibleSection title="Advanced">
+                <Row label="Log folder" hint="Safe to attach to a bug report.">
+                  <LogFolderButton />
+                </Row>
+              </CollapsibleSection>
             </div>
           )}
 
@@ -806,18 +843,6 @@ export function SettingsDialog({
                     checked={preferences.showSeventvBadges}
                     onChange={(showSeventvBadges) => updatePreferences({ showSeventvBadges })}
                     label="Display 7TV badges"
-                  />
-                </Row>
-              </Section>
-              <Section title="Message box">
-                {/* Off is for a single account, where the picture only repeats
-                    what the placeholder says. With two signed in it's the one
-                    thing still naming the sender once you've typed over it. */}
-                <Row label="Display your Twitch avatar">
-                  <Toggle
-                    checked={preferences.showComposerAvatar}
-                    onChange={(showComposerAvatar) => updatePreferences({ showComposerAvatar })}
-                    label="Display your Twitch avatar beside the message box"
                   />
                 </Row>
               </Section>
@@ -885,6 +910,18 @@ export function SettingsDialog({
                   </div>
                 </Row>
               </Section>
+              <Section title="Message box">
+                {/* Off is for a single account, where the picture only repeats
+                    what the placeholder says. With two signed in it's the one
+                    thing still naming the sender once you've typed over it. */}
+                <Row label="Display your Twitch avatar">
+                  <Toggle
+                    checked={preferences.showComposerAvatar}
+                    onChange={(showComposerAvatar) => updatePreferences({ showComposerAvatar })}
+                    label="Display your Twitch avatar beside the message box"
+                  />
+                </Row>
+              </Section>
             </div>
           )}
 
@@ -917,7 +954,7 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section title="Changes">
+              <Section title="Miscellaneous">
                 {/* Off only stops the line. A set that changes while you're
                     reading still changes what you can type either way. */}
                 <Row label="Announce 7TV emote changes">
