@@ -194,9 +194,12 @@ Twitch will refuse.
 They're separate in a second way now. What to *ask* for is one list for the whole app
 (`permission_groups`), because it's a property of the next sign-in; what was *granted* rides on
 each account (`Account::scopes`), because it's a property of a token. So an account signed in
-before a box was ticked simply doesn't have it, the accounts panel names which accounts hold
-each group rather than answering yes or no, and every scope check takes an account -- two tabs on
-one channel can honestly offer different commands.
+before a box was ticked simply doesn't have it. The accounts panel makes the account being edited
+explicit and shows that token's status beside each group; its reauthorization reminder is derived
+from that selected account and disappears when the replacement token has the requested scopes.
+The selectable new-account card exposes the same request controls before starting sign-in. Every
+runtime scope check also takes an account -- two tabs on one channel can honestly offer different
+commands.
 
 Granting moderator scopes doesn't make anyone a moderator -- Twitch still checks that, channel
 by channel, on every call.

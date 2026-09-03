@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added selectable account cards for editing existing permissions or choosing them before signing
+  in a new account.
+
 ### Fixed
 
 - Fixed the account permission reminder so required scopes cannot hold it open and it disappears
