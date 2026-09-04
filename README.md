@@ -8,12 +8,15 @@ in a browser.
 
 ## Key features
 
-- Tabbed chat for multiple channels
-- Split-screen viewing for two chats at once
-- Support for multiple Twitch accounts, with a different account on each tab
+- Tabbed chats for multiple channels, with optional split-screen viewing
+- Multiple Twitch accounts, with per-tab account selection and permission controls
+- Search within the active chat using the title-bar button or `Ctrl/Cmd+F`
+- Custom listener tabs for account mentions, selected users, and phrases across open channels
+- Optional sound and tab notifications for listener matches
+- Username suggestions when mentioning chatters or configuring listeners
+- Moderator shortcuts for deleting messages, bans, unbans, and timeouts
 - Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes
-- Mentions, replies, whispers, badges, and unread indicators
-- Emote completion, Twitch chat commands, and link previews
+- Replies, whispers, badges, unread indicators, Twitch chat commands, and link previews
 - Customizable appearance and notifications
 
 ChatWow is available for Windows, macOS, and Linux.
