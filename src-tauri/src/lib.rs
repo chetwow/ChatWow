@@ -100,6 +100,7 @@ fn persist(app: &AppHandle, state: &AppState) {
         permission_groups: auth.permission_groups.clone(),
         tabs: state.tabs.read().clone(),
         emote_uses: state.emote_uses.read().clone(),
+        last_seen_version: state.last_seen_version.read().clone(),
         preferences: state.preferences.read().clone(),
         ..Default::default()
     };
@@ -379,6 +380,23 @@ fn auth_status(state: State<'_, Shared>) -> AuthStatus {
 #[tauri::command]
 fn preferences(state: State<'_, Shared>) -> settings::Preferences {
     state.preferences.read().clone()
+}
+
+#[tauri::command]
+fn last_seen_version(state: State<'_, Shared>) -> String {
+    state.last_seen_version.read().clone()
+}
+
+/// Remember only this running build. The frontend cannot acknowledge some
+/// arbitrary future version by passing a string through the webview.
+#[tauri::command]
+fn acknowledge_whats_new(app: AppHandle, state: State<'_, Shared>) {
+    let version = env!("CARGO_PKG_VERSION");
+    if state.last_seen_version.read().as_str() == version {
+        return;
+    }
+    *state.last_seen_version.write() = version.to_string();
+    persist(&app, &state);
 }
 
 /// Replace the stored preferences wholesale -- the dialog always sends the
@@ -1576,6 +1594,7 @@ pub fn run() {
                 auth_state.permission_groups = saved.permission_groups;
             }
             *shared.emote_uses.write() = saved.emote_uses;
+            *shared.last_seen_version.write() = saved.last_seen_version;
             *shared.preferences.write() = saved.preferences;
             shared.emote_catalogs.initialize(&handle);
             client::load_cached_global_emotes(&shared);
@@ -1683,6 +1702,8 @@ pub fn run() {
             send_message,
             preferences,
             set_preferences,
+            last_seen_version,
+            acknowledge_whats_new,
             open_log_dir,
             update_state,
             check_for_updates,

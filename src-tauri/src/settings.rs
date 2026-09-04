@@ -324,6 +324,9 @@ pub struct Settings {
     pub channels: Vec<String>,
     /// How often each emote name has been sent, used to rank completions.
     pub emote_uses: HashMap<String, u32>,
+    /// The app version whose What's New dialog was last dismissed. This is
+    /// launch bookkeeping rather than a user-editable preference.
+    pub last_seen_version: String,
     pub preferences: Preferences,
 }
 
@@ -493,6 +496,7 @@ mod tests {
         let file = dir.path().join("settings.json");
         let mut settings = Settings {
             default_account: "first".into(),
+            last_seen_version: "1.0.0".into(),
             ..Default::default()
         };
         save_to(&file, &settings).unwrap();
@@ -502,6 +506,7 @@ mod tests {
         let written: Settings =
             serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
         assert_eq!(written.default_account, "second");
+        assert_eq!(written.last_seen_version, "1.0.0");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 
         #[cfg(unix)]

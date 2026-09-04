@@ -5,6 +5,12 @@ import { AddChannelDialog } from "./components/AddChannelDialog";
 import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
 import { HoverPreview } from "./components/HoverPreview";
 import { ListenerCloseDialog } from "./components/ListenerCloseDialog";
+import { WhatsNewDialog } from "./components/WhatsNewDialog";
+import {
+  acknowledgeReleaseNotes,
+  unseenReleaseNotes,
+} from "./lib/whatsNew";
+import type { ReleaseNotes } from "./lib/releaseNotes";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -14,6 +20,7 @@ export default function App() {
   // Which tab the settings dialog is open on, or null when it's closed.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [search, setSearch] = useState<TabSearchSession | null>(null);
+  const [whatsNew, setWhatsNew] = useState<ReleaseNotes | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
   const gifScale = useChat((state) => state.preferences.gifScale);
   const focusedTab = useChat((state) => state.active[state.focusedPane]);
@@ -58,6 +65,25 @@ export default function App() {
       void listening.then((off) => off());
     };
   }, [bootstrap]);
+
+  useEffect(() => {
+    let active = true;
+    void unseenReleaseNotes()
+      .then((notes) => {
+        if (active) setWhatsNew(notes);
+      })
+      .catch((error) => console.warn("Couldn't load What's New state", error));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const closeWhatsNew = useCallback(() => {
+    setWhatsNew(null);
+    void acknowledgeReleaseNotes().catch((error) =>
+      console.warn("Couldn't save What's New state", error),
+    );
+  }, []);
 
   // Ctrl+K opens the channel switcher, matching the command-palette
   // convention. Ctrl/Cmd+F searches the active tab. Ctrl/Cmd+T and Ctrl/Cmd+W
@@ -195,6 +221,7 @@ export default function App() {
         />
       )}
       <ListenerCloseDialog />
+      {whatsNew && <WhatsNewDialog notes={whatsNew} onClose={closeWhatsNew} />}
       <HoverPreview />
     </div>
   );

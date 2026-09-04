@@ -269,6 +269,8 @@ pub struct AppState {
     /// Everything the settings dialog edits, mirrored into the settings file
     /// on every change so a crash can't lose a toggle.
     pub preferences: RwLock<crate::settings::Preferences>,
+    /// The build whose bundled changelog entry the user has acknowledged.
+    pub last_seen_version: RwLock<String>,
     pub settings_write: parking_lot::Mutex<()>,
     pub auth: RwLock<Auth>,
     /// Logins currently broadcasting, refreshed by the live poller. Empty when
@@ -323,6 +325,7 @@ impl AppState {
             badge_lookups: RwLock::new(None),
             emote_uses: RwLock::new(HashMap::new()),
             preferences: RwLock::new(crate::settings::Preferences::default()),
+            last_seen_version: RwLock::new(String::new()),
             settings_write: parking_lot::Mutex::new(()),
             auth: RwLock::new(Auth::default()),
             live: RwLock::new(HashSet::new()),

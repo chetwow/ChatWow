@@ -11,6 +11,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Added Twitch GIF message rendering, with a display toggle, an underlined hover fallback, and
   adjustable sizing.
+- Added an offline What's New popup on the first launch of each version, populated from that
+  version's changelog entry.
 
 ### Changed
 

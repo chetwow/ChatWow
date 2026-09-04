@@ -1007,6 +1007,16 @@ painted. The dialog re-reads it on mount for exactly that.
 Checks and installs also share one asynchronous operation lock. A launch check, manual check and
 install cannot overlap and replace one another's pending update or publish contradictory stages.
 
+The first launch of a build also shows a What's New dialog, entirely offline. The frontend imports
+`CHANGELOG.md` as build input and extracts only the versioned section that exactly matches
+`package.json`; it does not accumulate every release missed since the last run. A test requires
+that exact section to exist, so bumping a version without moving `Unreleased` into its dated
+release section fails before packaging. `Settings::last_seen_version` records the build only when
+the dialog is dismissed. It stays outside `Preferences` because it is launch bookkeeping rather
+than a user choice, while Rust still owns its durable write so every other settings save preserves
+it. Keeping the notes in the installed bundle means the dialog neither depends on the update
+endpoint nor needs network access after an upgrade.
+
 **Windows has no `ready` stage.** `Update::install` hands the installer to `ShellExecuteW` and
 exits the process; NSIS puts the app back up on its own. macOS and Linux swap the files in
 place and wait to be restarted, which is the only reason the button ever says *Restart*. The
