@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-04
+
 ### Added
 
 - Added Twitch GIF message rendering, with a display toggle, an underlined hover fallback, and
