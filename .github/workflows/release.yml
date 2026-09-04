@@ -51,7 +51,29 @@ jobs:
           workspaces: ./src-tauri -> target
 
       - run: npm ci
-      - run: npm audit
+      - name: Audit npm dependencies
+        shell: bash
+        run: |
+          # npm's advisory endpoint occasionally returns a transient 5xx. Retry
+          # those service failures, but fail immediately on a real audit report.
+          for attempt in 1 2 3; do
+            if output="$(npm audit --fetch-timeout=60000 2>&1)"; then
+              printf '%s\n' "$output"
+              exit 0
+            else
+              status=$?
+              printf '%s\n' "$output"
+            fi
+
+            if ! printf '%s\n' "$output" | grep -Eqi \
+              'audit endpoint returned an error|429 Too Many Requests|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)|ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|ENOTFOUND'; then
+              exit "$status"
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+          exit "$status"
       - run: npm test
       - run: npm run build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
