@@ -4,8 +4,6 @@ ChatWow is a modern desktop client for Twitch chat, built with Tauri and React. 
 clean, responsive way to follow and participate in multiple channels without keeping Twitch open
 in a browser.
 
-<img width="1448" height="1086" alt="d2da58ce-a0ac-49fa-b96b-460619b790c7" src="https://github.com/user-attachments/assets/59a67fa2-48cd-4c77-9dfb-df47b6762327" />
-
 ## Key features
 
 - Tabbed chats for multiple channels, with optional split-screen viewing
@@ -19,3 +17,6 @@ in a browser.
 - Customizable appearance and notifications
 
 ChatWow is available for Windows, macOS, and Linux.
+
+<img width="1448" height="1086" alt="d2da58ce-a0ac-49fa-b96b-460619b790c7" src="https://github.com/user-attachments/assets/59a67fa2-48cd-4c77-9dfb-df47b6762327" />
+<p align="center"><img width="532" height="774" alt="image" src="https://github.com/user-attachments/assets/16c2f899-392b-4063-b79c-80a8f81aacfb" /></p>
