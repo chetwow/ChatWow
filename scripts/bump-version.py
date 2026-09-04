@@ -14,9 +14,10 @@ an update to a version it already is or refuse the one it isn't.
 
 Refuses to run on a dirty tree: this rewrites five files at once, and `git
 checkout` is the only sane undo. Commits them too, unless `--no-commit` is
-passed -- a tag put on the commit *before* the bump names a version the build
-doesn't contain, and the release then goes out as the previous one. Committing
-here is what makes the tag command this prints safe to run as printed.
+passed -- the release workflow must run from the commit containing the bump,
+or the resulting installers and updater metadata will name the previous
+version. Committing here makes the push-and-dispatch instructions safe to run
+as printed.
 """
 
 import json
@@ -107,9 +108,9 @@ def main() -> None:
     print(f"set five files to {version}")
 
     if not commit:
-        # Deliberately no tag command here: running one before the bump is
-        # committed is the exact mistake this script exists to prevent.
-        print("not committed, as asked. Commit them before you tag anything:")
+        # Deliberately no release command here: dispatching before the bump is
+        # committed and pushed would build the version currently on main.
+        print("not committed, as asked. Commit and push before dispatching the release:")
         print(f'  git commit -am "Version {version}"')
         return
 
@@ -118,8 +119,10 @@ def main() -> None:
     head = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
     ).stdout.strip()
-    print(f"committed as {head}. To build the installers:")
-    print(f"  git tag v{version} && git push origin v{version}")
+    print(f"committed as {head}. Push it, then build the installers from main's warm caches:")
+    print("  git push origin main")
+    print("  gh workflow run release.yml --ref main")
+    print("or run the release workflow from GitHub's Actions tab")
 
 
 if __name__ == "__main__":

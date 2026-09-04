@@ -983,6 +983,14 @@ downloads, checks the signature against the public key compiled in, and swaps th
 no service to run. A website would only start earning its place with staged rollouts, a beta
 channel, or download numbers, none of which anyone has asked for.
 
+The preferred release trigger is `workflow_dispatch` on `main` after the version commit has been
+pushed. The Tauri action still creates the `v<version>` tag and draft release, while keeping the
+workflow on the default-branch cache scope lets later releases reuse npm and Rust artifacts;
+separate version tags cannot share their own caches. A pushed tag remains a fallback trigger.
+Every `npm ci` skips its automatic audit request and prefers cached packages because verification
+runs one explicit, retry-protected `npm audit`; install-time audits would duplicate that network
+call once per platform without adding a security gate.
+
 That signing key is unrelated to Apple's or Microsoft's. Nothing here is code-signed and the
 updater doesn't care: it verifies with minisign only, and never consults Gatekeeper. What the
 key does mean is that **losing the private half permanently orphans every installed copy** --
