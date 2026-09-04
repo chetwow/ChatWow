@@ -12,16 +12,12 @@
 # draft is therefore the act of shipping the update -- a draft's assets 404 for
 # everyone without push access, `releases/latest` included.
 #
-# Prefer running it from the Actions tab after pushing the version commit to
-# main. GitHub scopes caches by ref, so workflow_dispatch runs can reuse the
-# npm and Rust caches written by earlier releases. tauri-action creates the
-# version tag along with the draft release.
+# Run it from the Actions tab, or by pushing a tag:
 #
-#   gh workflow run release.yml --ref main
+#   git tag v0.1.0 && git push origin v0.1.0
 #
-# Pushing a pre-created v* tag remains a fallback. Either way the release lands
-# as a draft, named from the version in tauri.conf.json -- nothing is published
-# until you say so.
+# Either way the release lands as a draft, named from the version in
+# tauri.conf.json -- nothing is published until you say so.
 name: release
 
 on:
@@ -54,32 +50,8 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
-      # The explicit audit below is authoritative. Avoid making every clean
-      # install call the advisory endpoint too, and favor setup-node's cache.
-      - run: npm ci --no-audit --prefer-offline --no-fund
-      - name: Audit npm dependencies
-        shell: bash
-        run: |
-          # npm's advisory endpoint occasionally returns a transient 5xx. Retry
-          # those service failures, but fail immediately on a real audit report.
-          for attempt in 1 2 3; do
-            if output="$(npm audit --fetch-timeout=60000 2>&1)"; then
-              printf '%s\n' "$output"
-              exit 0
-            else
-              status=$?
-              printf '%s\n' "$output"
-            fi
-
-            if ! printf '%s\n' "$output" | grep -Eqi \
-              'audit endpoint returned an error|429 Too Many Requests|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)|ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|ENOTFOUND'; then
-              exit "$status"
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              sleep $((attempt * 30))
-            fi
-          done
-          exit "$status"
+      - run: npm ci
+      - run: npm audit
       - run: npm test
       - run: npm run build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -149,7 +121,7 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
-      - run: npm ci --no-audit --prefer-offline --no-fund
+      - run: npm ci
 
       # A release built without a real key is one nothing can ever update to,
       # and the damage is only visible months later when the next version goes
