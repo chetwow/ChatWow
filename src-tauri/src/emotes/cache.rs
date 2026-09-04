@@ -8,16 +8,41 @@
 //! The cache fills lazily -- an emote is downloaded the first time it's
 //! actually displayed, in chat or in the picker -- so joining a channel with a
 //! few thousand emotes doesn't touch the network at all. Emotes that leave
-//! every joined channel's set are purged by [`purge`].
+//! every joined channel's set remain highest priority, while recently used
+//! images from other channels stay until the cache reaches 300 MB.
 
 use anyhow::{anyhow, Result};
-use std::collections::HashSet;
-use std::path::PathBuf;
+use filetime::FileTime;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tauri::{AppHandle, Manager};
+use tokio::sync::{watch, Mutex};
 
 /// Anything bigger than this isn't an emote and shouldn't reach the disk.
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+/// A hard ceiling for normal-size cached images. The active working set is
+/// evicted last, but cannot make the directory grow without bound.
+pub const MAX_CACHE_BYTES: u64 = 300 * 1000 * 1000;
+
+type SharedResult = Arc<Result<(Vec<u8>, &'static str), String>>;
+type Flights = HashMap<String, watch::Sender<Option<SharedResult>>>;
+
+fn flights() -> &'static Mutex<Flights> {
+    static FLIGHTS: OnceLock<Mutex<Flights>> = OnceLock::new();
+    FLIGHTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[derive(Default)]
+struct Budget {
+    total: Option<u64>,
+}
+
+fn budget() -> &'static StdMutex<Budget> {
+    static BUDGET: OnceLock<StdMutex<Budget>> = OnceLock::new();
+    BUDGET.get_or_init(|| StdMutex::new(Budget::default()))
+}
 
 /// Where the images live. Under the cache dir, not config: it's all
 /// re-downloadable, so it's fine for the OS to clear it.
@@ -52,7 +77,7 @@ fn split_key(key: &str) -> Option<(&'static str, &str)> {
     })
 }
 
-/// Where to download a key from. Both providers address images by id, so the
+/// Where to download a key from. All cached providers address images by id, so the
 /// url follows from the key and nothing has to be looked up or stored.
 pub fn source_url(key: &str) -> Option<String> {
     if !is_valid_key(key) {
@@ -82,34 +107,34 @@ pub fn content_type(bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Cached files that no joined channel can reach any more.
-pub fn stale(existing: Vec<String>, active: &HashSet<String>) -> Vec<String> {
-    existing
-        .into_iter()
-        .filter(|key| !active.contains(key))
-        .collect()
+fn read_cached(path: &Path) -> Option<(Vec<u8>, &'static str)> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.is_empty() {
+        let _ = std::fs::remove_file(path);
+        return None;
+    }
+    // Modification time is our portable recency index. A failed touch only
+    // makes this entry look older at the next trim; it never breaks serving.
+    let _ = filetime::set_file_mtime(path, FileTime::now());
+    let mime = content_type(&bytes);
+    if mime == "application/octet-stream" {
+        let _ = std::fs::remove_file(path);
+        return None;
+    }
+    Some((bytes, mime))
 }
 
-/// A cached image, downloading and storing it on a miss.
-pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)> {
-    if !is_valid_key(key) {
-        return Err(anyhow!("not an emote key: {key}"));
-    }
-
-    let path = dir(app)?.join(key);
-    if let Ok(bytes) = std::fs::read(&path) {
-        if !bytes.is_empty() {
-            let mime = content_type(&bytes);
-            return Ok((bytes, mime));
-        }
-    }
-
+async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &'static str)> {
     let url = source_url(key).ok_or_else(|| anyhow!("no source for {key}"))?;
-    let http = {
+    let (http, active, sets_loaded) = {
         let state = app
             .try_state::<crate::Shared>()
             .ok_or_else(|| anyhow!("app state not ready"))?;
-        state.http.clone()
+        (
+            state.http.clone(),
+            state.active_cache_keys(),
+            state.emote_sets_are_loaded(),
+        )
     };
 
     let bytes = http
@@ -132,33 +157,174 @@ pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)
     // emote can never read a half-written file.
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let temp = path.with_extension(format!("part{}", NEXT.fetch_add(1, Ordering::Relaxed)));
-    if std::fs::write(&temp, &bytes).is_ok() && std::fs::rename(&temp, &path).is_err() {
-        // Windows won't rename onto an existing file; another request beat us
-        // to it, which is fine -- its bytes are the same as ours.
-        let _ = std::fs::remove_file(&temp);
+    let stored = if std::fs::write(&temp, &bytes).is_ok() {
+        match std::fs::rename(&temp, path) {
+            Ok(()) => true,
+            Err(_) => {
+                // Another process may have populated the same stable key.
+                let _ = std::fs::remove_file(&temp);
+                false
+            }
+        }
+    } else {
+        false
+    };
+    if stored {
+        let no_active = HashSet::new();
+        note_store(
+            path.parent().expect("cache file has a parent"),
+            bytes.len() as u64,
+            if sets_loaded { &active } else { &no_active },
+        );
     }
 
     Ok((bytes, mime))
 }
 
-/// Delete cached images for emotes that have left every joined channel's set.
-/// Cheap enough to run whenever a channel's emotes land.
-pub fn purge(app: &AppHandle, active: &HashSet<String>) {
-    let Ok(path) = dir(app) else { return };
-    let Ok(entries) = std::fs::read_dir(&path) else {
-        return;
+/// A cached image, downloading and storing it on a miss. Concurrent misses for
+/// one stable key share the leader's result instead of stampeding its CDN.
+pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)> {
+    if !is_valid_key(key) {
+        return Err(anyhow!("not an emote key: {key}"));
+    }
+
+    let path = dir(app)?.join(key);
+    if let Some(image) = read_cached(&path) {
+        return Ok(image);
+    }
+
+    let (leader, sender, mut receiver) = {
+        let mut current = flights().lock().await;
+        match current.get(key) {
+            Some(sender) => (false, sender.clone(), sender.subscribe()),
+            None => {
+                let (sender, receiver) = watch::channel(None);
+                current.insert(key.to_string(), sender.clone());
+                (true, sender, receiver)
+            }
+        }
     };
 
-    let cached: Vec<String> = entries
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        // Skip the temp files an in-flight download may have left behind.
-        .filter(|name| is_valid_key(name))
-        .collect();
-
-    for key in stale(cached, active) {
-        let _ = std::fs::remove_file(path.join(key));
+    if !leader {
+        loop {
+            if let Some(shared) = receiver.borrow().clone() {
+                return match &*shared {
+                    Ok(image) => Ok(image.clone()),
+                    Err(error) => Err(anyhow!(error.clone())),
+                };
+            }
+            match tokio::time::timeout(std::time::Duration::from_secs(20), receiver.changed()).await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return Err(anyhow!("emote download ended without a result")),
+                Err(_) => {
+                    let mut current = flights().lock().await;
+                    if current
+                        .get(key)
+                        .is_some_and(|in_flight| in_flight.same_channel(&sender))
+                    {
+                        current.remove(key);
+                    }
+                    return Err(anyhow!("emote download timed out"));
+                }
+            }
+        }
     }
+
+    // Recheck after becoming leader: a different request may have completed
+    // between the optimistic read and registration above.
+    let result = match read_cached(&path) {
+        Some(image) => Ok(image),
+        None => download(app, key, &path).await,
+    };
+    let shared = Arc::new(match &result {
+        Ok((bytes, mime)) => Ok((bytes.clone(), *mime)),
+        Err(error) => Err(error.to_string()),
+    });
+    sender.send_replace(Some(shared));
+    flights().lock().await.remove(key);
+    result
+}
+
+#[derive(Debug)]
+struct CacheFile {
+    key: String,
+    path: PathBuf,
+    bytes: u64,
+    modified: std::time::SystemTime,
+}
+
+fn cache_files(path: &Path) -> Vec<CacheFile> {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let key = entry.file_name().into_string().ok()?;
+            if !is_valid_key(&key) {
+                // A crash can strand the atomic-write temporary. It is wholly
+                // re-downloadable and must not sit outside the 300 MB budget.
+                if let Some((base, suffix)) = key.rsplit_once(".part") {
+                    if is_valid_key(base)
+                        && !suffix.is_empty()
+                        && suffix.chars().all(|c| c.is_ascii_digit())
+                    {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            metadata.is_file().then_some(CacheFile {
+                key,
+                path: entry.path(),
+                bytes: metadata.len(),
+                modified: metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
+            })
+        })
+        .collect()
+}
+
+/// Trim least-recently-used inactive images first, then the oldest active
+/// images only if the active working set itself is larger than the hard cap.
+fn trim_dir(path: &Path, active: &HashSet<String>, max_bytes: u64) -> u64 {
+    let mut files = cache_files(path);
+    let mut total: u64 = files.iter().map(|file| file.bytes).sum();
+    if total <= max_bytes {
+        return total;
+    }
+    files.sort_by_key(|file| (active.contains(&file.key), file.modified));
+    for file in files {
+        if total <= max_bytes {
+            break;
+        }
+        if std::fs::remove_file(&file.path).is_ok() {
+            total = total.saturating_sub(file.bytes);
+        }
+    }
+    total
+}
+
+fn note_store(path: &Path, bytes: u64, active: &HashSet<String>) {
+    let mut current = budget().lock().unwrap_or_else(|error| error.into_inner());
+    let total = match current.total {
+        Some(total) => total.saturating_add(bytes),
+        None => cache_files(path).iter().map(|file| file.bytes).sum(),
+    };
+    current.total = Some(if total > MAX_CACHE_BYTES {
+        trim_dir(path, active, MAX_CACHE_BYTES)
+    } else {
+        total
+    });
+}
+
+/// Reconcile the size estimate and enforce the 300 MB ceiling. This runs off
+/// the hot path whenever emote sets land; ordinary stores also enforce it.
+pub fn trim(app: &AppHandle, active: &HashSet<String>) {
+    let Ok(path) = dir(app) else { return };
+    let mut current = budget().lock().unwrap_or_else(|error| error.into_inner());
+    current.total = Some(trim_dir(&path, active, MAX_CACHE_BYTES));
 }
 
 #[cfg(test)]
@@ -222,15 +388,22 @@ mod tests {
     }
 
     #[test]
-    fn purging_keeps_what_is_still_reachable() {
-        let active: HashSet<String> = ["7tv-keep".to_string(), "twitch-25".to_string()]
-            .into_iter()
-            .collect();
-        let cached = vec![
-            "7tv-keep".to_string(),
-            "7tv-gone".to_string(),
-            "twitch-25".to_string(),
-        ];
-        assert_eq!(stale(cached, &active), vec!["7tv-gone".to_string()]);
+    fn trimming_keeps_recent_and_active_images_first() {
+        let directory = tempfile::tempdir().unwrap();
+        let old_inactive = directory.path().join("7tv-old");
+        let new_inactive = directory.path().join("7tv-new");
+        let active_file = directory.path().join("7tv-active");
+        std::fs::write(&old_inactive, [0; 4]).unwrap();
+        std::fs::write(&new_inactive, [0; 4]).unwrap();
+        std::fs::write(&active_file, [0; 4]).unwrap();
+        filetime::set_file_mtime(&old_inactive, FileTime::from_unix_time(1, 0)).unwrap();
+        filetime::set_file_mtime(&new_inactive, FileTime::from_unix_time(2, 0)).unwrap();
+        filetime::set_file_mtime(&active_file, FileTime::from_unix_time(0, 0)).unwrap();
+
+        let active = HashSet::from(["7tv-active".to_string()]);
+        assert_eq!(trim_dir(directory.path(), &active, 8), 8);
+        assert!(!old_inactive.exists());
+        assert!(new_inactive.exists());
+        assert!(active_file.exists());
     }
 }

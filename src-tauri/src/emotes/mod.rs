@@ -1,5 +1,6 @@
 pub mod bttv;
 pub mod cache;
+pub mod catalog;
 pub mod ffz;
 pub mod seventv;
 pub mod seventv_badges;

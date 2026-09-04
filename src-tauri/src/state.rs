@@ -1,9 +1,10 @@
 //! Shared application state.
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI64, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::emotes::Emote;
@@ -206,6 +207,9 @@ pub struct ChannelData {
     /// Only the EventAPI needs it: it's what a subscription names, and what a
     /// change coming back is matched to a channel by.
     pub seventv_set: Option<String>,
+    /// Bumped whenever the wholesale provider snapshot or a live 7TV event
+    /// changes the map. A slower HTTP refresh must not overwrite a newer event.
+    pub emote_revision: u64,
     pub badges: BadgeMap,
 }
 
@@ -231,6 +235,15 @@ pub struct AppState {
     /// What each account is doing in each channel it's in.
     pub sessions: RwLock<HashMap<SessionKey, Session>>,
     pub global_emotes: RwLock<HashMap<String, Emote>>,
+    /// Unlike map emptiness, this also represents a completed load whose
+    /// enabled providers legitimately returned no global emotes.
+    pub global_emotes_ready: AtomicBool,
+    /// Persisted provider snapshots used immediately while their network
+    /// refreshes run. Images themselves live in `emotes::cache`.
+    pub emote_catalogs: crate::emotes::catalog::CatalogCache,
+    /// One room-asset fetch per channel even when two account sockets receive
+    /// ROOMSTATE together.
+    pub channel_asset_loads: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Twitch's global emotes per account, same shape as
     /// `Session::twitch_emotes` -- they include what that account subscribes
     /// to, so they're no more shared than a channel's are.
@@ -299,6 +312,9 @@ impl AppState {
             data: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
             global_emotes: RwLock::new(HashMap::new()),
+            global_emotes_ready: AtomicBool::new(false),
+            emote_catalogs: crate::emotes::catalog::CatalogCache::default(),
+            channel_asset_loads: Mutex::new(HashMap::new()),
             twitch_global_emotes: RwLock::new(HashMap::new()),
             global_badges: RwLock::new(BadgeMap::new()),
             channel_avatars: RwLock::new(HashMap::new()),
@@ -392,6 +408,18 @@ impl AppState {
         wanted
     }
 
+    /// Serialize the room-owned half of a join. Two account sockets can learn
+    /// the same room id at once, but its provider catalogs and badges need one
+    /// fetch and one state update.
+    pub fn channel_asset_lock(&self, channel: &str) -> Arc<tokio::sync::Mutex<()>> {
+        Arc::clone(
+            self.channel_asset_loads
+                .lock()
+                .entry(channel.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+
     /// Every emote completable in a channel as one account: the 7TV global and
     /// channel sets, plus that account's own Twitch emotes when signed in.
     pub fn emote_entries(&self, account: &str, channel: &str) -> Vec<EmoteEntry> {
@@ -417,13 +445,15 @@ impl AppState {
         sort_and_dedupe(entries)
     }
 
-    /// Whether every emote set we expect is in hand: the global 7TV set and
-    /// each joined channel's. Only then does "no channel can reach this image"
-    /// mean anything -- ask mid-load and every emote belonging to a channel
-    /// still fetching looks unreachable. A channel that never loads leaves this
-    /// false, which just means stale images linger: the safe way to be wrong.
+    /// Whether every emote set we expect is in hand: the enabled global sets
+    /// and each joined channel's. Only then can image-cache trimming prioritize
+    /// the complete active working set. A channel that never loads leaves this
+    /// false, which safely postpones maintenance.
     pub fn emote_sets_are_loaded(&self) -> bool {
-        if self.global_emotes.read().is_empty() {
+        if !self
+            .global_emotes_ready
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             return false;
         }
         let channels = self.open_channels();
@@ -433,8 +463,8 @@ impl AppState {
             .all(|channel| data.get(channel).is_some_and(|c| c.assets_ready))
     }
 
-    /// Cache keys for every emote image worth keeping on disk: the ones
-    /// reachable from any joined channel. Anything else is stale.
+    /// Cache keys for the active image working set. These survive trimming
+    /// ahead of recently used images from channels that are no longer open.
     pub fn active_cache_keys(&self) -> HashSet<String> {
         let mut keys: HashSet<String> = self
             .global_emotes
@@ -701,6 +731,9 @@ mod tests {
             .write()
             .insert("Clap".to_string(), sample_emote());
         state
+            .global_emotes_ready
+            .store(true, std::sync::atomic::Ordering::Release);
+        state
             .tabs
             .write()
             .push(channel_tab("1", "forsen", ANONYMOUS));
@@ -730,6 +763,9 @@ mod tests {
             .global_emotes
             .write()
             .insert("Clap".to_string(), sample_emote());
+        state
+            .global_emotes_ready
+            .store(true, std::sync::atomic::Ordering::Release);
         state.tabs.write().push(channel_tab("1", "forsen", "111"));
         state.tabs.write().push(channel_tab("2", "forsen", "222"));
         state
@@ -760,6 +796,23 @@ mod tests {
             !state.emote_sets_are_loaded(),
             "the global set is still fetching"
         );
+    }
+
+    #[test]
+    fn a_loaded_empty_global_set_is_ready() {
+        let state = AppState::new();
+        state
+            .global_emotes_ready
+            .store(true, std::sync::atomic::Ordering::Release);
+        assert!(state.emote_sets_are_loaded());
+    }
+
+    #[test]
+    fn simultaneous_accounts_share_the_same_room_asset_lock() {
+        let state = AppState::new();
+        let first = state.channel_asset_lock("forsen");
+        let second = state.channel_asset_lock("forsen");
+        assert!(Arc::ptr_eq(&first, &second));
     }
 
     /// Only accounts with channel tabs need sockets. Mentions tabs stop

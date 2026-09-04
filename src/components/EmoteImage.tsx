@@ -10,9 +10,10 @@ const CACHED_PROVIDERS = new Set(["7tv", "twitch", "bttv"]);
  * An emote image, served from the on-disk cache when there is one.
  *
  * `emote://` is handled in Rust: it answers from the cache directory and
- * downloads on a miss, so the second time an emote appears it never touches
- * the network. Anything that goes wrong there answers 404 and we fall back to
- * the CDN url, which is also what a plain browser (`npm run dev`) always uses.
+ * downloads on a miss, so repeated emotes avoid the network while their image
+ * remains in the bounded cache. Anything that goes wrong there answers 404 and
+ * we fall back to the CDN url, which is also what a plain browser
+ * (`npm run dev`) always uses.
  *
  * Keyed by provider id, never by name -- 7TV emotes are commonly aliased per
  * channel, so the same image can arrive under several names.

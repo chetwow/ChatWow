@@ -1577,6 +1577,8 @@ pub fn run() {
             }
             *shared.emote_uses.write() = saved.emote_uses;
             *shared.preferences.write() = saved.preferences;
+            shared.emote_catalogs.initialize(&handle);
+            client::load_cached_global_emotes(&shared);
             {
                 let mut data = shared.data.write();
                 for tab in saved.tabs.iter().filter(|tab| tab.is_channel()) {

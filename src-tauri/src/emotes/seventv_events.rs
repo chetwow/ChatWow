@@ -241,6 +241,7 @@ fn apply(state: &AppState, update: &SetUpdate) -> Vec<String> {
             entry.emotes.insert(rename.to.clone(), emote);
         }
 
+        entry.emote_revision = entry.emote_revision.wrapping_add(1);
         touched.push(channel.clone());
     }
 
@@ -651,6 +652,10 @@ mod tests {
         assert_eq!(
             moved["Pepege"].id, "s-2",
             "and the new one is the same image"
+        );
+        assert_eq!(
+            data["forsen"].emote_revision, 1,
+            "the event invalidates an older whole-set refresh"
         );
 
         assert_eq!(

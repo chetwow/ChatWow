@@ -580,9 +580,21 @@ Three services, plus Twitch's own emotes: 7TV
 ([src-tauri/src/emotes/seventv.rs](src-tauri/src/emotes/seventv.rs)), BetterTTV
 ([bttv.rs](src-tauri/src/emotes/bttv.rs)) and FrankerFaceZ
 ([ffz.rs](src-tauri/src/emotes/ffz.rs)). Each is asked for its global set once at startup and for
-a channel's set on join, by Twitch user id; the three run concurrently, and a provider that's
-down, slow or has never heard of the channel yields an empty map rather than an error -- a
-channel with no BTTV account 404s, which is the common case, not a failure.
+a channel's set on join, by Twitch user id; the three run concurrently. Successful answers are
+persisted in `emote-catalogs.json` under the cache directory, separately per provider. The last
+global snapshot is installed before restored sockets open, and a complete channel snapshot is
+installed as soon as `ROOMSTATE` supplies its Twitch user id. Both are stale-while-revalidate:
+the provider requests still run, their fresh answers replace the snapshot, and a failed or slow
+provider keeps its last good answer instead of making its emotes disappear. Successful empty
+sets remain distinct from failures -- a channel with no BTTV account 404s, which is the common
+case and is cached as no emotes. Channel snapshots are bounded to the 128 most recently refreshed
+rooms.
+
+Room assets belong to the channel, not the account. A per-channel async lock makes simultaneous
+`ROOMSTATE` messages from two account sockets share one provider/badge load. When a cached catalog
+starts the room, its HTTP refresh runs in the background while the ordinary badge request
+continues. Whole-map replacements carry a revision: a 7TV WebSocket update that lands during
+that refresh increments it, preventing the older HTTP response from overwriting the live event.
 
 `emotes::merge` folds them into one name→`Emote` map, lowest priority first: FFZ, BTTV, 7TV. So
 where two providers ship the same name, 7TV's is the one that renders -- it's the set channels
@@ -857,9 +869,17 @@ Emote images are cached under the app's cache directory and served to the webvie
 `emote://` scheme handled in Rust, so a busy channel stops re-fetching the same emotes. Files are
 keyed by **provider id, not name** — 7TV emotes are aliased per channel, so a name is neither
 stable nor unique. The cache fills lazily (an emote is stored the first time it's actually
-displayed), and a miss or failure falls back to the CDN url. Images that no joined channel can
-reach any more are purged once every channel's set has loaded -- purging on a partial picture
-would evict images the other channels are about to ask for.
+displayed), and a miss or failure falls back to the CDN url. Concurrent misses for the same key
+share one download and its result.
+
+The image directory is a 300 MB recency cache. Serving a file touches its modification time;
+once the directory is over budget, the oldest images outside the current global/open-channel
+working set go first, followed by the oldest active images only if the working set alone exceeds
+the hard ceiling. Maintenance waits until every open channel's sets have loaded before giving
+the active set priority; if a new download crosses the hard limit earlier during startup, it
+falls back to pure recency rather than favoring a partial set. This keeps recently visited
+channels warm instead of deleting their images as soon as their tabs close. Atomic-write
+leftovers from an interrupted download are discarded during the same scan.
 
 FFZ is the exception: its images aren't served from the cache at all. A key is
 `<provider>-<id>` and nothing more, but FFZ puts animated emotes on a different path from static
@@ -1041,6 +1061,7 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/emotes/ffz.rs` | FrankerFaceZ global and room sets |
 | `src-tauri/src/emotes/seventv_badges.rs` | 7TV badges, batched per chatter over GraphQL |
 | `src-tauri/src/emotes/cache.rs` | On-disk emote images, served over `emote://` |
+| `src-tauri/src/emotes/catalog.rs` | Stale-while-revalidate provider catalog snapshots |
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
@@ -1134,7 +1155,8 @@ cd src-tauri && cargo test
 Covers tag unescaping, code-point emote ranges, zero-width overlay folding, badge lookup
 fallbacks, the default color hash, emote-index ordering and use counting, command argument
 parsing, the backlog's filtering, the image cache's key validation, content-type sniffing and
-purge selection, the 7TV event dispatches -- how one reads back as added, removed or renamed,
+recency selection, catalog fallback and bounds, the 7TV event dispatches -- how one reads back as
+added, removed or renamed,
 and what folding it into a channel does to the merged map -- and, for link previews, the
 meta-tag scan, the entity decoding, YouTube and Twitch url recognition, the count and duration
 formatting, and the refusal to fetch this machine's own network.

@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Expanded the emote image cache into a 300 MB recency cache that keeps recently visited
+  channels warm, prioritizes emotes reachable from open channels, and coalesces simultaneous
+  requests for the same uncached image.
+- Cached 7TV, BetterTTV, and FrankerFaceZ catalogs across launches and channel revisits while
+  continuing to refresh them in the background, so emotes resolve sooner without preserving
+  stale provider data as authoritative.
+
+### Fixed
+
+- Prevented simultaneous account joins from fetching the same room assets more than once, and
+  prevented a slower catalog refresh from overwriting a newer live 7TV set update.
+
 ## [1.0.0] - 2026-09-03
 
 ### Added

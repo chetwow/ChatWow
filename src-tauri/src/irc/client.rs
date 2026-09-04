@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::emotes::{self, bttv, cache, ffz, seventv, Emote, Providers};
+use crate::emotes::{bttv, cache, catalog, ffz, seventv, Emote, Providers};
 use crate::irc::history;
 use crate::irc::parse::{self, ChannelRole, IrcMessage};
 use crate::render::{self, BadgeLookup, ChatMessage, EmoteLookup};
@@ -220,31 +220,32 @@ fn initial_join_messages<'a>(
 
 /// One provider's answer, or nothing -- a provider that's switched off is
 /// never asked, and one that's down or slow costs only its own emotes.
-async fn or_empty<T: Default>(
+async fn optional<T>(
     enabled: bool,
     fetch: impl std::future::Future<Output = anyhow::Result<T>>,
-) -> T {
+) -> Option<T> {
     if !enabled {
-        return T::default();
+        return None;
     }
     timeout(ASSET_TIMEOUT, fetch)
         .await
         .ok()
         .and_then(|result| result.ok())
-        .unwrap_or_default()
 }
 
 /// Every enabled provider's global set, merged. They're fetched together --
 /// three sequential round trips would be three chances to hold up a join.
-async fn global_emotes(state: &AppState, providers: Providers) -> HashMap<String, Emote> {
+async fn fetch_global_emotes(state: &AppState, providers: Providers) -> catalog::ProviderSets {
     let (ffz_set, bttv_set, seventv_set) = tokio::join!(
-        or_empty(providers.ffz, ffz::fetch_global(&state.http)),
-        or_empty(providers.bttv, bttv::fetch_global(&state.http)),
-        or_empty(providers.seventv, seventv::fetch_global(&state.http)),
+        optional(providers.ffz, ffz::fetch_global(&state.http)),
+        optional(providers.bttv, bttv::fetch_global(&state.http)),
+        optional(providers.seventv, seventv::fetch_global(&state.http)),
     );
-    // Lowest priority first: where two providers ship the same name, 7TV's is
-    // the one channels actually curate, so it wins.
-    emotes::merge(vec![ffz_set, bttv_set, seventv_set])
+    catalog::ProviderSets {
+        ffz: ffz_set,
+        bttv: bttv_set,
+        seventv: seventv_set.map(|emotes| catalog::SevenTvSet { id: None, emotes }),
+    }
 }
 
 /// One channel's sets from every enabled provider, as `ChannelData` holds
@@ -256,23 +257,38 @@ struct ChannelEmotes {
 }
 
 /// The same for one channel's sets, keyed by its Twitch user id.
-async fn channel_emotes(state: &AppState, providers: Providers, room_id: &str) -> ChannelEmotes {
+async fn fetch_channel_emotes(
+    state: &AppState,
+    providers: Providers,
+    room_id: &str,
+) -> catalog::ProviderSets {
     let (ffz_set, bttv_set, seventv) = tokio::join!(
-        or_empty(providers.ffz, ffz::fetch_channel(&state.http, room_id)),
-        or_empty(providers.bttv, bttv::fetch_channel(&state.http, room_id)),
-        or_empty(
+        optional(providers.ffz, ffz::fetch_channel(&state.http, room_id)),
+        optional(providers.bttv, bttv::fetch_channel(&state.http, room_id)),
+        optional(
             providers.seventv,
             seventv::fetch_channel(&state.http, room_id)
         ),
     );
+    catalog::ProviderSets {
+        ffz: ffz_set,
+        bttv: bttv_set,
+        seventv: seventv.map(|set| catalog::SevenTvSet {
+            id: set.id,
+            emotes: set.emotes,
+        }),
+    }
+}
+
+fn channel_emotes(sets: catalog::ProviderSets, providers: Providers) -> ChannelEmotes {
     // The two lower-priority sets are kept as well as merged: 7TV's emotes can
     // come and go while the channel is open, and a name uncovered by one
     // leaving has to be findable again -- see `ChannelData::other_emotes`.
-    let others = emotes::merge(vec![ffz_set, bttv_set]);
+    let (merged, others, seventv_set) = sets.channel_parts(providers);
     ChannelEmotes {
-        merged: emotes::merge(vec![others.clone(), seventv.emotes]),
+        merged,
         others,
-        seventv_set: seventv.id,
+        seventv_set,
     }
 }
 
@@ -282,11 +298,50 @@ fn providers(state: &AppState) -> Providers {
     Providers::from(&*state.preferences.read())
 }
 
+fn store_global_catalog(app: &AppHandle, state: &Arc<AppState>, fresh: catalog::ProviderSets) {
+    let app = app.clone();
+    let state = Arc::clone(state);
+    tauri::async_runtime::spawn_blocking(move || state.emote_catalogs.store_global(&app, &fresh));
+}
+
+fn store_channel_catalog(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    room_id: String,
+    fresh: catalog::ProviderSets,
+) {
+    let app = app.clone();
+    let state = Arc::clone(state);
+    tauri::async_runtime::spawn_blocking(move || {
+        state.emote_catalogs.store_channel(&app, &room_id, &fresh)
+    });
+}
+
+/// Put a complete cached global snapshot in place before restored sockets are
+/// opened. It is still refreshed after token validation; this only removes the
+/// cold-start gap in which messages cannot resolve global third-party emotes.
+pub fn load_cached_global_emotes(state: &Arc<AppState>) {
+    let providers = providers(state);
+    let cached = state.emote_catalogs.global();
+    let complete = cached.complete_for(providers);
+    *state.global_emotes.write() = cached.global_map(providers);
+    if complete {
+        state.global_emotes_ready.store(true, Ordering::Release);
+    }
+}
+
 /// Fetch the global emote sets and global Twitch badges. Safe to call again
 /// after login, or after the enabled providers change.
 pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
-    let emotes = global_emotes(&state, providers(&state)).await;
-    *state.global_emotes.write() = emotes;
+    let providers = providers(&state);
+    let cached = state.emote_catalogs.global();
+    let fresh = fetch_global_emotes(&state, providers).await;
+    let emotes = fresh.clone().with_fallback(cached).global_map(providers);
+    store_global_catalog(&app, &state, fresh);
+    if providers == self::providers(&state) {
+        *state.global_emotes.write() = emotes;
+        state.global_emotes_ready.store(true, Ordering::Release);
+    }
 
     // Badge *images* are the same whoever asks, so any account's token will
     // do -- which is what keeps them working while the tab you're looking at
@@ -330,24 +385,201 @@ pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
         }),
     );
 
-    purge_image_cache(&app, &state);
+    trim_image_cache(&app, &state);
 }
 
-/// Drop cached images for emotes no joined channel can reach any more -- a set
-/// the streamer edited, or a channel we've parted. Runs off the hot path: it
-/// scans a directory, and nothing is waiting on the result.
+/// Enforce the image-cache budget, evicting images outside the current working
+/// set before anything an open channel can still reach. Runs off the hot path:
+/// it scans a directory, and nothing is waiting on the result.
 ///
 /// Only once every joined channel's emotes have landed, and the global set with
-/// them: half-loaded, "unreachable" would include every emote belonging to a
-/// channel still fetching, and we'd evict images we're seconds from needing.
-fn purge_image_cache(app: &AppHandle, state: &Arc<AppState>) {
+/// them: that gives trimming the complete active set to prioritize.
+fn trim_image_cache(app: &AppHandle, state: &Arc<AppState>) {
     if !state.emote_sets_are_loaded() {
         return;
     }
 
     let app = app.clone();
     let active = state.active_cache_keys();
-    tauri::async_runtime::spawn_blocking(move || cache::purge(&app, &active));
+    tauri::async_runtime::spawn_blocking(move || cache::trim(&app, &active));
+}
+
+async fn fetch_channel_badges(state: &AppState, room_id: &str) -> crate::twitch::badges::BadgeMap {
+    let credentials = { state.auth.read().any_credentials() };
+    match credentials {
+        Some((client_id, token)) => {
+            let fetch = badges::fetch_channel(&state.http, &client_id, &token, room_id);
+            timeout(ASSET_TIMEOUT, fetch)
+                .await
+                .ok()
+                .and_then(|result| result.ok())
+                .unwrap_or_default()
+        }
+        None => Default::default(),
+    }
+}
+
+fn install_channel_emotes(
+    state: &AppState,
+    channel: &str,
+    room_id: &str,
+    emotes: ChannelEmotes,
+    expected_revision: Option<u64>,
+) -> Option<u64> {
+    let mut data = state.data.write();
+    let entry = data.get_mut(channel)?;
+    if entry.room_id.as_deref() != Some(room_id) {
+        return None;
+    }
+    if expected_revision.is_some_and(|revision| entry.emote_revision != revision) {
+        return None;
+    }
+    entry.emotes = emotes.merged;
+    entry.other_emotes = emotes.others;
+    entry.seventv_set = emotes.seventv_set;
+    entry.emote_revision = entry.emote_revision.wrapping_add(1);
+    Some(entry.emote_revision)
+}
+
+fn emit_channel_emotes(app: &AppHandle, state: &AppState, channel: &str) {
+    let count = state
+        .data
+        .read()
+        .get(channel)
+        .map(|data| data.emotes.len())
+        .unwrap_or(0);
+    let _ = app.emit(
+        "chat://emote-set",
+        json!({ "channel": channel, "emoteCount": count }),
+    );
+}
+
+async fn refresh_channel_emotes(
+    app: AppHandle,
+    state: Arc<AppState>,
+    channel: String,
+    room_id: String,
+    providers: Providers,
+    cached: catalog::ProviderSets,
+    expected_revision: u64,
+) {
+    let fresh = fetch_channel_emotes(&state, providers, &room_id).await;
+    let effective = fresh.clone().with_fallback(cached);
+    store_channel_catalog(&app, &state, room_id.clone(), fresh);
+    if providers != self::providers(&state) {
+        return;
+    }
+    if install_channel_emotes(
+        &state,
+        &channel,
+        &room_id,
+        channel_emotes(effective, providers),
+        Some(expected_revision),
+    )
+    .is_some()
+    {
+        state.seventv_events.notify_one();
+        emit_channel_emotes(&app, &state, &channel);
+        trim_image_cache(&app, &state);
+    }
+}
+
+/// Load the room-owned half once even when multiple account sockets receive
+/// ROOMSTATE together. A complete persisted catalog is installed immediately;
+/// its provider refresh continues in the background while badges load.
+async fn ensure_channel_assets(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    channel: &str,
+    room_id: &str,
+) {
+    let lock = state.channel_asset_lock(channel);
+    let _guard = lock.lock().await;
+    if state
+        .data
+        .read()
+        .get(channel)
+        .is_some_and(|data| data.assets_ready && data.room_id.as_deref() == Some(room_id))
+    {
+        return;
+    }
+
+    let providers = providers(state);
+    let cached = state.emote_catalogs.channel(room_id);
+    let complete_cache = cached
+        .as_ref()
+        .is_some_and(|sets| sets.complete_for(providers))
+        || (!providers.ffz && !providers.bttv && !providers.seventv);
+
+    if complete_cache {
+        let cached = cached.unwrap_or_default();
+        let Some(revision) = install_channel_emotes(
+            state,
+            channel,
+            room_id,
+            channel_emotes(cached.clone(), providers),
+            None,
+        ) else {
+            return;
+        };
+        state.seventv_events.notify_one();
+
+        crate::diagnostics::supervise(
+            format!("emote refresh (#{channel})"),
+            refresh_channel_emotes(
+                app.clone(),
+                Arc::clone(state),
+                channel.to_string(),
+                room_id.to_string(),
+                providers,
+                cached,
+                revision,
+            ),
+        );
+
+        let badge_map = fetch_channel_badges(state, room_id).await;
+        let mut data = state.data.write();
+        let Some(entry) = data.get_mut(channel) else {
+            return;
+        };
+        if entry.room_id.as_deref() != Some(room_id) {
+            return;
+        }
+        entry.badges = badge_map;
+        entry.assets_ready = true;
+        return;
+    }
+
+    let cached = cached.unwrap_or_default();
+    let (fresh, badge_map) = tokio::join!(
+        fetch_channel_emotes(state, providers, room_id),
+        fetch_channel_badges(state, room_id),
+    );
+    let effective = fresh.clone().with_fallback(cached);
+    store_channel_catalog(app, state, room_id.to_string(), fresh);
+
+    if install_channel_emotes(
+        state,
+        channel,
+        room_id,
+        channel_emotes(effective, providers),
+        None,
+    )
+    .is_none()
+    {
+        return;
+    }
+    let mut data = state.data.write();
+    let Some(entry) = data.get_mut(channel) else {
+        return;
+    };
+    if entry.room_id.as_deref() != Some(room_id) {
+        return;
+    }
+    entry.badges = badge_map;
+    entry.assets_ready = true;
+    drop(data);
+    state.seventv_events.notify_one();
 }
 
 /// Bring one account's join of one channel up to ready: the room's assets if
@@ -372,38 +604,7 @@ async fn load_channel_assets(
         connection_generation,
         load_generation,
     } = load;
-    let needs_assets = !state
-        .data
-        .read()
-        .get(&channel)
-        .is_some_and(|data| data.assets_ready);
-    if needs_assets {
-        let emotes = channel_emotes(&state, providers(&state), &room_id).await;
-
-        let credentials = { state.auth.read().any_credentials() };
-        let badge_map = match credentials {
-            Some((client_id, token)) => {
-                let fetch = badges::fetch_channel(&state.http, &client_id, &token, &room_id);
-                timeout(ASSET_TIMEOUT, fetch)
-                    .await
-                    .ok()
-                    .and_then(|result| result.ok())
-                    .unwrap_or_default()
-            }
-            None => Default::default(),
-        };
-
-        let mut data = state.data.write();
-        let entry = data.entry(channel.clone()).or_default();
-        entry.emotes = emotes.merged;
-        entry.other_emotes = emotes.others;
-        entry.seventv_set = emotes.seventv_set;
-        entry.badges = badge_map;
-        entry.assets_ready = true;
-        drop(data);
-        // A set nobody was watching a moment ago.
-        state.seventv_events.notify_one();
-    }
+    ensure_channel_assets(&app, &state, &channel, &room_id).await;
 
     // This account's own emotes here -- its sub emotes, which no other
     // account's list can stand in for.
@@ -486,7 +687,7 @@ async fn load_channel_assets(
         json!({ "account": account, "channel": channel, "emoteCount": emote_count }),
     );
 
-    purge_image_cache(&app, &state);
+    trim_image_cache(&app, &state);
 }
 
 /// Pick one channel back up after its account's socket came back: fetch what
@@ -630,8 +831,19 @@ fn announce_drop(state: &AppState, sink: &MessageSink, account: &str, connection
 pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
     let providers = providers(&state);
 
-    let global = global_emotes(&state, providers).await;
+    let cached_global = state.emote_catalogs.global();
+    *state.global_emotes.write() = cached_global.clone().global_map(providers);
+    let fresh_global = fetch_global_emotes(&state, providers).await;
+    let global = fresh_global
+        .clone()
+        .with_fallback(cached_global)
+        .global_map(providers);
+    store_global_catalog(&app, &state, fresh_global);
+    if providers != self::providers(&state) {
+        return;
+    }
     *state.global_emotes.write() = global;
+    state.global_emotes_ready.store(true, Ordering::Release);
 
     let rooms: Vec<(String, String)> = state
         .data
@@ -645,12 +857,29 @@ pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
         .collect();
 
     for (channel, room_id) in rooms {
-        let emotes = channel_emotes(&state, providers, &room_id).await;
-        if let Some(entry) = state.data.write().get_mut(&channel) {
-            entry.emotes = emotes.merged;
-            entry.other_emotes = emotes.others;
-            entry.seventv_set = emotes.seventv_set;
+        let cached = state.emote_catalogs.channel(&room_id).unwrap_or_default();
+        if cached.complete_for(providers) {
+            install_channel_emotes(
+                &state,
+                &channel,
+                &room_id,
+                channel_emotes(cached.clone(), providers),
+                None,
+            );
         }
+        let fresh = fetch_channel_emotes(&state, providers, &room_id).await;
+        let effective = fresh.clone().with_fallback(cached);
+        store_channel_catalog(&app, &state, room_id.clone(), fresh);
+        if providers != self::providers(&state) {
+            return;
+        }
+        install_channel_emotes(
+            &state,
+            &channel,
+            &room_id,
+            channel_emotes(effective, providers),
+            None,
+        );
     }
 
     // Switching 7TV off leaves no set to watch, which is what closes the event
@@ -667,7 +896,7 @@ pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
         }),
     );
 
-    purge_image_cache(&app, &state);
+    trim_image_cache(&app, &state);
 }
 
 fn handle_line(
@@ -1118,9 +1347,9 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
     }
     drop(connections);
 
-    // A channel no tab is on any more keeps nothing: its emotes and badges are
-    // re-fetched on the next join, and holding them would keep their images
-    // pinned in the cache.
+    // A channel no tab is on any more keeps no live state: its persisted emote
+    // catalog can seed the next join, and its recently used images remain only
+    // while the bounded cache has room for them.
     let open = state.open_channels();
     state
         .data
