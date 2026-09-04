@@ -10,6 +10,8 @@ function segmentText(segment: Segment): string {
       return segment.text;
     case "link":
       return segment.text;
+    case "gif":
+      return segment.text;
   }
 }
 

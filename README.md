@@ -12,7 +12,7 @@ in a browser.
 - Custom listener tabs for account mentions, selected users, and arbitrary phrases across open channels
 - Optional sound and tab notifications for listener matches
 - Moderator shortcuts for deleting messages, bans, unbans, and timeouts
-- Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes
+- Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
 - Replies, whispers, badges, unread indicators, Twitch chat commands, and link previews
 - Customizable appearance and notifications
 

@@ -181,6 +181,7 @@ async fn live_pipeline_resolves_real_messages() {
                 Segment::Text { text } => rendered.push_str(text),
                 Segment::Mention { text } => rendered.push_str(text),
                 Segment::Link { text, .. } => rendered.push_str(text),
+                Segment::Gif { text, .. } => rendered.push_str(text),
                 Segment::Emote {
                     name,
                     provider,

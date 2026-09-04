@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added Twitch GIF message rendering, with a display toggle, an underlined hover fallback, and
+  adjustable sizing.
+
 ### Changed
 
 - Expanded the emote image cache into a 300 MB recency cache that keeps recently visited

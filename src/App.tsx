@@ -15,6 +15,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [search, setSearch] = useState<TabSearchSession | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
+  const gifScale = useChat((state) => state.preferences.gifScale);
   const focusedTab = useChat((state) => state.active[state.focusedPane]);
 
   const openSearch = useCallback(() => {
@@ -163,8 +164,13 @@ export default function App() {
 
   return (
     <div
-      // Chat reads its text size off this; everything else is fixed.
-      style={{ "--chat-font-size": `${chatFontSize}px` } as CSSProperties}
+      // Message text and GIFs read their independently persisted scales here.
+      style={
+        {
+          "--chat-font-size": `${chatFontSize}px`,
+          "--gif-scale": gifScale,
+        } as CSSProperties
+      }
       className="flex h-full flex-col overflow-hidden bg-surface"
       onContextMenu={(event) => event.preventDefault()}
     >

@@ -1,8 +1,8 @@
 //! Turns a parsed IRC message into the fully-resolved payload the UI renders.
 //!
-//! Doing this in Rust keeps two fiddly things in one tested place: Twitch's
-//! emote ranges are indexed by Unicode *code point* (not bytes, not UTF-16
-//! units), and 7TV overlay emotes have to be folded onto the emote before them.
+//! Doing this in Rust keeps Twitch's ranged emote/GIF tags indexed by Unicode
+//! *code point* (not bytes or UTF-16 units), and folds 7TV overlay emotes onto
+//! the emote before them in one tested place.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -41,6 +41,15 @@ pub enum Segment {
     Link {
         text: String,
         href: String,
+    },
+    Gif {
+        id: String,
+        /// Twitch's accessible text for the image, and the fallback when it
+        /// cannot be drawn.
+        text: String,
+        /// The complete asset URL Twitch supplied. Their protocol requires
+        /// clients to use it without rewriting it.
+        url: String,
     },
 }
 
@@ -122,6 +131,24 @@ enum Node {
     Emote(Emote, Vec<Overlay>),
     Mention(String),
     Link(String),
+    Gif {
+        id: String,
+        text: String,
+        url: String,
+    },
+}
+
+#[derive(Debug)]
+enum TaggedFragment {
+    Emote { id: String },
+    Gif { id: String, url: String },
+}
+
+#[derive(Debug)]
+struct TaggedRange {
+    start: usize,
+    end: usize,
+    fragment: TaggedFragment,
 }
 
 /// Parse the `emotes` tag: `25:0-4,12-16/1902:6-10`
@@ -145,6 +172,39 @@ fn parse_emote_ranges(tag: &str) -> Vec<(usize, usize, String)> {
         }
     }
     ranges.sort_by_key(|(start, _, _)| *start);
+    ranges
+}
+
+/// Twitch sends GIFs as `start-end|gifID|gifURL`, separated by commas. Only
+/// GIPHY HTTPS assets are accepted: live tags come from Twitch, but historical
+/// IRC lines come through a third-party service and must not be able to point
+/// the webview at an arbitrary host or the local network.
+fn parse_gif_ranges(tag: &str) -> Vec<(usize, usize, String, String)> {
+    let mut ranges = Vec::new();
+    for entry in tag.split(',').filter(|entry| !entry.is_empty()) {
+        let mut fields = entry.splitn(3, '|');
+        let (Some(position), Some(id), Some(url)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let Some((start, end)) = position.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (start.parse::<usize>(), end.parse::<usize>()) else {
+            continue;
+        };
+        let Ok(parsed) = reqwest::Url::parse(url) else {
+            continue;
+        };
+        let Some(host) = parsed.host_str() else {
+            continue;
+        };
+        let from_giphy = host == "giphy.com" || host.ends_with(".giphy.com");
+        if end >= start && !id.is_empty() && parsed.scheme() == "https" && from_giphy {
+            ranges.push((start, end, id.to_string(), url.to_string()));
+        }
+    }
+    ranges.sort_by_key(|(start, _, _, _)| *start);
     ranges
 }
 
@@ -259,19 +319,61 @@ fn to_segments(nodes: Vec<Node>) -> Vec<Segment> {
                 href: text.clone(),
                 text,
             }),
+            Node::Gif { id, text, url } => segments.push(Segment::Gif { id, text, url }),
         }
     }
     segments.retain(|s| !matches!(s, Segment::Text { text } if text.is_empty()));
     segments
 }
 
-/// Build message body segments from raw text plus the `emotes` tag.
-pub fn build_segments(text: &str, emotes_tag: Option<&str>, emotes: &EmoteLookup) -> Vec<Segment> {
+/// Build message body segments from raw text plus Twitch's ranged asset tags.
+/// GIF ranges win an impossible overlap with an emote range because the GIF
+/// caption must not leak through as ordinary chat text around its image.
+pub fn build_segments(
+    text: &str,
+    emotes_tag: Option<&str>,
+    gifs_tag: Option<&str>,
+    emotes: &EmoteLookup,
+) -> Vec<Segment> {
     let chars: Vec<char> = text.chars().collect();
     let mut nodes: Vec<Node> = Vec::new();
     let mut cursor = 0usize;
 
-    for (start, end, id) in emotes_tag.map(parse_emote_ranges).unwrap_or_default() {
+    let mut ranges: Vec<TaggedRange> = emotes_tag
+        .map(parse_emote_ranges)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(start, end, id)| TaggedRange {
+            start,
+            end,
+            fragment: TaggedFragment::Emote { id },
+        })
+        .collect();
+    ranges.extend(
+        gifs_tag
+            .map(parse_gif_ranges)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(start, end, id, url)| TaggedRange {
+                start,
+                end,
+                fragment: TaggedFragment::Gif { id, url },
+            }),
+    );
+    ranges.sort_by_key(|range| {
+        let priority = match &range.fragment {
+            TaggedFragment::Gif { .. } => 0,
+            TaggedFragment::Emote { .. } => 1,
+        };
+        (range.start, priority)
+    });
+
+    for TaggedRange {
+        start,
+        end,
+        fragment,
+    } in ranges
+    {
         // Ignore ranges that overlap what we already consumed or run off the end.
         if start < cursor || end >= chars.len() {
             continue;
@@ -280,8 +382,17 @@ pub fn build_segments(text: &str, emotes_tag: Option<&str>, emotes: &EmoteLookup
             let gap: String = chars[cursor..start].iter().collect();
             tokenize(&gap, emotes, &mut nodes);
         }
-        let name: String = chars[start..=end].iter().collect();
-        nodes.push(Node::Emote(twitch_emote(&id, &name), Vec::new()));
+        let ranged_text: String = chars[start..=end].iter().collect();
+        match fragment {
+            TaggedFragment::Emote { id } => {
+                nodes.push(Node::Emote(twitch_emote(&id, &ranged_text), Vec::new()));
+            }
+            TaggedFragment::Gif { id, url } => nodes.push(Node::Gif {
+                id,
+                text: ranged_text,
+                url,
+            }),
+        }
         cursor = end + 1;
     }
 
@@ -385,7 +496,7 @@ pub fn build_chat_message(
         login,
         display_name,
         badges: build_badges(msg, badges),
-        segments: build_segments(body, msg.tag("emotes"), emotes),
+        segments: build_segments(body, msg.tag("emotes"), msg.tag("gifs"), emotes),
         is_action,
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
@@ -421,7 +532,7 @@ pub fn build_usernotice(
         login,
         display_name,
         badges: build_badges(msg, badges),
-        segments: build_segments(body, msg.tag("emotes"), emotes),
+        segments: build_segments(body, msg.tag("emotes"), None, emotes),
         is_action: false,
         is_first_message: false,
         kind: "system".to_string(),
@@ -458,7 +569,7 @@ pub fn whisper(
         login: login.to_string(),
         display_name: display_name.to_string(),
         badges: Vec::new(),
-        segments: build_segments(text, None, emotes),
+        segments: build_segments(text, None, None, emotes),
         is_action: false,
         is_first_message: false,
         kind: "whisper".to_string(),
@@ -520,13 +631,14 @@ mod tests {
             Segment::Mention { text } => text,
             Segment::Link { text, .. } => text,
             Segment::Emote { name, .. } => name,
+            Segment::Gif { text, .. } => text,
         }
     }
 
     #[test]
     fn plain_text_is_one_segment() {
         let map = HashMap::new();
-        let segments = build_segments("hello world", None, &lookup(&map));
+        let segments = build_segments("hello world", None, None, &lookup(&map));
         assert_eq!(segments.len(), 1);
         assert_eq!(text_of(&segments[0]), "hello world");
     }
@@ -534,7 +646,7 @@ mod tests {
     #[test]
     fn twitch_emote_ranges_are_extracted() {
         let map = HashMap::new();
-        let segments = build_segments("Kappa hello", Some("25:0-4"), &lookup(&map));
+        let segments = build_segments("Kappa hello", Some("25:0-4"), None, &lookup(&map));
         assert_eq!(segments.len(), 2);
         match &segments[0] {
             Segment::Emote {
@@ -558,7 +670,7 @@ mod tests {
         // would slice the wrong substring here (or panic).
         let map = HashMap::new();
         let text = "\u{1F600} Kappa";
-        let segments = build_segments(text, Some("25:2-6"), &lookup(&map));
+        let segments = build_segments(text, Some("25:2-6"), None, &lookup(&map));
         let emote = segments
             .iter()
             .find(|s| matches!(s, Segment::Emote { .. }))
@@ -567,9 +679,96 @@ mod tests {
     }
 
     #[test]
+    fn gif_ranges_are_extracted_from_a_privmsg() {
+        let body = "[Y A Y Yes GIF by Djemilah Birnie]";
+        let end = body.chars().count() - 1;
+        let url = "https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=abc&rid=giphy.gif&ct=g";
+        let line = format!(
+            "@display-name=SomeUser;gifs=0-{end}|joSNxeswxuc74Juo8X|{url};id=abc :someuser!someuser@someuser.tmi.twitch.tv PRIVMSG #forsen :{body}"
+        );
+        let irc = crate::irc::parse::parse(&line).unwrap();
+        let emote_map = HashMap::new();
+        let badge_map = BadgeMap::new();
+
+        let message = build_chat_message(
+            &irc,
+            "forsen",
+            &lookup(&emote_map),
+            &BadgeLookup {
+                channel: None,
+                global: &badge_map,
+            },
+        );
+
+        assert_eq!(message.segments.len(), 1);
+        match &message.segments[0] {
+            Segment::Gif {
+                id,
+                text,
+                url: rendered_url,
+            } => {
+                assert_eq!(id, "joSNxeswxuc74Juo8X");
+                assert_eq!(text, body);
+                assert_eq!(rendered_url, url, "the Twitch URL must remain unchanged");
+            }
+            other => panic!("expected GIF, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gif_ranges_are_indexed_by_codepoint_not_bytes() {
+        let map = HashMap::new();
+        let url = "https://media.giphy.com/media/abc/giphy.gif";
+        let segments = build_segments(
+            "\u{1F600} [GIF]",
+            None,
+            Some(&format!("2-6|abc|{url}")),
+            &lookup(&map),
+        );
+
+        assert_eq!(text_of(&segments[0]), "\u{1F600} ");
+        assert!(matches!(
+            &segments[1],
+            Segment::Gif { id, text, url: rendered_url }
+                if id == "abc" && text == "[GIF]" && rendered_url == url
+        ));
+    }
+
+    #[test]
+    fn gif_and_emote_ranges_keep_message_order() {
+        let map = HashMap::new();
+        let url = "https://media.giphy.com/media/abc/giphy.gif";
+        let segments = build_segments(
+            "Kappa [GIF]",
+            Some("25:0-4"),
+            Some(&format!("6-10|abc|{url}")),
+            &lookup(&map),
+        );
+
+        assert!(matches!(&segments[0], Segment::Emote { name, .. } if name == "Kappa"));
+        assert_eq!(text_of(&segments[1]), " ");
+        assert!(matches!(&segments[2], Segment::Gif { text, .. } if text == "[GIF]"));
+    }
+
+    #[test]
+    fn unsafe_or_malformed_gif_ranges_fall_back_to_text() {
+        let map = HashMap::new();
+        for tag in [
+            "0-4|abc|http://media.giphy.com/media/abc/giphy.gif",
+            "0-4|abc|https://example.com/giphy.gif",
+            "0-99|abc|https://media.giphy.com/media/abc/giphy.gif",
+            "not-a-range",
+        ] {
+            let segments = build_segments("[GIF]", None, Some(tag), &lookup(&map));
+            assert_eq!(segments.len(), 1, "tag: {tag}");
+            assert!(matches!(&segments[0], Segment::Text { text } if text == "[GIF]"));
+        }
+    }
+
+    #[test]
     fn multiple_ranges_for_one_emote_are_handled() {
         let map = HashMap::new();
-        let segments = build_segments("Kappa a Kappa", Some("25:0-4,8-12"), &lookup(&map));
+        let segments = build_segments("Kappa a Kappa", Some("25:0-4,8-12"), None, &lookup(&map));
         let count = segments
             .iter()
             .filter(|s| matches!(s, Segment::Emote { .. }))
@@ -580,7 +779,7 @@ mod tests {
     #[test]
     fn out_of_bounds_ranges_are_ignored() {
         let map = HashMap::new();
-        let segments = build_segments("hi", Some("25:0-99"), &lookup(&map));
+        let segments = build_segments("hi", Some("25:0-99"), None, &lookup(&map));
         assert_eq!(text_of(&segments[0]), "hi");
     }
 
@@ -588,7 +787,7 @@ mod tests {
     fn seventv_emotes_match_whole_words_only() {
         let mut map = HashMap::new();
         map.insert("catJAM".to_string(), emote("catJAM", false));
-        let segments = build_segments("wow catJAM nice catJAMS", None, &lookup(&map));
+        let segments = build_segments("wow catJAM nice catJAMS", None, None, &lookup(&map));
 
         let emotes: Vec<&str> = segments
             .iter()
@@ -604,7 +803,7 @@ mod tests {
         map.insert("catJAM".to_string(), emote("catJAM", false));
         map.insert("RainTime".to_string(), emote("RainTime", true));
 
-        let segments = build_segments("catJAM RainTime", None, &lookup(&map));
+        let segments = build_segments("catJAM RainTime", None, None, &lookup(&map));
         assert_eq!(segments.len(), 1, "overlay should not be its own segment");
         match &segments[0] {
             Segment::Emote { name, overlays, .. } => {
@@ -623,7 +822,7 @@ mod tests {
         map.insert("RainTime".to_string(), emote("RainTime", true));
         map.insert("SnowTime".to_string(), emote("SnowTime", true));
 
-        let segments = build_segments("catJAM RainTime SnowTime", None, &lookup(&map));
+        let segments = build_segments("catJAM RainTime SnowTime", None, None, &lookup(&map));
         assert_eq!(segments.len(), 1);
         match &segments[0] {
             Segment::Emote { overlays, .. } => assert_eq!(overlays.len(), 2),
@@ -635,7 +834,7 @@ mod tests {
     fn overlay_with_no_base_renders_inline() {
         let mut map = HashMap::new();
         map.insert("RainTime".to_string(), emote("RainTime", true));
-        let segments = build_segments("RainTime alone", None, &lookup(&map));
+        let segments = build_segments("RainTime alone", None, None, &lookup(&map));
         match &segments[0] {
             Segment::Emote { name, overlays, .. } => {
                 assert_eq!(name, "RainTime");
@@ -650,7 +849,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("catJAM".to_string(), emote("catJAM", false));
         map.insert("RainTime".to_string(), emote("RainTime", true));
-        let segments = build_segments("catJAM word RainTime", None, &lookup(&map));
+        let segments = build_segments("catJAM word RainTime", None, None, &lookup(&map));
         let emotes = segments
             .iter()
             .filter(|s| matches!(s, Segment::Emote { .. }))
@@ -662,7 +861,7 @@ mod tests {
     fn overlay_folds_onto_a_native_twitch_emote() {
         let mut map = HashMap::new();
         map.insert("RainTime".to_string(), emote("RainTime", true));
-        let segments = build_segments("Kappa RainTime", Some("25:0-4"), &lookup(&map));
+        let segments = build_segments("Kappa RainTime", Some("25:0-4"), None, &lookup(&map));
         assert_eq!(segments.len(), 1);
         match &segments[0] {
             Segment::Emote {
@@ -678,7 +877,7 @@ mod tests {
     #[test]
     fn links_and_mentions_become_their_own_segments() {
         let map = HashMap::new();
-        let segments = build_segments("hey @bob see https://x.com/a", None, &lookup(&map));
+        let segments = build_segments("hey @bob see https://x.com/a", None, None, &lookup(&map));
         assert!(segments
             .iter()
             .any(|s| matches!(s, Segment::Mention { text } if text == "@bob")));
@@ -819,7 +1018,7 @@ mod tests {
             channel: Some(&channel),
             global: &global,
         };
-        let segments = build_segments("Same", None, &lookup);
+        let segments = build_segments("Same", None, None, &lookup);
         match &segments[0] {
             Segment::Emote { url, .. } => assert_eq!(url, "https://cdn/channel-version.webp"),
             other => panic!("expected emote, got {other:?}"),

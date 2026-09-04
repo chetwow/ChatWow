@@ -70,6 +70,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   enableBttv: true,
   enableFfz: true,
   showSeventvBadges: true,
+  showGifs: true,
+  gifScale: 1,
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
@@ -108,6 +110,8 @@ const IDLE_UPDATE: UpdateState = {
 export type BlacklistKind = "emoteBlacklist" | "emoteCompleteBlacklist";
 
 const FONT_SIZES = new Set<Preferences["chatFontSize"]>(["small", "medium", "large", "larger"]);
+export const MIN_GIF_SCALE = 0.25;
+export const MAX_GIF_SCALE = 2;
 const SPLIT_LAYOUTS = new Set<SplitLayout>(["none", "row", "column"]);
 const NEW_TAB_AVATAR_MODE_IDS = new Set<NewTabAvatarMode>([
   "none",
@@ -139,6 +143,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.tabAvatarOpacity = Number.isFinite(merged.tabAvatarOpacity)
     ? Math.min(1, Math.max(0, merged.tabAvatarOpacity))
     : DEFAULT_PREFERENCES.tabAvatarOpacity;
+  merged.gifScale = Number.isFinite(merged.gifScale)
+    ? Math.min(MAX_GIF_SCALE, Math.max(MIN_GIF_SCALE, merged.gifScale))
+    : DEFAULT_PREFERENCES.gifScale;
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);
   if (!Number.isInteger(merged.splitIndex) || merged.splitIndex < 0) {

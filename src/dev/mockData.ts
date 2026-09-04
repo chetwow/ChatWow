@@ -138,6 +138,7 @@ const VIP: Badge = {
 
 const RAIN_TIME_URL = "https://cdn.7tv.app/emote/01FCY771D800007PQ2DF3GDTN6/2x.webp";
 const PETPET_URL = "https://cdn.7tv.app/emote/01FE3XY508000AA32JP519W2EW/2x.webp";
+const TWITCH_GIF_URL = "https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif";
 
 /** 7TV urls carry the emote id, which is what the image cache is keyed on. */
 function idFromUrl(url: string): string {
@@ -383,6 +384,19 @@ const DRAFTS: Draft[] = [
     color: "#FF7F50",
     segments: [text("totally agree with you on that one")],
     replyTo: { login: "you", displayName: "You", body: "the new patch feels way more balanced" },
+  },
+  {
+    login: "gifposter",
+    displayName: "gifposter",
+    color: "#D79AF0",
+    segments: [
+      {
+        kind: "gif",
+        id: "joSNxeswxuc74Juo8X",
+        text: "[Y A Y Yes GIF by Djemilah Birnie]",
+        url: TWITCH_GIF_URL,
+      },
+    ],
   },
 ];
 

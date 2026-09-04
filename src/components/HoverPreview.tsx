@@ -38,10 +38,14 @@ function Spinner() {
  */
 function ImageCard({
   url,
+  alt,
+  gif,
   onSettled,
   onFail,
 }: {
   url: string;
+  alt?: string;
+  gif?: boolean;
   onSettled: () => void;
   onFail: () => void;
 }) {
@@ -51,7 +55,9 @@ function ImageCard({
       {!ready && <Spinner />}
       <img
         src={url}
-        alt=""
+        alt={alt ?? ""}
+        decoding="async"
+        referrerPolicy={gif ? "no-referrer" : undefined}
         onLoad={() => {
           setReady(true);
           onSettled();
@@ -60,7 +66,11 @@ function ImageCard({
         // over chat, so it takes the preview down with it.
         onError={onFail}
         className={
-          ready ? "max-h-[min(320px,45vh)] max-w-[min(360px,60vw)] object-contain" : "hidden"
+          ready
+            ? gif
+              ? "chat-gif-preview object-contain"
+              : "max-h-[min(320px,45vh)] max-w-[min(360px,60vw)] object-contain"
+            : "hidden"
         }
       />
     </>
@@ -220,6 +230,15 @@ export function HoverPreview() {
             preview={preview.preview}
             host={preview.host}
             onSettled={resettle}
+          />
+        ) : preview.kind === "gif" ? (
+          <ImageCard
+            key={preview.url}
+            url={preview.url}
+            alt={preview.alt}
+            gif
+            onSettled={resettle}
+            onFail={hide}
           />
         ) : (
           <ImageCard key={preview.url} url={preview.url} onSettled={resettle} onFail={hide} />

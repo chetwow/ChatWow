@@ -25,6 +25,7 @@ body,
      the title bar, tabs and dialogs stay fixed, so nothing that measures its
      own layout (the tab bar's row wrapping) moves when this changes. */
   --chat-font-size: 13px;
+  --gif-scale: 1;
 }
 
 body {
@@ -106,6 +107,18 @@ body {
 .msg-row,
 .chat-text {
   font-size: var(--chat-font-size);
+}
+
+/* Twitch GIFs are message-sized media rather than emotes. The pane remains
+   the hard width limit; the preference scales the comfortable default box. */
+.chat-gif {
+  max-height: calc(180px * var(--gif-scale));
+  max-width: min(100%, calc(240px * var(--gif-scale)));
+}
+
+.chat-gif-preview {
+  max-height: min(45vh, calc(320px * var(--gif-scale)));
+  max-width: min(60vw, calc(360px * var(--gif-scale)));
 }
 
 /* Deliberately no opacity in the `to` frame: a keyframe that omits a property

@@ -15,11 +15,13 @@ Helix badges API  ─┘
 ```
 
 The backend emits **fully resolved** messages — badges already mapped to image URLs, message
-text already split into text/emote/mention/link segments. Two things make this worth doing in
+text already split into text/emote/mention/link/GIF segments. Three things make this worth doing in
 Rust rather than the webview:
 
 - Twitch's `emotes` tag indexes by Unicode **code point**. Byte or UTF-16 indexing corrupts any
   message containing non-BMP characters (emoji, most notably).
+- Twitch's `gifs` tag uses the same ranged-message model and carries the accessible caption, GIF
+  id and complete asset URL together; parsing it beside emotes keeps the two ordered correctly.
 - 7TV overlay emotes have to be folded onto the emote before them, which is easier to get right
   and to unit-test in one place.
 
@@ -574,6 +576,22 @@ because there is nothing visible to navigate to. Enter and Shift+Enter move thro
 leaving the live edge disables scroll pinning so incoming chat cannot pull the selected result
 away. Closing search jumps back to the live edge and restores pinning.
 
+## Twitch GIF messages
+
+Twitch GIF messages stay on the ordinary IRC `PRIVMSG` path. [render.rs](src-tauri/src/render.rs)
+reads the `gifs` tag, slices its inclusive ranges by Unicode code point, and sends React a GIF
+segment containing the caption, id, and exact URL Twitch supplied. The renderer accepts only
+HTTPS GIPHY hosts: live tags are Twitch-owned, but recent-message history is raw IRC supplied by
+a third party and must not gain a way to point the webview at arbitrary or local hosts.
+
+React streams the supplied GIF URL directly with native lazy loading and asynchronous decoding,
+leaving reuse to the webview's HTTP cache rather than adding GIFs to the emote disk cache. This
+also preserves the URL exactly as Twitch requires. `showGifs` is render-time state so changing it
+repaints immutable messages already held in a memoized row. When it is off, no inline image is
+created: the accessible caption uses the same dotted underline as a blacklisted emote, and its
+shared hover preview is the only thing that loads the GIF. `gifScale` drives one root CSS custom
+property used by both inline GIFs and their hover previews.
+
 ## Emote providers
 
 Three services, plus Twitch's own emotes: 7TV
@@ -899,11 +917,12 @@ renamed over the old snapshot. Missing files mean first run; malformed or unread
 logged before defaults are used, and a malformed file is moved to a timestamped
 `settings.invalid-*.json` rather than overwritten. Rust deliberately doesn't validate preference
 values: the store normalizes an unknown one back to the default, so a hand-edited file can't wedge
-the UI. The font-size preset resolves to a
-`--chat-font-size` custom property set on the app root; only message bodies and the composer
-follow it, so nothing that measures its own layout moves when it changes. Mock mode has no
-backend to write to and falls back to `localStorage`. The default moderator timeout is stored as
-seconds and normalized in the frontend to Twitch's one-second through two-week range.
+the UI. The font-size preset resolves to a `--chat-font-size` custom property set on the app root;
+only message bodies and the composer follow it, so nothing that measures its own layout moves
+when it changes. GIF size similarly resolves to an independently clamped `--gif-scale` property.
+Mock mode has no backend to write to and falls back to `localStorage`. The default moderator
+timeout is stored as seconds and normalized in the frontend to Twitch's one-second through
+two-week range.
 
 The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100%)`, setting rows
 wrap their control under the label when they have to, and the tab row scrolls sideways rather

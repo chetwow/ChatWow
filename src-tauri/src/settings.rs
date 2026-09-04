@@ -171,6 +171,12 @@ pub struct Preferences {
     /// Show the 7TV badge a chatter has equipped, beside their Twitch ones.
     /// Off means 7TV is never asked who anybody is.
     pub show_seventv_badges: bool,
+    /// Draw Twitch GIF messages inline. Off keeps their accessible caption in
+    /// the row and only loads the image when that caption is hovered.
+    pub show_gifs: bool,
+    /// GIF display size relative to the default. The frontend clamps the
+    /// value to the range exposed by its slider.
+    pub gif_scale: f64,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -260,6 +266,8 @@ impl Default for Preferences {
             enable_bttv: true,
             enable_ffz: true,
             show_seventv_badges: true,
+            show_gifs: true,
+            gif_scale: 1.0,
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,

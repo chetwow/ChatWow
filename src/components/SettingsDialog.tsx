@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
 import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
-import { useChat, type BlacklistKind } from "../store/chat";
+import { MAX_GIF_SCALE, MIN_GIF_SCALE, useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
 import { Hinted } from "./Hinted";
@@ -876,6 +876,34 @@ export function SettingsDialog({
                     onChange={(showSeventvBadges) => updatePreferences({ showSeventvBadges })}
                     label="Display 7TV badges"
                   />
+                </Row>
+              </Section>
+              <Section title="GIFs">
+                <Row label="Display GIF messages">
+                  <Toggle
+                    checked={preferences.showGifs}
+                    onChange={(showGifs) => updatePreferences({ showGifs })}
+                    label="Display GIF messages"
+                  />
+                </Row>
+                <Row label="GIF size">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={MIN_GIF_SCALE * 100}
+                      max={MAX_GIF_SCALE * 100}
+                      step={5}
+                      value={Math.round(preferences.gifScale * 100)}
+                      onChange={(event) =>
+                        updatePreferences({ gifScale: Number(event.target.value) / 100 })
+                      }
+                      aria-label="GIF size"
+                      className="w-32 accent-accent"
+                    />
+                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.gifScale * 100)}%
+                    </span>
+                  </div>
                 </Row>
               </Section>
               <Section title="Tabs">

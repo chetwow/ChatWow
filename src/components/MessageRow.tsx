@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useRef, type MouseEvent } from "react";
+import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
@@ -221,6 +221,59 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
   );
 }
 
+function HiddenGif({ segment }: { segment: Extract<Segment, { kind: "gif" }> }) {
+  const show = useTooltip((state) => state.show);
+  const hide = useTooltip((state) => state.hide);
+
+  return (
+    <span
+      className="cursor-default underline decoration-ink-faint decoration-dotted underline-offset-2"
+      onMouseEnter={(event) =>
+        show(
+          { kind: "gif", url: segment.url, alt: segment.text },
+          event.currentTarget.getBoundingClientRect(),
+        )
+      }
+      onMouseLeave={hide}
+    >
+      {segment.text}
+    </span>
+  );
+}
+
+/**
+ * A Twitch GIF. Its URL comes fully resolved in the IRC tag and must be used
+ * unchanged, so the webview can stream it directly and let its HTTP cache do
+ * the deduplication. Hidden GIFs do not put an image in the row at all: they
+ * load only when their underlined accessible caption is deliberately hovered.
+ */
+function GifView({ segment }: { segment: Extract<Segment, { kind: "gif" }> }) {
+  // Subscribed here because rows are memoized on immutable message identity;
+  // toggling the preference has to repaint the already-held backlog directly.
+  const enabled = useChat((state) => state.preferences.showGifs);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [segment.url]);
+
+  if (!enabled || failed) return <HiddenGif segment={segment} />;
+
+  return (
+    <span className="mt-1 block">
+      <img
+        src={segment.url}
+        alt={segment.text}
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+        referrerPolicy="no-referrer"
+        draggable={false}
+        onError={() => setFailed(true)}
+        className="chat-gif block h-auto rounded object-contain"
+      />
+    </span>
+  );
+}
+
 function ReplyQuote({ replyTo, highlighted }: { replyTo: ReplyInfo; highlighted: boolean }) {
   return (
     <div
@@ -283,6 +336,8 @@ function SegmentView({ segment }: { segment: Segment }) {
       );
     case "link":
       return <LinkView segment={segment} />;
+    case "gif":
+      return <GifView segment={segment} />;
   }
 }
 

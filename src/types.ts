@@ -19,7 +19,15 @@ export type Segment =
       overlays: Overlay[];
     }
   | { kind: "mention"; text: string }
-  | { kind: "link"; text: string; href: string };
+  | { kind: "link"; text: string; href: string }
+  | {
+      kind: "gif";
+      id: string;
+      /** Twitch's accessible description and the fallback when hidden or unavailable. */
+      text: string;
+      /** The complete Twitch-supplied URL, which must not be rewritten. */
+      url: string;
+    };
 
 export type Badge = {
   id: string;
@@ -240,6 +248,10 @@ export type Preferences = {
   enableFfz: boolean;
   /** Show the 7TV badge a chatter has equipped, beside their Twitch ones. */
   showSeventvBadges: boolean;
+  /** Draw Twitch GIF messages inline; when off, show their caption with a hover preview. */
+  showGifs: boolean;
+  /** GIF size relative to the default, from 0.25 to 2. */
+  gifScale: number;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */
