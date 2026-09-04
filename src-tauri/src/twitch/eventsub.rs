@@ -40,7 +40,13 @@ pub enum Incoming {
     Welcome(String),
     /// Twitch is retiring this socket; connect to the url it handed over.
     Reconnect(String),
-    Whisper { id: String, from_id: String, from_login: String, from_name: String, text: String },
+    Whisper {
+        id: String,
+        from_id: String,
+        from_login: String,
+        from_name: String,
+        text: String,
+    },
     /// Keepalives, revocations, and anything else we don't act on.
     Ignored,
 }
@@ -52,7 +58,10 @@ pub fn classify(raw: &str) -> Incoming {
         return Incoming::Ignored;
     };
 
-    match value["metadata"]["message_type"].as_str().unwrap_or_default() {
+    match value["metadata"]["message_type"]
+        .as_str()
+        .unwrap_or_default()
+    {
         "session_welcome" => match value["payload"]["session"]["id"].as_str() {
             Some(id) if !id.is_empty() => Incoming::Welcome(id.to_string()),
             _ => Incoming::Ignored,
@@ -77,13 +86,19 @@ pub fn classify(raw: &str) -> Incoming {
                 id: event["whisper_id"].as_str().unwrap_or_default().to_string(),
                 // Carried for the same reason a chat message carries one: it's
                 // what a 7TV badge is looked up by.
-                from_id: event["from_user_id"].as_str().unwrap_or_default().to_string(),
+                from_id: event["from_user_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 from_name: match event["from_user_name"].as_str() {
                     Some(name) if !name.is_empty() => name.to_string(),
                     _ => from_login.to_string(),
                 },
                 from_login: from_login.to_string(),
-                text: event["whisper"]["text"].as_str().unwrap_or_default().to_string(),
+                text: event["whisper"]["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
             }
         }
         _ => Incoming::Ignored,
@@ -102,7 +117,10 @@ fn build(
     text: &str,
 ) -> ChatMessage {
     let globals = state.global_emotes.read();
-    let emotes = EmoteLookup { channel: None, global: &globals };
+    let emotes = EmoteLookup {
+        channel: None,
+        global: &globals,
+    };
     let mut message = render::whisper(id, user_id, login, name, text, now_ms(), &emotes);
     message.account = account.to_string();
     message
@@ -132,7 +150,9 @@ async fn subscribe(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(anyhow!("Twitch refused the whisper subscription ({status}): {body}"));
+        return Err(anyhow!(
+            "Twitch refused the whisper subscription ({status}): {body}"
+        ));
     }
     Ok(())
 }
@@ -140,16 +160,28 @@ async fn subscribe(
 /// One connection. `Ok(Some(url))` means Twitch asked us to move to another
 /// socket, which resumes this session's subscriptions; `Ok(None)` means it
 /// closed and we start over.
+struct WhisperConnection<'a> {
+    account: &'a str,
+    url: &'a str,
+    resuming: bool,
+    client_id: &'a str,
+    token: &'a str,
+    user_id: &'a str,
+}
+
 async fn connect_once(
     state: &Arc<AppState>,
     sink: &MessageSink,
-    account: &str,
-    url: &str,
-    resuming: bool,
-    client_id: &str,
-    token: &str,
-    user_id: &str,
+    connection: WhisperConnection<'_>,
 ) -> Result<Option<String>> {
+    let WhisperConnection {
+        account,
+        url,
+        resuming,
+        client_id,
+        token,
+        user_id,
+    } = connection;
     let (stream, _) = connect_async(url).await?;
     let (mut write, mut read) = stream.split();
 
@@ -157,7 +189,9 @@ async fn connect_once(
     // drops this task outright when the accounts change. One shared notify
     // can't wake several sockets anyway.
     loop {
-        let Some(frame) = read.next().await else { return Ok(None) };
+        let Some(frame) = read.next().await else {
+            return Ok(None);
+        };
         match frame? {
             Message::Text(text) => match classify(&text) {
                 Incoming::Welcome(session) => {
@@ -169,10 +203,23 @@ async fn connect_once(
                     }
                 }
                 Incoming::Reconnect(next) => return Ok(Some(next)),
-                Incoming::Whisper { id, from_id, from_login, from_name, text } => {
+                Incoming::Whisper {
+                    id,
+                    from_id,
+                    from_login,
+                    from_name,
+                    text,
+                } => {
                     state.queue_badge_lookup(&from_id);
-                    let _ = sink
-                        .send(build(state, account, &id, &from_id, &from_login, &from_name, &text));
+                    let _ = sink.send(build(
+                        state,
+                        account,
+                        &id,
+                        &from_id,
+                        &from_login,
+                        &from_name,
+                        &text,
+                    ));
                 }
                 Incoming::Ignored => {}
             },
@@ -200,8 +247,19 @@ async fn run_account(state: Arc<AppState>, sink: MessageSink, account: String) {
             None => (WS_URL.to_string(), false),
         };
 
-        match connect_once(&state, &sink, &account, &url, resuming, &client_id, &token, &account)
-            .await
+        match connect_once(
+            &state,
+            &sink,
+            WhisperConnection {
+                account: &account,
+                url: &url,
+                resuming,
+                client_id: &client_id,
+                token: &token,
+                user_id: &account,
+            },
+        )
+        .await
         {
             Ok(Some(next)) => {
                 resume = Some(next);
@@ -237,7 +295,9 @@ pub async fn run(state: Arc<AppState>, sink: MessageSink) {
             auth.accounts
                 .iter()
                 .filter(|account| {
-                    WHISPER_SCOPES.iter().any(|scope| auth.has_scope(&account.id, scope))
+                    WHISPER_SCOPES
+                        .iter()
+                        .any(|scope| auth.has_scope(&account.id, scope))
                 })
                 .map(|account| account.id.clone())
                 .collect()
@@ -250,11 +310,7 @@ pub async fn run(state: Arc<AppState>, sink: MessageSink) {
                 // when the accounts change, which `supervise` would then
                 // report as a task ending. The panic hook still writes down
                 // anything that goes wrong inside one.
-                tauri::async_runtime::spawn(run_account(
-                    Arc::clone(&state),
-                    sink.clone(),
-                    account,
-                ))
+                tauri::async_runtime::spawn(run_account(Arc::clone(&state), sink.clone(), account))
             })
             .collect();
 

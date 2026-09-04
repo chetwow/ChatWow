@@ -108,6 +108,12 @@ same way. They render normally, mention highlight included, but they don't ping,
 or reach the mentions tab -- which is deliberate for a 150-message ceiling on what one reconnect
 can deliver, and the one place this is a judgement call rather than a fact.
 
+Connections and their asynchronous join/recovery loaders carry monotonically increasing
+generations. A replacement socket owns fresh sessions, and a loader may commit only while both
+its connection and load generation are still current. This prevents a closing socket from
+removing the replacement's session and prevents two ROOMSTATE frames from racing duplicate
+history loads into the same view.
+
 ## Sending messages
 
 Outgoing messages go through Twitch's Helix `POST /helix/chat/messages` API rather than a raw
@@ -244,7 +250,9 @@ Client ID, and one held across a switch reads as a broken session rather than a 
 The tabs stay, anonymous, as they do whenever an account goes away.
 
 No client secret is ever needed or stored. Tokens live in `settings.json` under the app's
-config directory, one entry per account.
+per-user config directory, one entry per account. The directory and file are private to the
+current user on Unix (`0700`/`0600`); Windows uses the user's AppData ACL. Writes replace the
+file atomically, so an interrupted save cannot leave credentials in a partial JSON document.
 
 They don't last, and the app outlives them. A Twitch user token is good for a few hours where a
 chat client is left open for days, so `poll_tokens` walks every account once an hour and renews
@@ -714,11 +722,12 @@ inside a scroller and can sit partly, or entirely, outside the visible area.
 
 Hovering a link shows what's behind it. The two halves are split by what the answer costs.
 
-**An image link is answered locally.** `imagePreviewUrl` ([src/lib/links.ts](src/lib/links.ts))
-tests the extension on the url's own path -- no request, no host list -- and the preview is an
-`<img>` at that url. That misses an image served from an extensionless url, which is the right
-side to fail on: a miss leaves the link behaving as it always did, where a guess draws an empty
-frame over a page that was never an image.
+**An image link is classified locally and fetched by Rust.** `imagePreviewUrl`
+([src/lib/links.ts](src/lib/links.ts)) tests the extension on the url's own path, then
+`link_preview_image` applies the same network checks and size limits as page previews. The
+frontend turns the bounded response into a local blob URL; the webview never requests a
+chatter-selected image host directly. An extensionless image is deliberately classified as a
+page rather than guessed from its eventual content type.
 
 **Everything else has to be asked**, and that's [src-tauri/src/linkinfo.rs](src-tauri/src/linkinfo.rs):
 one GET, and the page's own account of itself out of the head -- OpenGraph first, then Twitter's
@@ -727,13 +736,13 @@ is a scan for `<meta>` and not an HTML parse: two fields don't justify a parser,
 meta tags are the two things a scan can find without meeting anything that would fool it.
 
 It's the only fetch in the app whose address a stranger chose, so it doesn't share
-`AppState::http`. `link_http` is built with a redirect policy that refuses, hop by hop, anything
-that isn't `http(s)` on a public host -- not `localhost`, not a private or loopback literal, in
-either address family -- an eight-second timeout, and a body read in chunks and stopped the
-moment it holds what's wanted. For most of the web that's the few KB up to `</head>`, with 256KB
-as the ceiling for pages that bury it. The host check is on the literal in the url: a *name*
-resolving to a private address still gets through, which would mean owning DNS resolution to
-prevent, a great deal of machinery for a threat that ends at "a page title was fetched".
+`AppState::http`. Each hop resolves its hostname, rejects the entire answer if any address is
+private, loopback, link-local or otherwise non-public, and pins the request to the addresses that
+passed. Redirects repeat that process and proxies are disabled, closing both private-network and
+DNS-rebinding paths. Requests have an eight-second timeout; page bodies are read in chunks and
+stopped the moment they hold what's wanted, with 256KB as the ordinary ceiling. Preview images
+use the same path and an 8MB limit. Page thumbnail URLs are resolved relative to the final page
+URL and fetched through this gate too.
 
 YouTube is the one site with a card's worth of things to say, and the one that makes you work for
 it. A video's head sits behind ~700KB of inline script and the counts behind a little more, so
@@ -795,10 +804,10 @@ shell and the emote is a thing this app already knows how to draw. Rust answers 
 draws it through the *emote* card rather than the page card: a 128px emote in a page card's
 `object-cover` thumbnail would be a crop of a face.
 
-Both gate the frontend, not Rust: `link_preview` fetches whatever it's handed, so a switch
-has to stop the call rather than the request. Nothing else reads them, and a message already on
-screen picks up the change because `LinkView` subscribes to the store instead of taking a prop --
-the same reason the emote blacklists do.
+Both preferences gate the frontend: the backend safely handles any public URL it is handed, but
+the switch must prevent the IPC call if the user has disabled that class of preview. Nothing else
+reads them, and a message already on screen picks up the change because `LinkView` subscribes to
+the store instead of taking a prop -- the same reason the emote blacklists do.
 
 ## Emote completion and search
 
@@ -864,9 +873,13 @@ kind. BTTV needs no such care: it serves png, gif and webp from the same path.
 
 Preferences live in `settings.json` next to the accounts and the tab list -- `Preferences` in
 [src-tauri/src/settings.rs](src-tauri/src/settings.rs), mirrored by the `Preferences` type in
-[src/types.ts](src/types.ts), read at startup and written whole on every change. Rust
-deliberately doesn't validate the values: the store normalizes an unknown one back to the
-default, so a hand-edited file can't wedge the UI. The font-size preset resolves to a
+[src/types.ts](src/types.ts), read at startup and written whole on every change. Saves are
+serialized, written to a private temporary file in the same directory, synced, then atomically
+renamed over the old snapshot. Missing files mean first run; malformed or unreadable files are
+logged before defaults are used, and a malformed file is moved to a timestamped
+`settings.invalid-*.json` rather than overwritten. Rust deliberately doesn't validate preference
+values: the store normalizes an unknown one back to the default, so a hand-edited file can't wedge
+the UI. The font-size preset resolves to a
 `--chat-font-size` custom property set on the app root; only message bodies and the composer
 follow it, so nothing that measures its own layout moves when it changes. Mock mode has no
 backend to write to and falls back to `localStorage`. The default moderator timeout is stored as
@@ -951,6 +964,9 @@ writes `AppState::updates.state` and emits `update://state` with the same value,
 can't disagree. Events alone would be wrong: the settings dialog can be opened long after the
 launch check finished, or halfway through a download, and has to find the picture already
 painted. The dialog re-reads it on mount for exactly that.
+
+Checks and installs also share one asynchronous operation lock. A launch check, manual check and
+install cannot overlap and replace one another's pending update or publish contradictory stages.
 
 **Windows has no `ready` stage.** `Update::install` hands the installer to `ShellExecuteW` and
 exits the process; NSIS puts the app back up on its own. macOS and Linux swap the files in
@@ -1135,4 +1151,6 @@ token, so it skips unless `TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are se
 the ones that catch a provider changing its response shape -- the symptom is an empty map,
 which is indistinguishable from a channel that simply has no emotes there.
 
-The frontend has no test suite; `npm run build` type-checks it.
+`npm test` runs the Vitest frontend regression suite, and `npm run build` type-checks and bundles
+the production UI. The release workflow runs both, plus Rust formatting, strict Clippy and the
+Rust unit suite and npm/RustSec dependency audits, before any platform installer job can begin.

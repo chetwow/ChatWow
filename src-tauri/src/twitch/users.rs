@@ -92,8 +92,10 @@ pub async fn fetch_avatars(
 ) -> Result<HashMap<String, String>> {
     let mut avatars = HashMap::new();
     for chunk in logins.chunks(MAX_LOGINS) {
-        let query: Vec<(&str, &str)> =
-            chunk.iter().map(|login| ("login", login.as_str())).collect();
+        let query: Vec<(&str, &str)> = chunk
+            .iter()
+            .map(|login| ("login", login.as_str()))
+            .collect();
         let response = helix.get("users", &query).await?;
         let parsed: UsersResponse = serde_json::from_value(response)
             .map_err(|error| anyhow!("unexpected Twitch user response: {error}"))?;
@@ -124,7 +126,10 @@ mod tests {
                 "created_at":"2011-05-19T00:28:28Z"}]}"#,
         )
         .expect("a user");
-        assert_eq!(profile.avatar_url, "https://static-cdn.jtvnw.net/f-600x600.png");
+        assert_eq!(
+            profile.avatar_url,
+            "https://static-cdn.jtvnw.net/f-600x600.png"
+        );
         assert_eq!(profile.created_at, "2011-05-19T00:28:28Z");
     }
 

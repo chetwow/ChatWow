@@ -426,11 +426,18 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const polling = useRef<number | null>(null);
+  const pollingSession = useRef(0);
+
+  const stopPolling = () => {
+    pollingSession.current += 1;
+    if (polling.current !== null) window.clearTimeout(polling.current);
+    polling.current = null;
+  };
 
   // Stop polling if the dialog closes mid-flow.
   useEffect(() => {
     return () => {
-      if (polling.current) window.clearInterval(polling.current);
+      stopPolling();
     };
   }, []);
 
@@ -463,9 +470,12 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
       void openUrl(code.verification_uri);
 
       const deadline = Date.now() + code.expires_in * 1000;
-      polling.current = window.setInterval(async () => {
+      const session = ++pollingSession.current;
+      const interval = Math.max(code.interval, 1) * 1000;
+      const poll = async () => {
+        if (pollingSession.current !== session) return;
         if (Date.now() > deadline) {
-          window.clearInterval(polling.current!);
+          stopPolling();
           setDevice(null);
           setError("The code expired. Try again.");
           return;
@@ -473,8 +483,9 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
 
         try {
           const result = await api.pollDeviceAuth(code.device_code);
+          if (pollingSession.current !== session) return;
           if (result.status === "granted") {
-            window.clearInterval(polling.current!);
+            stopPolling();
             setDevice(null);
             const next = await api.authStatus();
             setAuth(next);
@@ -498,15 +509,19 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
             // else in here, so only the first one closes the dialog.
             if (auth.accounts.length === 0) onDone();
           } else if (result.status === "failed") {
-            window.clearInterval(polling.current!);
+            stopPolling();
             setDevice(null);
             setError(result.detail ?? "Authorization failed.");
+          } else {
+            polling.current = window.setTimeout(() => void poll(), interval);
           }
         } catch (cause) {
-          window.clearInterval(polling.current!);
+          stopPolling();
+          setDevice(null);
           setError(String(cause));
         }
-      }, Math.max(code.interval, 1) * 1000);
+      };
+      polling.current = window.setTimeout(() => void poll(), interval);
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -548,7 +563,7 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
             </button>
             <button
               onClick={() => {
-                if (polling.current) window.clearInterval(polling.current);
+                stopPolling();
                 setDevice(null);
               }}
               className="rounded-md border border-line px-3 py-1.5 text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"

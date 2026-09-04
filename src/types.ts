@@ -410,6 +410,11 @@ export type LinkPreview = {
   ttlSeconds: number;
 };
 
+export type PreviewImage = {
+  mimeType: string;
+  data: string;
+};
+
 export type ChannelReadyEvent = {
   /** Whose join finished: a second account in the same room loads its own. */
   account: string;

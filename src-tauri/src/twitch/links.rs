@@ -646,7 +646,10 @@ mod tests {
         assert_eq!(parse_twitch_duration(""), None);
 
         let now = epoch_seconds("2024-11-02T14:14:30Z").unwrap();
-        assert_eq!(uptime("2024-11-02T12:00:00Z", now).as_deref(), Some("2h 14m"));
+        assert_eq!(
+            uptime("2024-11-02T12:00:00Z", now).as_deref(),
+            Some("2h 14m")
+        );
         assert_eq!(uptime("2024-11-02T14:00:00Z", now).as_deref(), Some("14m"));
         // A clock behind the stream's start reads as no uptime at all rather
         // than a negative one.

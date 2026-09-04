@@ -32,7 +32,11 @@ async fn live_pipeline_resolves_real_messages() {
         .await
         .expect("global 7TV set should load");
     println!("global 7TV emotes: {}", global.len());
-    assert!(global.len() > 20, "expected a populated global set, got {}", global.len());
+    assert!(
+        global.len() > 20,
+        "expected a populated global set, got {}",
+        global.len()
+    );
 
     let zero_width: Vec<&String> = global
         .iter()
@@ -52,13 +56,24 @@ async fn live_pipeline_resolves_real_messages() {
     let (mut write, mut read) = stream.split();
 
     write
-        .send(Message::Text("CAP REQ :twitch.tv/tags twitch.tv/commands".into()))
+        .send(Message::Text(
+            "CAP REQ :twitch.tv/tags twitch.tv/commands".into(),
+        ))
         .await
         .unwrap();
-    write.send(Message::Text("PASS SCHMOOPIIE".into())).await.unwrap();
-    write.send(Message::Text("NICK justinfan45678".into())).await.unwrap();
+    write
+        .send(Message::Text("PASS SCHMOOPIIE".into()))
+        .await
+        .unwrap();
+    write
+        .send(Message::Text("NICK justinfan45678".into()))
+        .await
+        .unwrap();
     for channel in CHANNELS {
-        write.send(Message::Text(format!("JOIN #{channel}").into())).await.unwrap();
+        write
+            .send(Message::Text(format!("JOIN #{channel}").into()))
+            .await
+            .unwrap();
     }
 
     // 3. Collect for a while.
@@ -77,11 +92,16 @@ async fn live_pipeline_resolves_real_messages() {
         let Message::Text(text) = frame else { continue };
 
         for line in text.split("\r\n").filter(|l| !l.is_empty()) {
-            let Some(msg) = parse::parse(line) else { continue };
+            let Some(msg) = parse::parse(line) else {
+                continue;
+            };
             match msg.command.as_str() {
                 "PING" => {
                     let token = msg.params.first().cloned().unwrap_or_default();
-                    write.send(Message::Text(format!("PONG :{token}").into())).await.unwrap();
+                    write
+                        .send(Message::Text(format!("PONG :{token}").into()))
+                        .await
+                        .unwrap();
                 }
                 "ROOMSTATE" => {
                     if let (Some(channel), Some(room_id)) = (msg.channel(), msg.tag("room-id")) {
@@ -137,7 +157,10 @@ async fn live_pipeline_resolves_real_messages() {
             channel: channel_emotes.get(channel),
             global: &global,
         };
-        let badges = BadgeLookup { channel: None, global: &empty_badges };
+        let badges = BadgeLookup {
+            channel: None,
+            global: &empty_badges,
+        };
         let message = render::build_chat_message(msg, channel, &lookup, &badges);
 
         assert!(
@@ -158,7 +181,12 @@ async fn live_pipeline_resolves_real_messages() {
                 Segment::Text { text } => rendered.push_str(text),
                 Segment::Mention { text } => rendered.push_str(text),
                 Segment::Link { text, .. } => rendered.push_str(text),
-                Segment::Emote { name, provider, overlays: over, .. } => {
+                Segment::Emote {
+                    name,
+                    provider,
+                    overlays: over,
+                    ..
+                } => {
                     if provider == "twitch" {
                         twitch_emotes += 1;
                     } else {
@@ -174,7 +202,11 @@ async fn live_pipeline_resolves_real_messages() {
             }
         }
 
-        if samples.len() < 15 && message.segments.iter().any(|s| matches!(s, Segment::Emote { .. }))
+        if samples.len() < 15
+            && message
+                .segments
+                .iter()
+                .any(|s| matches!(s, Segment::Emote { .. }))
         {
             samples.push(format!(
                 "#{channel} <{}> {} :: {rendered}",
@@ -220,7 +252,11 @@ async fn live_bttv_and_ffz_sets_parse() {
         .await
         .expect("global BTTV set should load");
     println!("global BTTV emotes: {}", bttv_global.len());
-    assert!(bttv_global.len() > 20, "expected a populated set, got {}", bttv_global.len());
+    assert!(
+        bttv_global.len() > 20,
+        "expected a populated set, got {}",
+        bttv_global.len()
+    );
 
     let ffz_global = crate::emotes::ffz::fetch_global(&http)
         .await
@@ -229,7 +265,11 @@ async fn live_bttv_and_ffz_sets_parse() {
     // A lower bar than the others on purpose: FFZ's default global set is
     // genuinely small (~15), where BTTV's is dozens. Anything above zero
     // proves the shape parsed; the number itself is FFZ's business.
-    assert!(ffz_global.len() > 5, "expected a populated set, got {}", ffz_global.len());
+    assert!(
+        ffz_global.len() > 5,
+        "expected a populated set, got {}",
+        ffz_global.len()
+    );
 
     let bttv_channel = crate::emotes::bttv::fetch_channel(&http, ROOM_ID)
         .await
@@ -244,8 +284,14 @@ async fn live_bttv_and_ffz_sets_parse() {
     );
     // BTTV's channel response splits into a channel's own emotes and the ones
     // it borrows; both are usable in chat, so both have to land here.
-    assert!(bttv_channel.len() > 50, "expected forsen's own and shared BTTV emotes");
-    assert!(!ffz_channel.is_empty(), "forsen should have FFZ channel emotes");
+    assert!(
+        bttv_channel.len() > 50,
+        "expected forsen's own and shared BTTV emotes"
+    );
+    assert!(
+        !ffz_channel.is_empty(),
+        "forsen should have FFZ channel emotes"
+    );
 
     // Every url has to be absolute and https -- FFZ answers protocol-relative,
     // and a `//cdn...` src in the webview resolves against `tauri://`.
@@ -285,8 +331,10 @@ async fn live_seventv_badges_resolve() {
 
     // xQc and NymN both wear one; sodapoppin has a 7TV account with no badge
     // equipped, and 1 is nobody. All four are answers, and only two are badges.
-    let ids: Vec<String> =
-        ["71092938", "62300805", "26301881", "1"].iter().map(|id| id.to_string()).collect();
+    let ids: Vec<String> = ["71092938", "62300805", "26301881", "1"]
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
 
     let badges = crate::emotes::seventv_badges::fetch(&http, &ids)
         .await
@@ -297,13 +345,24 @@ async fn live_seventv_badges_resolve() {
     }
 
     assert!(badges.contains_key("71092938"), "xqc wears a badge");
-    assert!(!badges.contains_key("26301881"), "sodapoppin has none equipped");
+    assert!(
+        !badges.contains_key("26301881"),
+        "sodapoppin has none equipped"
+    );
     assert!(!badges.contains_key("1"), "and nobody is nobody");
 
     for (id, badge) in &badges {
-        assert!(badge.url.starts_with("https://"), "{id}: relative url {}", badge.url);
+        assert!(
+            badge.url.starts_with("https://"),
+            "{id}: relative url {}",
+            badge.url
+        );
         assert!(!badge.title.is_empty(), "{id}: a badge with no name");
-        assert!(badge.id.starts_with("7tv-"), "{id}: unnamespaced badge id {}", badge.id);
+        assert!(
+            badge.id.starts_with("7tv-"),
+            "{id}: unnamespaced badge id {}",
+            badge.id
+        );
     }
 }
 
@@ -323,29 +382,52 @@ async fn live_user_card_history_resolves() {
         .expect("the card should load");
 
     println!("{card:?}");
-    assert!(card.avatar_url.starts_with("https://"), "avatar: {}", card.avatar_url);
-    assert!(card.created_at.starts_with("20"), "created: {}", card.created_at);
+    assert!(
+        card.avatar_url.starts_with("https://"),
+        "avatar: {}",
+        card.avatar_url
+    );
+    assert!(
+        card.created_at.starts_with("20"),
+        "created: {}",
+        card.created_at
+    );
 
     let history = card.history.expect("ivr.fi should have answered");
     // NymN has followed forsen since 2015 and subscribed for years, so any
     // shape where those come back empty means the parse has drifted.
-    assert!(history.followed_at.starts_with("2015"), "followed: {}", history.followed_at);
-    assert!(history.sub_months > 100, "sub months: {}", history.sub_months);
+    assert!(
+        history.followed_at.starts_with("2015"),
+        "followed: {}",
+        history.followed_at
+    );
+    assert!(
+        history.sub_months > 100,
+        "sub months: {}",
+        history.sub_months
+    );
 
     // Nobody is nobody, in either half -- so there's no card at all.
     let missing = crate::usercard::fetch(&http, None, "thisuserdoesnotexist99123", "forsen").await;
-    assert!(missing.is_err(), "a name Twitch doesn't know should be an error");
+    assert!(
+        missing.is_err(),
+        "a name Twitch doesn't know should be an error"
+    );
 }
 
 #[tokio::test]
 #[ignore = "fetches real pages off the internet"]
 async fn live_link_previews_read_real_pages() {
-    let http = crate::linkinfo::build_client();
-
-    for url in ["https://example.com/", "https://www.twitch.tv/", "https://7tv.app/"] {
-        let preview = crate::linkinfo::preview(&http, url).await;
+    for url in [
+        "https://example.com/",
+        "https://www.twitch.tv/",
+        "https://7tv.app/",
+    ] {
+        let preview = crate::linkinfo::preview(url).await;
         println!("{url} -> {preview:?}");
-        let preview = preview.expect("the request should not fail").expect("a preview");
+        let preview = preview
+            .expect("the request should not fail")
+            .expect("a preview");
         assert!(!preview.title.is_empty(), "{url} should have a title");
     }
 
@@ -353,14 +435,18 @@ async fn live_link_previews_read_real_pages() {
     // from a different part of the page, so a drift in any of them shows up as
     // one missing row rather than a failure -- which is why they're checked by
     // label rather than by count.
-    let video = crate::linkinfo::preview(&http, "https://youtu.be/qMpBobAonKs")
+    let video = crate::linkinfo::preview("https://youtu.be/qMpBobAonKs")
         .await
         .expect("the request should not fail")
         .expect("a video should preview");
     println!("{video:#?}");
     assert_eq!(video.title, "Hold Me Now");
     assert!(!video.description.is_empty(), "a video has a description");
-    assert!(video.image.starts_with("https://"), "image: {}", video.image);
+    assert!(
+        video.image.starts_with("https://"),
+        "image: {}",
+        video.image
+    );
     for label in ["Channel", "Duration", "Published", "Views", "Likes"] {
         let row = video.facts.iter().find(|fact| fact.label == label);
         assert!(row.is_some(), "no {label} row in {:?}", video.facts);
@@ -369,17 +455,19 @@ async fn live_link_previews_read_real_pages() {
 
     // Not a page, so nothing to preview -- and, more to the point, not
     // something to read a megabyte of looking for one.
-    let image = crate::linkinfo::preview(
-        &http,
-        "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0",
-    )
-    .await
-    .expect("the request should not fail");
+    let image =
+        crate::linkinfo::preview("https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0")
+            .await
+            .expect("the request should not fail");
     assert_eq!(image, None, "an image is not a page with a preview");
 
     // The machine's own network is off limits however the url is written.
-    for refused in ["http://127.0.0.1:1420/", "http://localhost:1420/", "file:///etc/hosts"] {
-        let answer = crate::linkinfo::preview(&http, refused).await;
+    for refused in [
+        "http://127.0.0.1:1420/",
+        "http://localhost:1420/",
+        "file:///etc/hosts",
+    ] {
+        let answer = crate::linkinfo::preview(refused).await;
         assert!(
             matches!(answer, Ok(None) | Err(_)),
             "{refused} should not be fetched: {answer:?}"
@@ -402,7 +490,10 @@ async fn live_seventv_emote_link_previews_resolve() {
         .expect("a known emote should preview");
     println!("{preview:#?}");
     assert_eq!(preview.title, "PEPE", "the emote's name is the title");
-    assert!(!preview.description.is_empty(), "the owner rides in the description");
+    assert!(
+        !preview.description.is_empty(),
+        "the owner rides in the description"
+    );
     assert!(
         preview.image.starts_with("https://cdn.7tv.app/emote/"),
         "image: {}",
@@ -453,14 +544,19 @@ async fn live_twitch_link_previews_resolve() {
     assert!(!preview.title.is_empty());
     // Live leads with the channel, offline with the status -- either is a card.
     let first = preview.facts.first().map(|fact| fact.label.as_str());
-    assert!(matches!(first, Some("Channel" | "Status")), "leading row: {first:?}");
+    assert!(
+        matches!(first, Some("Channel" | "Status")),
+        "leading row: {first:?}"
+    );
 
     // A name Twitch doesn't know is a miss, not an error: the caller falls
     // back to reading the page.
     let missing = reqwest::Url::parse("https://www.twitch.tv/thisuserdoesnotexist99123").unwrap();
     let link = crate::twitch::links::parse(&missing).expect("a channel link");
     assert_eq!(
-        crate::twitch::links::preview(&helix, &link).await.expect("no error"),
+        crate::twitch::links::preview(&helix, &link)
+            .await
+            .expect("no error"),
         None
     );
 }
@@ -483,12 +579,24 @@ async fn live_seventv_event_socket_accepts_a_subscription() {
     let set_id = set.id.expect("this channel should have a 7TV emote set");
     println!("emote set {set_id}: {} emotes", set.emotes.len());
 
-    let (stream, _) = connect_async("wss://events.7tv.io/v3").await.expect("7TV should accept us");
+    let (stream, _) = connect_async("wss://events.7tv.io/v3")
+        .await
+        .expect("7TV should accept us");
     let (mut write, mut read) = stream.split();
 
-    let welcome = read.next().await.expect("a first frame").expect("a readable frame");
-    let Message::Text(text) = welcome else { panic!("expected text, got {welcome:?}") };
-    assert_eq!(classify(&text), Incoming::Hello, "the first frame is the welcome: {text}");
+    let welcome = read
+        .next()
+        .await
+        .expect("a first frame")
+        .expect("a readable frame");
+    let Message::Text(text) = welcome else {
+        panic!("expected text, got {welcome:?}")
+    };
+    assert_eq!(
+        classify(&text),
+        Incoming::Hello,
+        "the first frame is the welcome: {text}"
+    );
 
     write
         .send(Message::Text(

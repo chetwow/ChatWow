@@ -513,6 +513,7 @@ name = "chatwow"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "futures-util",
  "log",
  "parking_lot",
@@ -526,6 +527,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
 ]

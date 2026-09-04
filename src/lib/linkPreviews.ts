@@ -8,7 +8,7 @@
  */
 
 import { api } from "./api";
-import { IS_TAURI } from "./tauri";
+import { MOCK_MODE } from "./tauri";
 import type { LinkPreview } from "../types";
 
 type Entry = {
@@ -20,8 +20,11 @@ type Entry = {
 /** Insertion-ordered, so the oldest entry is the first key. */
 const cache = new Map<string, Entry>();
 const pending = new Map<string, Promise<LinkPreview | null>>();
+const imageCache = new Map<string, string | null>();
+const imagePending = new Map<string, Promise<string | null>>();
 
 const MAX_CACHED = 500;
+const MAX_IMAGE_CACHED = 40;
 
 function remember(url: string, preview: LinkPreview | null) {
   const ttl = preview?.ttlSeconds ?? 0;
@@ -56,9 +59,9 @@ export function loadLinkPreview(url: string): Promise<LinkPreview | null> {
   if (inFlight) return inFlight;
 
   const request = (
-    IS_TAURI
-      ? api.linkPreview(url)
-      : import("../dev/mockData").then((mock) => mock.mockLinkPreview(url))
+    MOCK_MODE
+      ? import("../dev/mockData").then((mock) => mock.mockLinkPreview(url))
+      : api.linkPreview(url)
   )
     .then((preview) => {
       const found = preview?.title ? preview : null;
@@ -74,5 +77,43 @@ export function loadLinkPreview(url: string): Promise<LinkPreview | null> {
     .finally(() => pending.delete(url));
 
   pending.set(url, request);
+  return request;
+}
+
+function localImage(mimeType: string, data: string): string {
+  const binary = window.atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+function rememberImage(source: string, local: string | null) {
+  imageCache.set(source, local);
+  if (imageCache.size <= MAX_IMAGE_CACHED) return;
+  const oldest = imageCache.keys().next().value;
+  if (oldest === undefined) return;
+  const discarded = imageCache.get(oldest);
+  if (discarded) URL.revokeObjectURL(discarded);
+  imageCache.delete(oldest);
+}
+
+/** A local blob URL for an image Rust fetched through the public-network gate. */
+export function loadPreviewImage(source: string): Promise<string | null> {
+  if (imageCache.has(source)) return Promise.resolve(imageCache.get(source) ?? null);
+  const inFlight = imagePending.get(source);
+  if (inFlight) return inFlight;
+
+  const request = (MOCK_MODE
+    ? Promise.resolve(source)
+    : api
+        .linkPreviewImage(source)
+        .then((image) => (image ? localImage(image.mimeType, image.data) : null)))
+    .catch(() => null)
+    .then((local) => {
+      rememberImage(source, local);
+      return local;
+    })
+    .finally(() => imagePending.delete(source));
+  imagePending.set(source, request);
   return request;
 }

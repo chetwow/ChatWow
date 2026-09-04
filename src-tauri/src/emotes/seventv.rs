@@ -117,7 +117,11 @@ fn build_entry(entry: SetEntry) -> Option<Emote> {
 
     // The set entry and the emote it points at carry the same id, but only
     // the latter is guaranteed present on a channel set's aliased entries.
-    let id = if data.id.is_empty() { entry.id } else { data.id };
+    let id = if data.id.is_empty() {
+        entry.id
+    } else {
+        data.id
+    };
     if id.is_empty() {
         return None;
     }

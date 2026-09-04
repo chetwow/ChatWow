@@ -12,7 +12,11 @@ const DEFAULT_COLORS: [&str; 15] = [
 ];
 
 /// The chat background these colors are read against (--color-surface).
-const BACKGROUND: (f32, f32, f32) = (0x0b as f32 / 255.0, 0x0b as f32 / 255.0, 0x0f as f32 / 255.0);
+const BACKGROUND: (f32, f32, f32) = (
+    0x0b as f32 / 255.0,
+    0x0b as f32 / 255.0,
+    0x0f as f32 / 255.0,
+);
 /// Target WCAG contrast ratio. 4.5 is the AA threshold for body text.
 const MIN_CONTRAST: f32 = 4.5;
 /// Lightness is raised in steps until the target is met or we run out of headroom.
@@ -48,7 +52,11 @@ fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
         return (0.0, 0.0, l);
     }
     let d = max - min;
-    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
     let h = if max == r {
         ((g - b) / d + if g < b { 6.0 } else { 0.0 }) / 6.0
     } else if max == g {
@@ -82,7 +90,11 @@ fn hsl_to_hex(h: f32, s: f32, l: f32) -> String {
     let (r, g, b) = if s.abs() < f32::EPSILON {
         (l, l, l)
     } else {
-        let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+        let q = if l < 0.5 {
+            l * (1.0 + s)
+        } else {
+            l + s - l * s
+        };
         let p = 2.0 * l - q;
         (
             hue_to_rgb(p, q, h + 1.0 / 3.0),
@@ -172,11 +184,12 @@ mod tests {
     #[test]
     fn different_logins_can_get_different_colors() {
         // Not a guarantee for any specific pair, but the palette must actually vary.
-        let colors: std::collections::HashSet<String> =
-            ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]
-                .iter()
-                .map(|n| resolve(None, n))
-                .collect();
+        let colors: std::collections::HashSet<String> = [
+            "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+        ]
+        .iter()
+        .map(|n| resolve(None, n))
+        .collect();
         assert!(colors.len() > 1, "palette should not collapse to one color");
     }
 
@@ -192,16 +205,24 @@ mod tests {
         assert_ne!(lifted, "#0000FF");
         let (r, g, b) = hex_to_rgb(&lifted).unwrap();
         let ratio = contrast_with_background(r, g, b);
-        assert!(ratio >= MIN_CONTRAST, "expected >= {MIN_CONTRAST} contrast, got {ratio} ({lifted})");
+        assert!(
+            ratio >= MIN_CONTRAST,
+            "expected >= {MIN_CONTRAST} contrast, got {ratio} ({lifted})"
+        );
     }
 
     #[test]
     fn every_palette_color_ends_up_readable() {
-        for name in ["a", "bb", "ccc", "dddd", "e", "ff", "ggg", "h", "ii", "jjj", "k", "ll", "m", "nn", "o"] {
+        for name in [
+            "a", "bb", "ccc", "dddd", "e", "ff", "ggg", "h", "ii", "jjj", "k", "ll", "m", "nn", "o",
+        ] {
             let color = resolve(None, name);
             let (r, g, b) = hex_to_rgb(&color).unwrap();
             let ratio = contrast_with_background(r, g, b);
-            assert!(ratio >= MIN_CONTRAST, "{name} -> {color} has contrast {ratio}");
+            assert!(
+                ratio >= MIN_CONTRAST,
+                "{name} -> {color} has contrast {ratio}"
+            );
         }
     }
 

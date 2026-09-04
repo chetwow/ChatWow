@@ -9,7 +9,7 @@
  */
 
 import { api } from "./api";
-import { IS_TAURI } from "./tauri";
+import { MOCK_MODE } from "./tauri";
 import type { UserCard } from "../types";
 
 /**
@@ -37,9 +37,9 @@ export function loadUserCard(login: string, channel: string): Promise<UserCard> 
   if (inFlight) return inFlight;
 
   const request = (
-    IS_TAURI
-      ? api.userCard(login, channel)
-      : import("../dev/mockData").then((mock) => mock.mockUserCard(login))
+    MOCK_MODE
+      ? import("../dev/mockData").then((mock) => mock.mockUserCard(login))
+      : api.userCard(login, channel)
   )
     .then((card) => {
       cache.set(key, card);

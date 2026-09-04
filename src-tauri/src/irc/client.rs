@@ -23,7 +23,7 @@ use crate::emotes::{self, bttv, cache, ffz, seventv, Emote, Providers};
 use crate::irc::history;
 use crate::irc::parse::{self, ChannelRole, IrcMessage};
 use crate::render::{self, BadgeLookup, ChatMessage, EmoteLookup};
-use crate::state::{AppState, Connection, IrcCommand, MAX_PENDING};
+use crate::state::{AppState, Connection, IrcCommand, Session, SessionKey, MAX_PENDING};
 use crate::twitch::{badges, emotes as twitch_emotes};
 
 const GATEWAY: &str = "wss://irc-ws.chat.twitch.tv:443";
@@ -37,6 +37,49 @@ const ASSET_TIMEOUT: Duration = Duration::from_secs(8);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
 
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
+
+fn connection_is_current(state: &AppState, account: &str, generation: u64) -> bool {
+    state
+        .connections
+        .read()
+        .get(account)
+        .is_some_and(|connection| connection.generation == generation)
+}
+
+fn session_for_generation(
+    sessions: &mut HashMap<SessionKey, Session>,
+    key: SessionKey,
+    generation: u64,
+) -> &mut Session {
+    let session = sessions.entry(key).or_default();
+    if session.connection_generation != generation {
+        *session = Session {
+            connection_generation: generation,
+            ..Default::default()
+        };
+    }
+    session
+}
+
+fn begin_load(session: &mut Session, load_generation: u64) -> u64 {
+    session.load_generation = load_generation;
+    session.loading = true;
+    session.load_generation
+}
+
+fn load_is_current(session: &Session, connection_generation: u64, load_generation: u64) -> bool {
+    session.connection_generation == connection_generation
+        && session.load_generation == load_generation
+        && session.loading
+}
+
+#[derive(Clone)]
+struct SessionLoad {
+    account: String,
+    channel: String,
+    connection_generation: u64,
+    load_generation: u64,
+}
 
 /// Said in every channel an account was reading the moment its socket goes.
 /// The connection dot in the title bar says the same thing, but chat is where
@@ -164,7 +207,10 @@ fn initial_join_messages<'a>(
     backlog: &'a [IrcMessage],
     pending: &'a [IrcMessage],
 ) -> Vec<&'a IrcMessage> {
-    let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
+    let live: HashSet<&str> = pending
+        .iter()
+        .filter_map(|message| message.tag("id"))
+        .collect();
     backlog
         .iter()
         .filter(|message| !message.tag("id").is_some_and(|id| live.contains(id)))
@@ -181,7 +227,11 @@ async fn or_empty<T: Default>(
     if !enabled {
         return T::default();
     }
-    timeout(ASSET_TIMEOUT, fetch).await.ok().and_then(|result| result.ok()).unwrap_or_default()
+    timeout(ASSET_TIMEOUT, fetch)
+        .await
+        .ok()
+        .and_then(|result| result.ok())
+        .unwrap_or_default()
 }
 
 /// Every enabled provider's global set, merged. They're fetched together --
@@ -210,7 +260,10 @@ async fn channel_emotes(state: &AppState, providers: Providers, room_id: &str) -
     let (ffz_set, bttv_set, seventv) = tokio::join!(
         or_empty(providers.ffz, ffz::fetch_channel(&state.http, room_id)),
         or_empty(providers.bttv, bttv::fetch_channel(&state.http, room_id)),
-        or_empty(providers.seventv, seventv::fetch_channel(&state.http, room_id)),
+        or_empty(
+            providers.seventv,
+            seventv::fetch_channel(&state.http, room_id)
+        ),
     );
     // The two lower-priority sets are kept as well as merged: 7TV's emotes can
     // come and go while the channel is open, and a name uncovered by one
@@ -250,10 +303,19 @@ pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
     // unlike badges these are asked for once per account. Autocomplete only --
     // Twitch emotes in incoming messages are resolved from each message's own
     // `emotes` tag, not from this list.
-    let accounts: Vec<String> =
-        { state.auth.read().accounts.iter().map(|account| account.id.clone()).collect() };
+    let accounts: Vec<String> = {
+        state
+            .auth
+            .read()
+            .accounts
+            .iter()
+            .map(|account| account.id.clone())
+            .collect()
+    };
     for id in accounts {
-        let Some((client_id, token)) = ({ state.auth.read().credentials(&id) }) else { continue };
+        let Some((client_id, token)) = ({ state.auth.read().credentials(&id) }) else {
+            continue;
+        };
         let fetch = twitch_emotes::fetch_global(&state.http, &client_id, &token);
         if let Ok(Ok(names)) = timeout(ASSET_TIMEOUT, fetch).await {
             state.twitch_global_emotes.write().insert(id, names);
@@ -301,11 +363,20 @@ async fn load_channel_assets(
     app: AppHandle,
     state: Arc<AppState>,
     sink: MessageSink,
-    account: String,
-    channel: String,
     room_id: String,
+    load: SessionLoad,
 ) {
-    let needs_assets = !state.data.read().get(&channel).is_some_and(|data| data.assets_ready);
+    let SessionLoad {
+        account,
+        channel,
+        connection_generation,
+        load_generation,
+    } = load;
+    let needs_assets = !state
+        .data
+        .read()
+        .get(&channel)
+        .is_some_and(|data| data.assets_ready);
     if needs_assets {
         let emotes = channel_emotes(&state, providers(&state), &room_id).await;
 
@@ -364,7 +435,12 @@ async fn load_channel_assets(
         false => Vec::new(),
     };
 
-    let emote_count = state.data.read().get(&channel).map(|data| data.emotes.len()).unwrap_or(0);
+    let emote_count = state
+        .data
+        .read()
+        .get(&channel)
+        .map(|data| data.emotes.len())
+        .unwrap_or(0);
     let key = (account.clone(), channel.clone());
     {
         // Keep the session write-locked and unready until every queued line is
@@ -372,7 +448,12 @@ async fn load_channel_assets(
         // interleave a new line above the remaining history.
         let mut sessions = state.sessions.write();
         // The tab may have been closed while its network requests were in flight.
-        let Some(session) = sessions.get_mut(&key) else { return };
+        let Some(session) = sessions.get_mut(&key) else {
+            return;
+        };
+        if !load_is_current(session, connection_generation, load_generation) {
+            return;
+        }
         session.twitch_emotes = twitch_emote_names;
         let pending = std::mem::take(&mut session.pending);
         // Where a later reconnect starts looking, set from everything about
@@ -380,7 +461,11 @@ async fn load_channel_assets(
         // that says nothing between the join and the drop would otherwise
         // have no mark at all, and recover its whole history as though none
         // of it had been seen.
-        let newest = backlog.iter().chain(pending.iter()).map(render::timestamp).max();
+        let newest = backlog
+            .iter()
+            .chain(pending.iter())
+            .map(render::timestamp)
+            .max();
         if let Some(newest) = newest {
             session.last_seen.fetch_max(newest, Ordering::Relaxed);
         }
@@ -391,6 +476,8 @@ async fn load_channel_assets(
         for message in initial_join_messages(&backlog, &pending) {
             render_and_queue(&state, &sink, &account, &channel, message);
         }
+        session.loading = false;
+        session.interrupted_at = None;
         session.ready = true;
     }
 
@@ -415,13 +502,13 @@ async fn load_channel_assets(
 ///
 /// The history service is the same third party the join uses, so the same
 /// preference governs it. Off, this is only the line saying we're back.
-async fn resume_channel(
-    state: Arc<AppState>,
-    sink: MessageSink,
-    account: String,
-    channel: String,
-    since: i64,
-) {
+async fn resume_channel(state: Arc<AppState>, sink: MessageSink, since: i64, load: SessionLoad) {
+    let SessionLoad {
+        account,
+        channel,
+        connection_generation,
+        load_generation,
+    } = load;
     let wants_history = state.preferences.read().show_message_history;
     let backlog = match wants_history {
         true => timeout(HISTORY_TIMEOUT, history::fetch(&state.http, &channel))
@@ -436,13 +523,21 @@ async fn resume_channel(
     let (recovered_len, backlog_len) = {
         let mut sessions = state.sessions.write();
         // Parted while we were asking -- there's no view left to fill in.
-        let Some(session) = sessions.get_mut(&key) else { return };
+        let Some(session) = sessions.get_mut(&key) else {
+            return;
+        };
+        if !load_is_current(session, connection_generation, load_generation) {
+            return;
+        }
         let pending = std::mem::take(&mut session.pending);
 
         // The socket came back before the fetch did, so the newest of what the
         // service has is also sitting in `pending`. Ids settle the overlap,
         // the same way they do on a join.
-        let live: HashSet<&str> = pending.iter().filter_map(|message| message.tag("id")).collect();
+        let live: HashSet<&str> = pending
+            .iter()
+            .filter_map(|message| message.tag("id"))
+            .collect();
         let recovered = missed(&backlog, since, &live);
         let newest = recovered
             .iter()
@@ -464,6 +559,8 @@ async fn resume_channel(
         for message in &pending {
             render_and_queue(&state, &sink, &account, &channel, message);
         }
+        session.loading = false;
+        session.interrupted_at = None;
         session.ready = true;
         (recovered.len(), backlog.len())
     };
@@ -480,11 +577,7 @@ async fn resume_channel(
 /// and fifty lines whatever we're missing, so most of a reply is usually
 /// this. Or it can be one the returning socket has already handed us, which
 /// is the overlap between "up to now" and "from the moment we were back".
-fn missed<'a>(
-    backlog: &'a [IrcMessage],
-    since: i64,
-    live: &HashSet<&str>,
-) -> Vec<&'a IrcMessage> {
+fn missed<'a>(backlog: &'a [IrcMessage], since: i64, live: &HashSet<&str>) -> Vec<&'a IrcMessage> {
     backlog
         .iter()
         .filter(|message| render::timestamp(message) > since)
@@ -500,10 +593,19 @@ fn missed<'a>(
 /// first attempt has interrupted nothing. They're marked un-ready as well, so
 /// that anything arriving on the new socket waits for the missed messages to
 /// be placed above it.
-fn announce_drop(state: &AppState, sink: &MessageSink, account: &str) {
+fn announce_drop(state: &AppState, sink: &MessageSink, account: &str, connection_generation: u64) {
     let mut sessions = state.sessions.write();
     for ((id, channel), session) in sessions.iter_mut() {
-        if id != account || !session.ready {
+        if id != account || session.connection_generation != connection_generation {
+            continue;
+        }
+        if !session.ready {
+            // Any asset/history task belongs to the dead socket attempt. Its
+            // result is ignored and ROOMSTATE on the replacement starts anew.
+            if session.loading {
+                session.load_generation = session.load_generation.wrapping_add(1);
+                session.loading = false;
+            }
             continue;
         }
         // A channel that hasn't said a word since the join has no message to
@@ -536,7 +638,9 @@ pub async fn reload_emotes(app: AppHandle, state: Arc<AppState>) {
         .read()
         .iter()
         .filter_map(|(channel, data)| {
-            data.room_id.clone().map(|room_id| (channel.clone(), room_id))
+            data.room_id
+                .clone()
+                .map(|room_id| (channel.clone(), room_id))
         })
         .collect();
 
@@ -571,9 +675,17 @@ fn handle_line(
     state: &Arc<AppState>,
     sink: &MessageSink,
     account: &str,
+    connection_generation: u64,
     line: &str,
 ) -> Option<String> {
     let msg = parse::parse(line)?;
+
+    // A replacement can be installed before the old socket task observes its
+    // Shutdown command. It may still receive a final frame, but it no longer
+    // owns any session state or UI events.
+    if msg.command != "PING" && !connection_is_current(state, account, connection_generation) {
+        return None;
+    }
 
     match msg.command.as_str() {
         "PING" => {
@@ -582,23 +694,30 @@ fn handle_line(
         }
         "RECONNECT" => {
             // Signalled by the caller via a dedicated marker line.
-            emit_status(app, account, "reconnecting", Some("Twitch asked us to reconnect".into()));
+            emit_status(
+                app,
+                account,
+                "reconnecting",
+                Some("Twitch asked us to reconnect".into()),
+            );
         }
         "PRIVMSG" | "USERNOTICE" => {
-            let Some(channel) = msg.channel() else { return None };
+            let channel = msg.channel()?;
 
             let key = (account.to_string(), channel.clone());
             let ready = {
                 let sessions = state.sessions.read();
                 match sessions.get(&key) {
-                    Some(session) => {
+                    Some(session) if session.connection_generation == connection_generation => {
                         // Where the next reconnect will start looking. Under
                         // this guard rather than its own, since it's written
                         // for every message that arrives.
-                        session.last_seen.fetch_max(render::timestamp(&msg), Ordering::Relaxed);
+                        session
+                            .last_seen
+                            .fetch_max(render::timestamp(&msg), Ordering::Relaxed);
                         session.ready
                     }
-                    None => false,
+                    Some(_) | None => false,
                 }
             };
             if ready {
@@ -608,8 +727,10 @@ fn handle_line(
                 // correctly and in order. Recheck readiness under the write
                 // lock: the join may have completed after the read above.
                 let mut sessions = state.sessions.write();
-                let session = sessions.entry(key).or_default();
-                session.last_seen.fetch_max(render::timestamp(&msg), Ordering::Relaxed);
+                let session = session_for_generation(&mut sessions, key, connection_generation);
+                session
+                    .last_seen
+                    .fetch_max(render::timestamp(&msg), Ordering::Relaxed);
                 if session.ready {
                     drop(sessions);
                     render_and_queue(state, sink, account, &channel, &msg);
@@ -619,15 +740,18 @@ fn handle_line(
             }
         }
         "USERSTATE" => {
-            let Some(channel) = msg.channel() else { return None };
+            let channel = msg.channel()?;
             let role = ChannelRole::of(&msg);
 
             // Twitch repeats USERSTATE after every message we send, so only a
             // real change is worth waking the UI for.
             let changed = {
                 let mut sessions = state.sessions.write();
-                let session =
-                    sessions.entry((account.to_string(), channel.clone())).or_default();
+                let session = session_for_generation(
+                    &mut sessions,
+                    (account.to_string(), channel.clone()),
+                    connection_generation,
+                );
                 let changed = session.role != role;
                 session.role = role;
                 changed
@@ -645,21 +769,37 @@ fn handle_line(
             }
         }
         "ROOMSTATE" => {
-            let Some(channel) = msg.channel() else { return None };
+            let channel = msg.channel()?;
             // ROOMSTATE carries room-id, which is the broadcaster's Twitch user id.
             // That's exactly what 7TV and the Helix badge endpoint need, and it
             // saves us an authenticated user lookup.
-            let Some(room_id) = msg.tag("room-id").map(str::to_string) else { return None };
+            let room_id = msg.tag("room-id").map(str::to_string)?;
 
             // Per session, not per channel: a second account joining a room
             // the first is already in still needs its own backlog and its own
             // emotes, even though the room's sets are already in hand.
-            let (needs_fetch, interrupted_at) = {
-                state.data.write().entry(channel.clone()).or_default().room_id =
-                    Some(room_id.clone());
+            let load = {
+                state
+                    .data
+                    .write()
+                    .entry(channel.clone())
+                    .or_default()
+                    .room_id = Some(room_id.clone());
                 let mut sessions = state.sessions.write();
-                let session = sessions.entry((account.to_string(), channel.clone())).or_default();
-                (!session.ready, session.interrupted_at.take())
+                let session = session_for_generation(
+                    &mut sessions,
+                    (account.to_string(), channel.clone()),
+                    connection_generation,
+                );
+                if session.loading || session.ready {
+                    None
+                } else {
+                    let since = session.interrupted_at;
+                    let load_generation = state
+                        .next_session_load_generation
+                        .fetch_add(1, Ordering::Relaxed);
+                    Some((since, begin_load(session, load_generation)))
+                }
             };
 
             let _ = app.emit(
@@ -673,33 +813,41 @@ fn handle_line(
             // because a dropped session is also not ready, and running the
             // whole join would re-ask Twitch for emotes it already has and
             // replay a backlog that's already on screen.
-            if let Some(since) = interrupted_at {
+            if let Some((Some(since), load_generation)) = load {
                 crate::diagnostics::supervise(
                     format!("resume ({account} in #{channel})"),
                     resume_channel(
                         Arc::clone(state),
                         sink.clone(),
-                        account.to_string(),
-                        channel,
                         since,
+                        SessionLoad {
+                            account: account.to_string(),
+                            channel,
+                            connection_generation,
+                            load_generation,
+                        },
                     ),
                 );
-            } else if needs_fetch {
+            } else if let Some((None, load_generation)) = load {
                 crate::diagnostics::supervise(
                     format!("channel assets ({account} in #{channel})"),
                     load_channel_assets(
                         app.clone(),
                         Arc::clone(state),
                         sink.clone(),
-                        account.to_string(),
-                        channel,
                         room_id,
+                        SessionLoad {
+                            account: account.to_string(),
+                            channel,
+                            connection_generation,
+                            load_generation,
+                        },
                     ),
                 );
             }
         }
         "CLEARCHAT" => {
-            let Some(channel) = msg.channel() else { return None };
+            let channel = msg.channel()?;
             let _ = app.emit(
                 "chat://clear",
                 json!({
@@ -711,7 +859,7 @@ fn handle_line(
             );
         }
         "CLEARMSG" => {
-            let Some(channel) = msg.channel() else { return None };
+            let channel = msg.channel()?;
             let _ = app.emit(
                 "chat://clear",
                 json!({
@@ -743,8 +891,12 @@ async fn connect_once(
     state: &Arc<AppState>,
     sink: &MessageSink,
     account: &str,
+    connection_generation: u64,
     rx: &mut mpsc::UnboundedReceiver<IrcCommand>,
 ) -> anyhow::Result<Outcome> {
+    if !connection_is_current(state, account, connection_generation) {
+        return Ok(Outcome::Done);
+    }
     emit_status(app, account, "connecting", None);
 
     let (stream, _) = connect_async(GATEWAY).await?;
@@ -756,7 +908,10 @@ async fn connect_once(
     let (nick, pass) = {
         let auth = state.auth.read();
         match auth.account(account) {
-            Some(account) => (account.login.clone(), format!("oauth:{}", account.access_token)),
+            Some(account) => (
+                account.login.clone(),
+                format!("oauth:{}", account.access_token),
+            ),
             None => {
                 let suffix: u32 = rand::thread_rng().gen_range(10_000..99_999);
                 (format!("justinfan{suffix}"), "SCHMOOPIIE".to_string())
@@ -767,10 +922,16 @@ async fn connect_once(
     // Skip twitch.tv/membership: it floods JOIN/PART on large channels and we
     // don't render a user list.
     write
-        .send(Message::Text("CAP REQ :twitch.tv/tags twitch.tv/commands".into()))
+        .send(Message::Text(
+            "CAP REQ :twitch.tv/tags twitch.tv/commands".into(),
+        ))
         .await?;
-    write.send(Message::Text(format!("PASS {pass}").into())).await?;
-    write.send(Message::Text(format!("NICK {nick}").into())).await?;
+    write
+        .send(Message::Text(format!("PASS {pass}").into()))
+        .await?;
+    write
+        .send(Message::Text(format!("NICK {nick}").into()))
+        .await?;
 
     // What this account's tabs ask for, as of now. Clone first: the guard must
     // not be held across an await.
@@ -778,10 +939,13 @@ async fn connect_once(
         .connections
         .read()
         .get(account)
+        .filter(|connection| connection.generation == connection_generation)
         .map(|connection| connection.joined.iter().cloned().collect())
         .unwrap_or_default();
     for channel in joined {
-        write.send(Message::Text(format!("JOIN #{channel}").into())).await?;
+        write
+            .send(Message::Text(format!("JOIN #{channel}").into()))
+            .await?;
     }
 
     loop {
@@ -809,7 +973,14 @@ async fn connect_once(
                             if line.starts_with(':') && line.contains(" RECONNECT") {
                                 return Ok(Outcome::Reconnect);
                             }
-                            if let Some(reply) = handle_line(app, state, sink, account, line) {
+                            if let Some(reply) = handle_line(
+                                app,
+                                state,
+                                sink,
+                                account,
+                                connection_generation,
+                                line,
+                            ) {
                                 write.send(Message::Text(reply.into())).await?;
                             }
                         }
@@ -835,23 +1006,39 @@ pub async fn run(
     state: Arc<AppState>,
     sink: MessageSink,
     account: String,
+    connection_generation: u64,
     mut rx: mpsc::UnboundedReceiver<IrcCommand>,
 ) {
     let mut backoff_secs = 1u64;
 
     loop {
-        match connect_once(&app, &state, &sink, &account, &mut rx).await {
+        match connect_once(
+            &app,
+            &state,
+            &sink,
+            &account,
+            connection_generation,
+            &mut rx,
+        )
+        .await
+        {
             Ok(Outcome::Done) => break,
             Ok(Outcome::Reconnect) => backoff_secs = 1,
             Err(error) => {
-                emit_status(&app, &account, "disconnected", Some(error.to_string()));
+                if connection_is_current(&state, &account, connection_generation) {
+                    emit_status(&app, &account, "disconnected", Some(error.to_string()));
+                }
             }
+        }
+
+        if !connection_is_current(&state, &account, connection_generation) {
+            break;
         }
 
         // Everything below this point is a connection that ended and will be
         // tried again -- a deliberate shutdown has already broken out of the
         // loop, and says nothing.
-        announce_drop(&state, &sink, &account);
+        announce_drop(&state, &sink, &account, connection_generation);
 
         let jitter = rand::thread_rng().gen_range(0..500);
         tokio::time::sleep(Duration::from_millis(backoff_secs * 1000 + jitter)).await;
@@ -859,8 +1046,12 @@ pub async fn run(
     }
 
     // Whatever was buffered for this account is nobody's now.
-    state.sessions.write().retain(|(id, _), _| id != &account);
-    emit_status(&app, &account, "closed", None);
+    state.sessions.write().retain(|(id, _), session| {
+        id != &account || session.connection_generation != connection_generation
+    });
+    if !state.connections.read().contains_key(&account) {
+        emit_status(&app, &account, "closed", None);
+    }
 }
 
 /// Bring the connections in line with the tabs.
@@ -870,7 +1061,9 @@ pub async fn run(
 /// here, and the diff decides what actually has to happen. Idempotent, so a
 /// caller that isn't sure whether anything changed can simply call it.
 pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
-    let Some(sink) = ({ state.sink.read().clone() }) else { return };
+    let Some(sink) = ({ state.sink.read().clone() }) else {
+        return;
+    };
     let wanted = state.wanted();
 
     let mut connections = state.connections.write();
@@ -888,11 +1081,25 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
     for (account, channels) in wanted {
         let connection = connections.entry(account.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel::<IrcCommand>();
+            let generation = state
+                .next_connection_generation
+                .fetch_add(1, Ordering::Relaxed);
             crate::diagnostics::supervise(
                 format!("irc socket ({account})"),
-                run(app.clone(), Arc::clone(state), sink.clone(), account.clone(), rx),
+                run(
+                    app.clone(),
+                    Arc::clone(state),
+                    sink.clone(),
+                    account.clone(),
+                    generation,
+                    rx,
+                ),
             );
-            Connection { commands: tx, joined: HashSet::new() }
+            Connection {
+                commands: tx,
+                generation,
+                joined: HashSet::new(),
+            }
         });
 
         for channel in channels.difference(&connection.joined) {
@@ -902,7 +1109,10 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
             let _ = connection.commands.send(IrcCommand::Part(channel.clone()));
             // Its buffered messages and role go with it: coming back is a
             // fresh join, backlog and all.
-            state.sessions.write().remove(&(account.clone(), channel.clone()));
+            state
+                .sessions
+                .write()
+                .remove(&(account.clone(), channel.clone()));
         }
         connection.joined = channels;
     }
@@ -912,7 +1122,10 @@ pub fn sync(app: &AppHandle, state: &Arc<AppState>) {
     // re-fetched on the next join, and holding them would keep their images
     // pinned in the cache.
     let open = state.open_channels();
-    state.data.write().retain(|channel, _| open.contains(channel));
+    state
+        .data
+        .write()
+        .retain(|channel, _| open.contains(channel));
     // Whatever sets just left with those channels aren't worth a subscription.
     state.seventv_events.notify_one();
 }
@@ -928,6 +1141,34 @@ pub fn reconnect_all(state: &Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_connection_replaces_a_stale_session() {
+        let key = ("account".to_string(), "channel".to_string());
+        let mut sessions = HashMap::new();
+        let old = session_for_generation(&mut sessions, key.clone(), 1);
+        old.ready = true;
+        old.pending.push(line("old", 1));
+
+        let replacement = session_for_generation(&mut sessions, key, 2);
+        assert_eq!(replacement.connection_generation, 2);
+        assert!(!replacement.ready);
+        assert!(replacement.pending.is_empty());
+    }
+
+    #[test]
+    fn only_the_latest_loader_can_finish_a_session() {
+        let mut session = Session {
+            connection_generation: 7,
+            ..Default::default()
+        };
+        let first = begin_load(&mut session, 11);
+        assert!(load_is_current(&session, 7, first));
+        let second = begin_load(&mut session, 12);
+        assert!(!load_is_current(&session, 7, first));
+        assert!(load_is_current(&session, 7, second));
+        assert!(!load_is_current(&session, 8, second));
+    }
 
     fn line(id: &str, ts: i64) -> IrcMessage {
         parse::parse(&format!(
@@ -945,18 +1186,28 @@ mod tests {
 
     #[test]
     fn initial_history_precedes_live_and_overlap_prefers_the_live_copy() {
-        let backlog = [historical_line("old", 1_000), historical_line("both", 2_000)];
+        let backlog = [
+            historical_line("old", 1_000),
+            historical_line("both", 2_000),
+        ];
         let pending = [line("both", 2_000), line("new", 3_000)];
 
         let joined = initial_join_messages(&backlog, &pending);
-        let ids: Vec<&str> = joined.iter().filter_map(|message| message.tag("id")).collect();
+        let ids: Vec<&str> = joined
+            .iter()
+            .filter_map(|message| message.tag("id"))
+            .collect();
         assert_eq!(ids, ["old", "both", "new"]);
         assert_eq!(joined[1].tag("historical"), None, "the live duplicate wins");
     }
 
     #[test]
     fn only_what_the_gap_actually_holds_is_recovered() {
-        let backlog = [line("old", 1_000), line("gap-1", 2_000), line("gap-2", 3_000)];
+        let backlog = [
+            line("old", 1_000),
+            line("gap-1", 2_000),
+            line("gap-2", 3_000),
+        ];
         let live = HashSet::new();
 
         // The mark is the last message that was on screen, so it is not
@@ -966,7 +1217,10 @@ mod tests {
         let ids: Vec<&str> = recovered.iter().filter_map(|m| m.tag("id")).collect();
         assert_eq!(ids, ["gap-1", "gap-2"]);
 
-        assert!(missed(&backlog, 3_000, &live).is_empty(), "nothing said while we were away");
+        assert!(
+            missed(&backlog, 3_000, &live).is_empty(),
+            "nothing said while we were away"
+        );
     }
 
     #[test]
@@ -976,8 +1230,10 @@ mod tests {
         let backlog = [line("gap", 2_000), line("both", 3_000)];
         let live = HashSet::from(["both"]);
 
-        let ids: Vec<&str> =
-            missed(&backlog, 1_000, &live).iter().filter_map(|m| m.tag("id")).collect();
+        let ids: Vec<&str> = missed(&backlog, 1_000, &live)
+            .iter()
+            .filter_map(|m| m.tag("id"))
+            .collect();
         assert_eq!(ids, ["gap"]);
     }
 

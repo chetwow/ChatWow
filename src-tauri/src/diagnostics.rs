@@ -61,7 +61,9 @@ fn level() -> LevelFilter {
 pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri_plugin_log::Builder::new()
         .targets([
-            Target::new(TargetKind::LogDir { file_name: Some(LOG_FILE.into()) }),
+            Target::new(TargetKind::LogDir {
+                file_name: Some(LOG_FILE.into()),
+            }),
             // Kept for `npm run tauri dev`, where the terminal is still the
             // fastest place to read: the file is for the run you weren't
             // watching.

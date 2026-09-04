@@ -85,7 +85,9 @@ pub async fn fetch_channel(
     twitch_user_id: &str,
 ) -> Result<HashMap<String, Emote>> {
     let response = client
-        .get(format!("https://api.betterttv.net/3/cached/users/twitch/{twitch_user_id}"))
+        .get(format!(
+            "https://api.betterttv.net/3/cached/users/twitch/{twitch_user_id}"
+        ))
         .send()
         .await?;
 
@@ -113,8 +115,14 @@ mod tests {
 
         let tf = map.get(":tf:").expect(":tf: present");
         assert_eq!(tf.id, "54fa8f1401e468494b85b537");
-        assert_eq!(tf.url, "https://cdn.betterttv.net/emote/54fa8f1401e468494b85b537/2x");
-        assert_eq!(tf.url_large, "https://cdn.betterttv.net/emote/54fa8f1401e468494b85b537/3x");
+        assert_eq!(
+            tf.url,
+            "https://cdn.betterttv.net/emote/54fa8f1401e468494b85b537/2x"
+        );
+        assert_eq!(
+            tf.url_large,
+            "https://cdn.betterttv.net/emote/54fa8f1401e468494b85b537/3x"
+        );
         assert_eq!(tf.provider, "bttv");
         assert!(!tf.zero_width);
         assert!(map.contains_key("haHAA"));

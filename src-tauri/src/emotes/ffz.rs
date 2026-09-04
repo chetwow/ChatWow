@@ -74,7 +74,11 @@ fn pick_url(emote: &FfzEmote, scale: &str) -> Option<String> {
         _ => &["2", "1", "4"],
     };
     for candidate in order {
-        if let Some(url) = emote.animated.get(*candidate).or_else(|| emote.urls.get(*candidate)) {
+        if let Some(url) = emote
+            .animated
+            .get(*candidate)
+            .or_else(|| emote.urls.get(*candidate))
+        {
             if !url.is_empty() {
                 return Some(absolutize(url));
             }
@@ -90,7 +94,9 @@ fn build_map<'a>(sets: impl Iterator<Item = &'a EmoteSet>) -> HashMap<String, Em
             if emote.name.is_empty() {
                 continue;
             }
-            let Some(url) = pick_url(emote, "2") else { continue };
+            let Some(url) = pick_url(emote, "2") else {
+                continue;
+            };
             let url_large = pick_url(emote, "4").unwrap_or_else(|| url.clone());
 
             map.insert(
@@ -156,7 +162,9 @@ pub async fn fetch_channel(
     twitch_user_id: &str,
 ) -> Result<HashMap<String, Emote>> {
     let response = client
-        .get(format!("https://api.frankerfacez.com/v1/room/id/{twitch_user_id}"))
+        .get(format!(
+            "https://api.frankerfacez.com/v1/room/id/{twitch_user_id}"
+        ))
         .send()
         .await?;
 
@@ -209,7 +217,10 @@ mod tests {
         assert_eq!(map["forsenE"].id, "7");
         // Only "1" exists, so both sizes fall back to it rather than 404ing.
         assert_eq!(map["forsenE"].url, "https://cdn.frankerfacez.com/emote/7/1");
-        assert_eq!(map["forsenE"].url_large, "https://cdn.frankerfacez.com/emote/7/1");
+        assert_eq!(
+            map["forsenE"].url_large,
+            "https://cdn.frankerfacez.com/emote/7/1"
+        );
     }
 
     #[test]
@@ -222,7 +233,10 @@ mod tests {
               "animated":{"2":"//cdn.frankerfacez.com/emote/9/animated/2.webp"}}]}}
           }"#;
         let map = room_map(&serde_json::from_str(json).unwrap());
-        assert_eq!(map["pokiW"].url, "https://cdn.frankerfacez.com/emote/9/animated/2.webp");
+        assert_eq!(
+            map["pokiW"].url,
+            "https://cdn.frankerfacez.com/emote/9/animated/2.webp"
+        );
     }
 
     #[test]

@@ -8,6 +8,9 @@ import { isTauri } from "@tauri-apps/api/core";
  */
 export const IS_TAURI = isTauri();
 
+/** True only in the plain Vite development server, never in a release. */
+export const MOCK_MODE = __CHATWOW_MOCKS__ && !IS_TAURI;
+
 /**
  * True on macOS, where the window keeps its native frame: rounded corners, the
  * system shadow, and the traffic lights drawn over our own title bar rather

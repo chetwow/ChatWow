@@ -90,7 +90,10 @@ mod tests {
             "@msg-id=resub :tmi.twitch.tv USERNOTICE #forsen :nice",
             ":tmi.twitch.tv CLEARCHAT #forsen :someone"
         ]}"#;
-        let commands: Vec<String> = parse_response(json).iter().map(|m| m.command.clone()).collect();
+        let commands: Vec<String> = parse_response(json)
+            .iter()
+            .map(|m| m.command.clone())
+            .collect();
         assert_eq!(commands, ["PRIVMSG", "USERNOTICE"]);
     }
 

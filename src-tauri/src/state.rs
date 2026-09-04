@@ -3,7 +3,7 @@
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use tokio::sync::mpsc;
 
 use crate::emotes::Emote;
@@ -26,6 +26,7 @@ pub enum IrcCommand {
 /// One account's socket, and what it has been told to be in.
 pub struct Connection {
     pub commands: mpsc::UnboundedSender<IrcCommand>,
+    pub generation: u64,
     /// The channels this socket is in. Held here rather than in the task so
     /// that reconciling tabs against connections is a set comparison, and so a
     /// reconnect rejoins exactly what the tabs still ask for.
@@ -41,6 +42,9 @@ pub struct Connection {
 /// is shared by every account watching it.
 #[derive(Debug, Default)]
 pub struct Session {
+    pub connection_generation: u64,
+    pub load_generation: u64,
+    pub loading: bool,
     /// Gates rendering until this account's join has assets and backlog.
     pub ready: bool,
     /// Messages received before that finished.
@@ -101,7 +105,9 @@ impl Auth {
     /// out of a broken build short of shipping a new release. A *stale* file
     /// still can't redirect anything: see `client_id_override`.
     pub fn client_id(&self) -> Option<&str> {
-        self.client_id_override.as_deref().or(crate::auth::BUILT_IN_CLIENT_ID)
+        self.client_id_override
+            .as_deref()
+            .or(crate::auth::BUILT_IN_CLIENT_ID)
     }
 
     pub fn account(&self, id: &str) -> Option<&Account> {
@@ -115,7 +121,8 @@ impl Auth {
     /// rather than from which permission groups are ticked: a group turned on
     /// after signing in isn't granted until the next sign-in.
     pub fn has_scope(&self, id: &str, scope: &str) -> bool {
-        self.account(id).is_some_and(|a| a.scopes.iter().any(|held| held == scope))
+        self.account(id)
+            .is_some_and(|a| a.scopes.iter().any(|held| held == scope))
     }
 
     /// Client id + token for one account, present only when we can call Helix
@@ -137,10 +144,12 @@ impl Auth {
     /// answers those identically, so needing a particular one would mean a
     /// signed-in app losing them the moment a tab went anonymous.
     pub fn any_credentials(&self) -> Option<(String, String)> {
-        self.credentials(&self.default_account)
-            .or_else(|| self.accounts.first().map(|a| (a.id.clone(), a.access_token.clone())).and_then(
-                |(id, _)| self.credentials(&id),
-            ))
+        self.credentials(&self.default_account).or_else(|| {
+            self.accounts
+                .first()
+                .map(|a| (a.id.clone(), a.access_token.clone()))
+                .and_then(|(id, _)| self.credentials(&id))
+        })
     }
 }
 
@@ -205,14 +214,16 @@ pub const MAX_PENDING: usize = 300;
 
 pub struct AppState {
     pub http: reqwest::Client,
-    /// The client link previews use. Separate from `http` because it's the one
-    /// that goes wherever a chatter pointed it -- see `linkinfo`.
-    pub link_http: reqwest::Client,
     /// One socket per account with a tab open, keyed by account id
     /// (`ANONYMOUS` for the signed-out one). IRC authenticates per connection,
     /// so reading as two accounts at once is two connections -- there is no
     /// way to do it on one.
     pub connections: RwLock<HashMap<String, Connection>>,
+    pub next_connection_generation: AtomicU64,
+    /// Unique across the process rather than per session: a channel can be
+    /// closed and reopened while its old loader is still in flight, and a
+    /// reset per-session counter would let that stale result match again.
+    pub next_session_load_generation: AtomicU64,
     /// The open tabs, in bar order. The app's list of what exists: which
     /// channels to be in, and as whom, both fall out of it.
     pub tabs: RwLock<Vec<Tab>>,
@@ -245,6 +256,7 @@ pub struct AppState {
     /// Everything the settings dialog edits, mirrored into the settings file
     /// on every change so a crash can't lose a toggle.
     pub preferences: RwLock<crate::settings::Preferences>,
+    pub settings_write: parking_lot::Mutex<()>,
     pub auth: RwLock<Auth>,
     /// Logins currently broadcasting, refreshed by the live poller. Empty when
     /// signed out, where we simply don't know rather than knowing they're off.
@@ -280,8 +292,9 @@ impl AppState {
 
         Self {
             http,
-            link_http: crate::linkinfo::build_client(),
             connections: RwLock::new(HashMap::new()),
+            next_connection_generation: AtomicU64::new(1),
+            next_session_load_generation: AtomicU64::new(1),
             tabs: RwLock::new(Vec::new()),
             data: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
@@ -294,6 +307,7 @@ impl AppState {
             badge_lookups: RwLock::new(None),
             emote_uses: RwLock::new(HashMap::new()),
             preferences: RwLock::new(crate::settings::Preferences::default()),
+            settings_write: parking_lot::Mutex::new(()),
             auth: RwLock::new(Auth::default()),
             live: RwLock::new(HashSet::new()),
             sink: RwLock::new(None),
@@ -311,7 +325,11 @@ impl AppState {
         if user_id.is_empty() || !self.preferences.read().show_seventv_badges {
             return;
         }
-        if !self.seventv_badges_asked.write().insert(user_id.to_string()) {
+        if !self
+            .seventv_badges_asked
+            .write()
+            .insert(user_id.to_string())
+        {
             return;
         }
         if let Some(tx) = self.badge_lookups.read().as_ref() {
@@ -329,7 +347,11 @@ impl AppState {
     /// The 7TV emote sets behind the open channels -- what the event socket
     /// subscribes to. A channel with no 7TV account contributes nothing.
     pub fn seventv_sets(&self) -> HashSet<String> {
-        self.data.read().values().filter_map(|data| data.seventv_set.clone()).collect()
+        self.data
+            .read()
+            .values()
+            .filter_map(|data| data.seventv_set.clone())
+            .collect()
     }
 
     /// Which accounts have a tab on a channel. What a line the app writes
@@ -362,7 +384,10 @@ impl AppState {
             if !tab.is_channel() {
                 continue;
             }
-            wanted.entry(tab.account.clone()).or_default().insert(tab.channel.clone());
+            wanted
+                .entry(tab.account.clone())
+                .or_default()
+                .insert(tab.channel.clone());
         }
         wanted
     }
@@ -370,15 +395,22 @@ impl AppState {
     /// Every emote completable in a channel as one account: the 7TV global and
     /// channel sets, plus that account's own Twitch emotes when signed in.
     pub fn emote_entries(&self, account: &str, channel: &str) -> Vec<EmoteEntry> {
-        let mut entries: Vec<EmoteEntry> =
-            self.global_emotes.read().values().map(EmoteEntry::from_emote).collect();
+        let mut entries: Vec<EmoteEntry> = self
+            .global_emotes
+            .read()
+            .values()
+            .map(EmoteEntry::from_emote)
+            .collect();
         if let Some(globals) = self.twitch_global_emotes.read().get(account) {
             entries.extend(globals.iter().map(EmoteEntry::from_twitch));
         }
         if let Some(data) = self.data.read().get(channel) {
             entries.extend(data.emotes.values().map(EmoteEntry::from_emote));
         }
-        if let Some(session) = self.sessions.read().get(&(account.to_string(), channel.to_string()))
+        if let Some(session) = self
+            .sessions
+            .read()
+            .get(&(account.to_string(), channel.to_string()))
         {
             entries.extend(session.twitch_emotes.iter().map(EmoteEntry::from_twitch));
         }
@@ -396,14 +428,20 @@ impl AppState {
         }
         let channels = self.open_channels();
         let data = self.data.read();
-        channels.iter().all(|channel| data.get(channel).is_some_and(|c| c.assets_ready))
+        channels
+            .iter()
+            .all(|channel| data.get(channel).is_some_and(|c| c.assets_ready))
     }
 
     /// Cache keys for every emote image worth keeping on disk: the ones
     /// reachable from any joined channel. Anything else is stale.
     pub fn active_cache_keys(&self) -> HashSet<String> {
-        let mut keys: HashSet<String> =
-            self.global_emotes.read().values().map(|e| cache_key(e.provider, &e.id)).collect();
+        let mut keys: HashSet<String> = self
+            .global_emotes
+            .read()
+            .values()
+            .map(|e| cache_key(e.provider, &e.id))
+            .collect();
         for globals in self.twitch_global_emotes.read().values() {
             keys.extend(globals.iter().map(|e| cache_key("twitch", &e.id)));
         }
@@ -411,7 +449,12 @@ impl AppState {
             keys.extend(data.emotes.values().map(|e| cache_key(e.provider, &e.id)));
         }
         for session in self.sessions.read().values() {
-            keys.extend(session.twitch_emotes.iter().map(|e| cache_key("twitch", &e.id)));
+            keys.extend(
+                session
+                    .twitch_emotes
+                    .iter()
+                    .map(|e| cache_key("twitch", &e.id)),
+            );
         }
         keys
     }
@@ -420,8 +463,11 @@ impl AppState {
     /// ignored, so the persisted map only ever holds real emotes. Returns
     /// whether anything changed, i.e. whether settings need rewriting.
     pub fn record_emote_uses(&self, account: &str, channel: &str, names: &[String]) -> bool {
-        let known: HashSet<String> =
-            self.emote_entries(account, channel).into_iter().map(|entry| entry.name).collect();
+        let known: HashSet<String> = self
+            .emote_entries(account, channel)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
         let mut uses = self.emote_uses.write();
         let mut changed = false;
         for name in names.iter().filter(|name| known.contains(*name)) {
@@ -547,19 +593,30 @@ mod tests {
     }
 
     fn kappa() -> TwitchEmote {
-        TwitchEmote { id: "25".to_string(), name: "Kappa".to_string() }
+        TwitchEmote {
+            id: "25".to_string(),
+            name: "Kappa".to_string(),
+        }
     }
 
     #[test]
     fn emote_names_are_ordered_case_insensitively() {
-        let sorted = sort_and_dedupe(vec![entry("a", "Zulul"), entry("b", "apu"), entry("c", "Bedge")]);
+        let sorted = sort_and_dedupe(vec![
+            entry("a", "Zulul"),
+            entry("b", "apu"),
+            entry("c", "Bedge"),
+        ]);
         assert_eq!(names_of(&sorted), owned(&["apu", "Bedge", "Zulul"]));
     }
 
     #[test]
     fn an_emote_in_two_sets_is_listed_once() {
         // 7TV channel sets routinely re-add a global emote unchanged.
-        let sorted = sort_and_dedupe(vec![entry("a", "Clap"), entry("b", "peepoHey"), entry("a", "Clap")]);
+        let sorted = sort_and_dedupe(vec![
+            entry("a", "Clap"),
+            entry("b", "peepoHey"),
+            entry("a", "Clap"),
+        ]);
         assert_eq!(names_of(&sorted), owned(&["Clap", "peepoHey"]));
     }
 
@@ -581,7 +638,11 @@ mod tests {
     fn twitch_entries_get_their_image_url_from_their_id() {
         let converted = EmoteEntry::from_twitch(&kappa());
         assert_eq!(converted.provider, "twitch");
-        assert!(converted.url.contains("/25/"), "built from the id: {}", converted.url);
+        assert!(
+            converted.url.contains("/25/"),
+            "built from the id: {}",
+            converted.url
+        );
     }
 
     fn channel_tab(id: &str, channel: &str, account: &str) -> Tab {
@@ -609,25 +670,40 @@ mod tests {
     #[test]
     fn cache_keys_cover_every_joined_channel() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        state
+            .twitch_global_emotes
+            .write()
+            .insert(ANONYMOUS.to_string(), vec![kappa()]);
         state.sessions.write().insert(
             (ANONYMOUS.to_string(), "forsen".to_string()),
             Session {
-                twitch_emotes: vec![TwitchEmote { id: "99".to_string(), name: "forsenE".to_string() }],
+                twitch_emotes: vec![TwitchEmote {
+                    id: "99".to_string(),
+                    name: "forsenE".to_string(),
+                }],
                 ..Session::default()
             },
         );
 
         let keys = state.active_cache_keys();
         assert!(keys.contains("twitch-25"), "globals stay cached");
-        assert!(keys.contains("twitch-99"), "a joined channel's emotes stay cached");
+        assert!(
+            keys.contains("twitch-99"),
+            "a joined channel's emotes stay cached"
+        );
     }
 
     #[test]
     fn emote_sets_are_not_loaded_until_every_channel_has_landed() {
         let state = AppState::new();
-        state.global_emotes.write().insert("Clap".to_string(), sample_emote());
-        state.tabs.write().push(channel_tab("1", "forsen", ANONYMOUS));
+        state
+            .global_emotes
+            .write()
+            .insert("Clap".to_string(), sample_emote());
+        state
+            .tabs
+            .write()
+            .push(channel_tab("1", "forsen", ANONYMOUS));
         state.tabs.write().push(channel_tab("2", "nymn", ANONYMOUS));
         {
             let mut data = state.data.write();
@@ -636,7 +712,12 @@ mod tests {
         }
         assert!(!state.emote_sets_are_loaded(), "nymn is still fetching");
 
-        state.data.write().entry("nymn".to_string()).or_default().assets_ready = true;
+        state
+            .data
+            .write()
+            .entry("nymn".to_string())
+            .or_default()
+            .assets_ready = true;
         assert!(state.emote_sets_are_loaded());
     }
 
@@ -645,10 +726,18 @@ mod tests {
     #[test]
     fn a_channel_open_under_two_accounts_is_loaded_once() {
         let state = AppState::new();
-        state.global_emotes.write().insert("Clap".to_string(), sample_emote());
+        state
+            .global_emotes
+            .write()
+            .insert("Clap".to_string(), sample_emote());
         state.tabs.write().push(channel_tab("1", "forsen", "111"));
         state.tabs.write().push(channel_tab("2", "forsen", "222"));
-        state.data.write().entry("forsen".to_string()).or_default().assets_ready = true;
+        state
+            .data
+            .write()
+            .entry("forsen".to_string())
+            .or_default()
+            .assets_ready = true;
 
         assert_eq!(state.open_channels().len(), 1);
         assert!(state.emote_sets_are_loaded());
@@ -657,9 +746,20 @@ mod tests {
     #[test]
     fn emote_sets_are_not_loaded_without_the_global_set() {
         let state = AppState::new();
-        state.tabs.write().push(channel_tab("1", "forsen", ANONYMOUS));
-        state.data.write().entry("forsen".to_string()).or_default().assets_ready = true;
-        assert!(!state.emote_sets_are_loaded(), "the global set is still fetching");
+        state
+            .tabs
+            .write()
+            .push(channel_tab("1", "forsen", ANONYMOUS));
+        state
+            .data
+            .write()
+            .entry("forsen".to_string())
+            .or_default()
+            .assets_ready = true;
+        assert!(
+            !state.emote_sets_are_loaded(),
+            "the global set is still fetching"
+        );
     }
 
     /// Only accounts with channel tabs need sockets. Mentions tabs stop
@@ -683,13 +783,19 @@ mod tests {
         assert_eq!(wanted.len(), 2);
         assert_eq!(wanted["111"].len(), 2, "both channels on one socket");
         assert_eq!(wanted["222"], HashSet::from(["forsen".to_string()]));
-        assert!(!wanted.contains_key("333"), "a mentions tab keeps no socket alive");
+        assert!(
+            !wanted.contains_key("333"),
+            "a mentions tab keeps no socket alive"
+        );
     }
 
     #[test]
     fn only_known_emotes_are_counted() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        state
+            .twitch_global_emotes
+            .write()
+            .insert(ANONYMOUS.to_string(), vec![kappa()]);
         assert!(state.record_emote_uses(
             ANONYMOUS,
             "forsen",
@@ -706,7 +812,10 @@ mod tests {
     #[test]
     fn repeated_uses_accumulate() {
         let state = AppState::new();
-        state.twitch_global_emotes.write().insert(ANONYMOUS.to_string(), vec![kappa()]);
+        state
+            .twitch_global_emotes
+            .write()
+            .insert(ANONYMOUS.to_string(), vec![kappa()]);
         state.record_emote_uses(ANONYMOUS, "forsen", &owned(&["Kappa", "Kappa"]));
         state.record_emote_uses(ANONYMOUS, "forsen", &owned(&["Kappa"]));
         assert_eq!(state.emote_uses.read().get("Kappa"), Some(&3));
@@ -748,8 +857,14 @@ mod tests {
         let (client_id, token) = auth.credentials("222").expect("both halves present");
         assert_eq!(token, "token-222");
         assert_eq!(Some(client_id.as_str()), auth.client_id());
-        assert!(auth.credentials(ANONYMOUS).is_none(), "anonymous holds no token");
-        assert!(auth.credentials("nobody").is_none(), "an unknown id is not an account");
+        assert!(
+            auth.credentials(ANONYMOUS).is_none(),
+            "anonymous holds no token"
+        );
+        assert!(
+            auth.credentials("nobody").is_none(),
+            "an unknown id is not an account"
+        );
     }
 
     /// Asking Twitch who's live, or for a badge image, doesn't care which
@@ -761,9 +876,15 @@ mod tests {
             default_account: "222".to_string(),
             ..Auth::default()
         };
-        assert_eq!(auth.any_credentials().map(|(_, token)| token), Some("token-222".to_string()));
+        assert_eq!(
+            auth.any_credentials().map(|(_, token)| token),
+            Some("token-222".to_string())
+        );
 
-        let auth = Auth { default_account: ANONYMOUS.to_string(), ..auth };
+        let auth = Auth {
+            default_account: ANONYMOUS.to_string(),
+            ..auth
+        };
         assert_eq!(
             auth.any_credentials().map(|(_, token)| token),
             Some("token-111".to_string()),
@@ -776,7 +897,9 @@ mod tests {
     #[test]
     fn scopes_are_held_per_account() {
         let mut privileged = account("222", "second");
-        privileged.scopes.push("moderator:manage:banned_users".to_string());
+        privileged
+            .scopes
+            .push("moderator:manage:banned_users".to_string());
         let auth = Auth {
             accounts: vec![account("111", "first"), privileged],
             ..Auth::default()

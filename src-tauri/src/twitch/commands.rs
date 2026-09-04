@@ -75,7 +75,9 @@ fn user_arg<'a>(args: &'a str, usage: &str) -> Result<(String, &'a str)> {
 /// stops the command instead of silently becoming a different one.
 pub fn parse_duration_secs(text: &str) -> Option<u64> {
     let text = text.trim();
-    let split = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
+    let split = text
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len());
     let (digits, unit) = text.split_at(split);
     let value: u64 = digits.parse().ok()?;
     let multiplier = match unit.trim().to_ascii_lowercase().as_str() {
@@ -105,7 +107,10 @@ fn parse_minutes(text: &str) -> Option<u64> {
 /// wrong channel, so they're stopped here with a sentence that explains it.
 fn require_broadcaster(ctx: &Context<'_>, name: &str) -> Result<()> {
     if ctx.broadcaster_id != ctx.user_id {
-        bail!("/{name} only works in your own channel, not #{}", ctx.channel);
+        bail!(
+            "/{name} only works in your own channel, not #{}",
+            ctx.channel
+        );
     }
     Ok(())
 }
@@ -129,7 +134,10 @@ async fn chat_settings(ctx: &Context<'_>, patch: Value) -> Result<()> {
     ctx.helix
         .patch(
             "chat/settings",
-            &[("broadcaster_id", ctx.broadcaster_id), ("moderator_id", ctx.user_id)],
+            &[
+                ("broadcaster_id", ctx.broadcaster_id),
+                ("moderator_id", ctx.user_id),
+            ],
             patch,
         )
         .await?;
@@ -149,7 +157,10 @@ async fn ban(ctx: &Context<'_>, login: &str, duration: Option<u64>, reason: &str
     ctx.helix
         .post(
             "moderation/bans",
-            &[("broadcaster_id", ctx.broadcaster_id), ("moderator_id", ctx.user_id)],
+            &[
+                ("broadcaster_id", ctx.broadcaster_id),
+                ("moderator_id", ctx.user_id),
+            ],
             Some(json!({ "data": data })),
         )
         .await?;
@@ -250,7 +261,11 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                 given => parse_duration_secs(given)
                     .ok_or_else(|| anyhow!("Usage: /slow [duration] -- e.g. 30 or 1m"))?,
             };
-            chat_settings(ctx, json!({ "slow_mode": true, "slow_mode_wait_time": seconds })).await?;
+            chat_settings(
+                ctx,
+                json!({ "slow_mode": true, "slow_mode_wait_time": seconds }),
+            )
+            .await?;
             Ok(format!("Slow mode on, {seconds}s between messages."))
         }
         "slowoff" => {
@@ -271,7 +286,9 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             .await?;
             Ok(match minutes {
                 0 => "Followers-only mode on.".to_string(),
-                minutes => format!("Followers-only mode on, {minutes} minutes of following required."),
+                minutes => {
+                    format!("Followers-only mode on, {minutes} minutes of following required.")
+                }
             })
         }
         "followersoff" => {
@@ -312,7 +329,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             if args.is_empty() {
                 bail!("Usage: /{name} <message>");
             }
-            let color = name.strip_prefix("announce").filter(|c| !c.is_empty()).unwrap_or("primary");
+            let color = name
+                .strip_prefix("announce")
+                .filter(|c| !c.is_empty())
+                .unwrap_or("primary");
             helix
                 .post(
                     "chat/announcements",
@@ -368,7 +388,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
         "mods" => {
             require_broadcaster(ctx, name)?;
             let response = helix
-                .get("moderation/moderators", &[("broadcaster_id", broadcaster), ("first", "100")])
+                .get(
+                    "moderation/moderators",
+                    &[("broadcaster_id", broadcaster), ("first", "100")],
+                )
                 .await?;
             let names = user_names(&response);
             Ok(match names.len() {
@@ -382,7 +405,11 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             let (login, _) = user_arg(args, "/vip <user>")?;
             let target = users::lookup_id(helix, &login).await?;
             helix
-                .post("channels/vips", &[("broadcaster_id", broadcaster), ("user_id", &target)], None)
+                .post(
+                    "channels/vips",
+                    &[("broadcaster_id", broadcaster), ("user_id", &target)],
+                    None,
+                )
                 .await?;
             Ok(format!("{login} is now a VIP."))
         }
@@ -391,14 +418,20 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             let (login, _) = user_arg(args, "/unvip <user>")?;
             let target = users::lookup_id(helix, &login).await?;
             helix
-                .delete("channels/vips", &[("broadcaster_id", broadcaster), ("user_id", &target)])
+                .delete(
+                    "channels/vips",
+                    &[("broadcaster_id", broadcaster), ("user_id", &target)],
+                )
                 .await?;
             Ok(format!("{login} is no longer a VIP."))
         }
         "vips" => {
             require_broadcaster(ctx, name)?;
             let response = helix
-                .get("channels/vips", &[("broadcaster_id", broadcaster), ("first", "100")])
+                .get(
+                    "channels/vips",
+                    &[("broadcaster_id", broadcaster), ("first", "100")],
+                )
                 .await?;
             let names = user_names(&response);
             Ok(match names.len() {
@@ -418,7 +451,9 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                     None,
                 )
                 .await?;
-            Ok(format!("Raiding {login} -- Twitch runs the ten-second countdown."))
+            Ok(format!(
+                "Raiding {login} -- Twitch runs the ten-second countdown."
+            ))
         }
         "unraid" => {
             require_broadcaster(ctx, name)?;
@@ -430,8 +465,9 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             require_broadcaster(ctx, name)?;
             let seconds = match next_word(args).0 {
                 "" => 30,
-                given => parse_duration_secs(given)
-                    .ok_or_else(|| anyhow!("Usage: /commercial [length] -- 30, 60, 90, 120, 150 or 180"))?,
+                given => parse_duration_secs(given).ok_or_else(|| {
+                    anyhow!("Usage: /commercial [length] -- 30, 60, 90, 120, 150 or 180")
+                })?,
             };
             helix
                 .post(
@@ -457,20 +493,26 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             if color.is_empty() {
                 bail!("Usage: /color <color> -- a named color, or a hex code with Turbo or Prime");
             }
-            helix.put("chat/color", &[("user_id", us), ("color", color)]).await?;
+            helix
+                .put("chat/color", &[("user_id", us), ("color", color)])
+                .await?;
             Ok(format!("Your name color is now {color}."))
         }
 
         "block" => {
             let (login, _) = user_arg(args, "/block <user>")?;
             let target = users::lookup_id(helix, &login).await?;
-            helix.put("users/blocks", &[("target_user_id", &target)]).await?;
+            helix
+                .put("users/blocks", &[("target_user_id", &target)])
+                .await?;
             Ok(format!("Blocked {login}."))
         }
         "unblock" => {
             let (login, _) = user_arg(args, "/unblock <user>")?;
             let target = users::lookup_id(helix, &login).await?;
-            helix.delete("users/blocks", &[("target_user_id", &target)]).await?;
+            helix
+                .delete("users/blocks", &[("target_user_id", &target)])
+                .await?;
             Ok(format!("Unblocked {login}."))
         }
 
@@ -580,7 +622,11 @@ mod tests {
     #[test]
     fn broadcaster_only_commands_name_the_channel_they_wont_run_in() {
         let client = reqwest::Client::new();
-        let helix = Helix { client: &client, client_id: "id", token: "token" };
+        let helix = Helix {
+            client: &client,
+            client_id: "id",
+            token: "token",
+        };
         let ctx = Context {
             helix: &helix,
             channel: "forsen",
@@ -588,13 +634,20 @@ mod tests {
             user_id: "1234",
         };
         let error = require_broadcaster(&ctx, "raid").unwrap_err();
-        assert_eq!(error.to_string(), "/raid only works in your own channel, not #forsen");
+        assert_eq!(
+            error.to_string(),
+            "/raid only works in your own channel, not #forsen"
+        );
     }
 
     #[test]
     fn a_broadcaster_in_their_own_channel_passes_the_gate() {
         let client = reqwest::Client::new();
-        let helix = Helix { client: &client, client_id: "id", token: "token" };
+        let helix = Helix {
+            client: &client,
+            client_id: "id",
+            token: "token",
+        };
         let ctx = Context {
             helix: &helix,
             channel: "me",

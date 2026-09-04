@@ -106,6 +106,10 @@ impl UpdateState {
 /// Holds the snapshot and the pending download.
 pub struct Updates {
     pub state: parking_lot::RwLock<UpdateState>,
+    /// A check and an install both replace the pending update and the shared
+    /// stage. Keep them strictly ordered so a late launch check cannot reset a
+    /// download or expose a second Install action.
+    operation: tokio::sync::Mutex<()>,
     /// The `Update` a check handed back, waiting for someone to press install.
     /// A `tokio` mutex rather than a `parking_lot` one because it's held
     /// across the download's awaits.
@@ -116,6 +120,7 @@ impl Updates {
     pub fn new(current_version: String) -> Self {
         Self {
             state: parking_lot::RwLock::new(UpdateState::new(current_version)),
+            operation: tokio::sync::Mutex::new(()),
             pending: tokio::sync::Mutex::new(None),
         }
     }
@@ -162,6 +167,7 @@ pub fn snapshot(shared: &AppState) -> UpdateState {
 /// resolves to a `failed` state rather than an error the caller has to
 /// decide what to do with.
 pub async fn check(app: AppHandle, shared: Arc<AppState>) -> UpdateState {
+    let _operation = shared.updates.operation.lock().await;
     {
         let resting = shared.updates.state.read().reset("checking");
         set(&app, &shared, resting);
@@ -198,6 +204,7 @@ pub async fn check(app: AppHandle, shared: Arc<AppState>) -> UpdateState {
 /// On Windows this never returns: the installer is launched and the process
 /// exits underneath us.
 pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String> {
+    let _operation = shared.updates.operation.lock().await;
     if !can_install() {
         return Err("This build can't replace itself".to_string());
     }

@@ -5,6 +5,7 @@ import type {
   DeviceCode,
   EmoteIndex,
   LinkPreview,
+  PreviewImage,
   MentionFilter,
   Preferences,
   Tab,
@@ -68,6 +69,8 @@ export const api = {
   userCard: (login: string, channel: string) => invoke<UserCard>("user_card", { login, channel }),
   /** What the page behind a link says about itself, or null when it says nothing. */
   linkPreview: (url: string) => invoke<LinkPreview | null>("link_preview", { url }),
+  linkPreviewImage: (url: string) =>
+    invoke<PreviewImage | null>("link_preview_image", { url }),
   recordEmoteUses: (account: string, channel: string, names: string[]) =>
     invoke<void>("record_emote_uses", { account, channel, names }),
   preferences: () => invoke<Preferences>("preferences"),

@@ -117,7 +117,10 @@ fn build(emote: EmoteResponse) -> Option<LinkPreview> {
 }
 
 pub async fn preview(client: &reqwest::Client, id: &str) -> Result<Option<LinkPreview>> {
-    let response = client.get(format!("https://7tv.io/v3/emotes/{id}")).send().await?;
+    let response = client
+        .get(format!("https://7tv.io/v3/emotes/{id}"))
+        .send()
+        .await?;
     if !response.status().is_success() {
         return Ok(None);
     }
@@ -158,16 +161,28 @@ mod tests {
 
     #[test]
     fn anything_else_on_the_site_is_an_ordinary_link() {
-        assert_eq!(id_of("https://7tv.app/users/01FEKBRZE00007WK8WM6W04MSR"), None);
+        assert_eq!(
+            id_of("https://7tv.app/users/01FEKBRZE00007WK8WM6W04MSR"),
+            None
+        );
         assert_eq!(id_of("https://7tv.app/emotes"), None);
-        assert_eq!(id_of("https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQMS/edit"), None);
-        assert_eq!(id_of("https://example.com/emotes/01FW4E4Q6R00023D6NVRA4DQMS"), None);
+        assert_eq!(
+            id_of("https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQMS/edit"),
+            None
+        );
+        assert_eq!(
+            id_of("https://example.com/emotes/01FW4E4Q6R00023D6NVRA4DQMS"),
+            None
+        );
     }
 
     #[test]
     fn an_id_that_couldnt_be_one_is_refused_before_it_reaches_a_url() {
         assert_eq!(id_of("https://7tv.app/emotes/short"), None);
-        assert_eq!(id_of("https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQM%2F"), None);
+        assert_eq!(
+            id_of("https://7tv.app/emotes/01FW4E4Q6R00023D6NVRA4DQM%2F"),
+            None
+        );
     }
 
     fn parse_preview(json: &str) -> Option<LinkPreview> {
@@ -190,7 +205,10 @@ mod tests {
         assert_eq!(preview.title, "PEPE");
         assert_eq!(preview.description, "SwaguarTV");
         assert_eq!(preview.image, "https://cdn.7tv.app/emote/abc/4x.webp");
-        assert!(preview.facts.is_empty(), "a still emote says nothing about animation");
+        assert!(
+            preview.facts.is_empty(),
+            "a still emote says nothing about animation"
+        );
     }
 
     #[test]
@@ -205,7 +223,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(preview.facts[0].value, "Animated");
-        assert_eq!(preview.description, "", "nobody named is not somebody named nothing");
+        assert_eq!(
+            preview.description, "",
+            "nobody named is not somebody named nothing"
+        );
     }
 
     #[test]

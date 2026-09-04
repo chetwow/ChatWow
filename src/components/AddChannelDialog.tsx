@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
-import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
+import { IS_TAURI, MOCK_MODE, TITLE_BAR_PX } from "../lib/tauri";
 import { ANONYMOUS, type AccountInfo, type ChannelHit } from "../types";
 import { MentionFilterEditor } from "./MentionFilterEditor";
 
@@ -18,7 +18,7 @@ const MIN_QUERY = 2;
  * data never reaches a production bundle.
  */
 async function searchChannels(query: string): Promise<ChannelHit[]> {
-  if (!IS_TAURI) {
+  if (MOCK_MODE) {
     const { mockSearchChannels } = await import("../dev/mockData");
     return mockSearchChannels(query);
   }

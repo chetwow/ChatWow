@@ -42,7 +42,11 @@ struct DropReason {
 }
 
 fn resolve(response: SendResponse) -> Result<()> {
-    let sent = response.data.into_iter().next().ok_or_else(|| anyhow!("Twitch sent no result"))?;
+    let sent = response
+        .data
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("Twitch sent no result"))?;
     if !sent.is_sent {
         let reason = sent
             .drop_reason
@@ -69,7 +73,12 @@ pub async fn send(
         .post(SEND_URL)
         .header("Client-Id", client_id)
         .bearer_auth(token)
-        .json(&SendRequest { broadcaster_id, sender_id, message, reply_parent_message_id })
+        .json(&SendRequest {
+            broadcaster_id,
+            sender_id,
+            message,
+            reply_parent_message_id,
+        })
         .send()
         .await?
         .error_for_status()?
@@ -96,7 +105,10 @@ mod tests {
             "drop_reason":{"code":"channel_settings","message":"Your message wasn't sent because you don't have permission."}}]}"#;
         let response: SendResponse = serde_json::from_str(json).unwrap();
         let error = resolve(response).unwrap_err();
-        assert_eq!(error.to_string(), "Your message wasn't sent because you don't have permission.");
+        assert_eq!(
+            error.to_string(),
+            "Your message wasn't sent because you don't have permission."
+        );
     }
 
     #[test]

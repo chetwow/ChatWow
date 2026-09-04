@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTooltip } from "../store/tooltip";
+import { loadPreviewImage } from "../lib/linkPreviews";
 import type { LinkPreview } from "../types";
 
 const LABEL: Record<string, string> = {
@@ -84,12 +85,30 @@ function PageCard({
   onSettled: () => void;
 }) {
   const [imageOk, setImageOk] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    setImageOk(true);
+    setImageUrl(null);
+    if (preview.image) {
+      void loadPreviewImage(preview.image).then((url) => {
+        if (!current) return;
+        setImageUrl(url);
+        setImageOk(url !== null);
+        onSettled();
+      });
+    }
+    return () => {
+      current = false;
+    };
+  }, [preview.image, onSettled]);
 
   return (
     <div className="w-[min(340px,70vw)] text-left">
-      {preview.image && imageOk && (
+      {imageUrl && imageOk && (
         <img
-          src={preview.image}
+          src={imageUrl}
           alt=""
           onLoad={onSettled}
           onError={() => {
@@ -147,6 +166,7 @@ export function HoverPreview() {
    */
   const [settled, setSettled] = useState(0);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const resettle = useCallback(() => setSettled((count) => count + 1), []);
 
   useLayoutEffect(() => {
     const element = box.current;
@@ -168,8 +188,6 @@ export function HoverPreview() {
   }, [preview, anchor, settled]);
 
   if (!preview) return null;
-
-  const resettle = () => setSettled((count) => count + 1);
 
   return (
     <div

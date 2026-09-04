@@ -52,8 +52,10 @@ pub async fn fetch_live(
 ) -> Result<HashSet<String>> {
     let mut live = HashSet::new();
     for chunk in logins.chunks(MAX_LOGINS) {
-        let query: Vec<(&str, &str)> =
-            chunk.iter().map(|login| ("user_login", login.as_str())).collect();
+        let query: Vec<(&str, &str)> = chunk
+            .iter()
+            .map(|login| ("user_login", login.as_str()))
+            .collect();
         let response = client
             .get("https://api.twitch.tv/helix/streams")
             .query(&query)

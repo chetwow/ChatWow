@@ -31,10 +31,10 @@ pub fn dir(app: &AppHandle) -> Result<PathBuf> {
 /// rather than trusted -- a key is one provider and one id, nothing that could
 /// climb out of the cache directory.
 pub fn is_valid_key(key: &str) -> bool {
-    let Some((_, id)) = split_key(key) else { return false };
-    !id.is_empty()
-        && id.len() <= 64
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    let Some((_, id)) = split_key(key) else {
+        return false;
+    };
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The providers whose images we serve. FFZ is deliberately absent: it splits
@@ -46,9 +46,10 @@ pub fn is_valid_key(key: &str) -> bool {
 const PROVIDERS: [&str; 3] = ["7tv", "twitch", "bttv"];
 
 fn split_key(key: &str) -> Option<(&'static str, &str)> {
-    PROVIDERS
-        .iter()
-        .find_map(|provider| key.strip_prefix(&format!("{provider}-")).map(|id| (*provider, id)))
+    PROVIDERS.iter().find_map(|provider| {
+        key.strip_prefix(&format!("{provider}-"))
+            .map(|id| (*provider, id))
+    })
 }
 
 /// Where to download a key from. Both providers address images by id, so the
@@ -83,7 +84,10 @@ pub fn content_type(bytes: &[u8]) -> &'static str {
 
 /// Cached files that no joined channel can reach any more.
 pub fn stale(existing: Vec<String>, active: &HashSet<String>) -> Vec<String> {
-    existing.into_iter().filter(|key| !active.contains(key)).collect()
+    existing
+        .into_iter()
+        .filter(|key| !active.contains(key))
+        .collect()
 }
 
 /// A cached image, downloading and storing it on a miss.
@@ -108,7 +112,13 @@ pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)
         state.http.clone()
     };
 
-    let bytes = http.get(url).send().await?.error_for_status()?.bytes().await?;
+    let bytes = http
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(anyhow!("{key} is too big to cache"));
     }
@@ -135,7 +145,9 @@ pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)
 /// Cheap enough to run whenever a channel's emotes land.
 pub fn purge(app: &AppHandle, active: &HashSet<String>) {
     let Ok(path) = dir(app) else { return };
-    let Ok(entries) = std::fs::read_dir(&path) else { return };
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        return;
+    };
 
     let cached: Vec<String> = entries
         .filter_map(|entry| entry.ok())
@@ -157,7 +169,10 @@ mod tests {
     fn keys_name_one_emote_from_a_known_provider() {
         assert!(is_valid_key("7tv-01FCY771D800007PQ2DF3GDTN6"));
         assert!(is_valid_key("twitch-25"));
-        assert!(is_valid_key("twitch-emotesv2_a1b2"), "Twitch's newer id format");
+        assert!(
+            is_valid_key("twitch-emotesv2_a1b2"),
+            "Twitch's newer id format"
+        );
         assert!(is_valid_key("bttv-54fa8f1401e468494b85b537"));
     }
 
@@ -173,9 +188,17 @@ mod tests {
 
     #[test]
     fn source_urls_are_derived_from_the_id() {
-        assert_eq!(source_url("7tv-abc").unwrap(), "https://cdn.7tv.app/emote/abc/2x.webp");
-        assert!(source_url("twitch-25").unwrap().contains("/emoticons/v2/25/"));
-        assert_eq!(source_url("bttv-abc").unwrap(), "https://cdn.betterttv.net/emote/abc/2x");
+        assert_eq!(
+            source_url("7tv-abc").unwrap(),
+            "https://cdn.7tv.app/emote/abc/2x.webp"
+        );
+        assert!(source_url("twitch-25")
+            .unwrap()
+            .contains("/emoticons/v2/25/"));
+        assert_eq!(
+            source_url("bttv-abc").unwrap(),
+            "https://cdn.betterttv.net/emote/abc/2x"
+        );
         assert!(source_url("nonsense").is_none());
     }
 
@@ -192,7 +215,10 @@ mod tests {
         assert_eq!(content_type(b"RIFF\0\0\0\0WEBPVP8 "), "image/webp");
         assert_eq!(content_type(b"\x89PNG\r\n\x1a\n"), "image/png");
         assert_eq!(content_type(b"GIF89a..."), "image/gif");
-        assert_eq!(content_type(b"<html>not an image"), "application/octet-stream");
+        assert_eq!(
+            content_type(b"<html>not an image"),
+            "application/octet-stream"
+        );
     }
 
     #[test]
@@ -200,7 +226,11 @@ mod tests {
         let active: HashSet<String> = ["7tv-keep".to_string(), "twitch-25".to_string()]
             .into_iter()
             .collect();
-        let cached = vec!["7tv-keep".to_string(), "7tv-gone".to_string(), "twitch-25".to_string()];
+        let cached = vec![
+            "7tv-keep".to_string(),
+            "7tv-gone".to_string(),
+            "twitch-25".to_string(),
+        ];
         assert_eq!(stale(cached, &active), vec!["7tv-gone".to_string()]);
     }
 }

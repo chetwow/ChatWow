@@ -15,7 +15,10 @@ pub struct IrcMessage {
 
 impl IrcMessage {
     pub fn tag(&self, key: &str) -> Option<&str> {
-        self.tags.get(key).map(|s| s.as_str()).filter(|s| !s.is_empty())
+        self.tags
+            .get(key)
+            .map(|s| s.as_str())
+            .filter(|s| !s.is_empty())
     }
 
     /// The nickname portion of the prefix (`nick!user@host` -> `nick`).
@@ -51,7 +54,9 @@ pub struct ChannelRole {
 impl ChannelRole {
     pub fn of(msg: &IrcMessage) -> Self {
         let badges = msg.tag("badges").unwrap_or_default();
-        let broadcaster = badges.split(',').any(|badge| badge.starts_with("broadcaster/"));
+        let broadcaster = badges
+            .split(',')
+            .any(|badge| badge.starts_with("broadcaster/"));
         Self {
             // The broadcaster can do everything a moderator can, and Twitch
             // doesn't bother saying so on their own USERSTATE.
@@ -156,7 +161,8 @@ mod tests {
 
     #[test]
     fn a_moderators_userstate_reads_as_a_moderator() {
-        let line = "@badges=moderator/1;display-name=Someone;mod=1 :tmi.twitch.tv USERSTATE #forsen";
+        let line =
+            "@badges=moderator/1;display-name=Someone;mod=1 :tmi.twitch.tv USERSTATE #forsen";
         let role = ChannelRole::of(&parse(line).unwrap());
         assert!(role.moderator);
         assert!(!role.broadcaster);
@@ -168,7 +174,10 @@ mod tests {
         let line = "@badges=broadcaster/1,subscriber/12;mod=0 :tmi.twitch.tv USERSTATE #forsen";
         let role = ChannelRole::of(&parse(line).unwrap());
         assert!(role.broadcaster);
-        assert!(role.moderator, "the broadcaster can run everything a mod can");
+        assert!(
+            role.moderator,
+            "the broadcaster can run everything a mod can"
+        );
     }
 
     #[test]
@@ -210,7 +219,10 @@ mod tests {
         // system-msg is the tag that actually carries escaped spaces in the wild.
         let line = "@system-msg=Some\\sUser\\ssubscribed\\sat\\sTier\\s1.;msg-id=resub :tmi.twitch.tv USERNOTICE #chan :body";
         let msg = parse(line).unwrap();
-        assert_eq!(msg.tag("system-msg"), Some("Some User subscribed at Tier 1."));
+        assert_eq!(
+            msg.tag("system-msg"),
+            Some("Some User subscribed at Tier 1.")
+        );
         assert_eq!(msg.tag("msg-id"), Some("resub"));
     }
 
@@ -246,7 +258,10 @@ mod tests {
 
     #[test]
     fn parses_clearchat_timeout() {
-        let msg = parse("@ban-duration=600;room-id=1;target-user-id=99 :tmi.twitch.tv CLEARCHAT #chan :baduser").unwrap();
+        let msg = parse(
+            "@ban-duration=600;room-id=1;target-user-id=99 :tmi.twitch.tv CLEARCHAT #chan :baduser",
+        )
+        .unwrap();
         assert_eq!(msg.command, "CLEARCHAT");
         assert_eq!(msg.tag("ban-duration"), Some("600"));
         assert_eq!(msg.text(), Some("baduser"));

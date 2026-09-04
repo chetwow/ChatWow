@@ -129,9 +129,13 @@ enum Node {
 fn parse_emote_ranges(tag: &str) -> Vec<(usize, usize, String)> {
     let mut ranges = Vec::new();
     for group in tag.split('/').filter(|g| !g.is_empty()) {
-        let Some((id, positions)) = group.split_once(':') else { continue };
+        let Some((id, positions)) = group.split_once(':') else {
+            continue;
+        };
         for position in positions.split(',').filter(|p| !p.is_empty()) {
-            let Some((start, end)) = position.split_once('-') else { continue };
+            let Some((start, end)) = position.split_once('-') else {
+                continue;
+            };
             let (Ok(start), Ok(end)) = (start.parse::<usize>(), end.parse::<usize>()) else {
                 continue;
             };
@@ -251,7 +255,10 @@ fn to_segments(nodes: Vec<Node>) -> Vec<Segment> {
                 overlays,
             }),
             Node::Mention(text) => segments.push(Segment::Mention { text }),
-            Node::Link(text) => segments.push(Segment::Link { href: text.clone(), text }),
+            Node::Link(text) => segments.push(Segment::Link {
+                href: text.clone(),
+                text,
+            }),
         }
     }
     segments.retain(|s| !matches!(s, Segment::Text { text } if text.is_empty()));
@@ -289,7 +296,9 @@ pub fn build_segments(text: &str, emotes_tag: Option<&str>, emotes: &EmoteLookup
 /// Resolve the `badges`/`badge-info` tags into images. Shared by PRIVMSG
 /// rendering and USERSTATE (which carries the same tags for our own badges).
 pub fn build_badges(msg: &IrcMessage, badges: &BadgeLookup) -> Vec<Badge> {
-    let Some(tag) = msg.tag("badges") else { return Vec::new() };
+    let Some(tag) = msg.tag("badges") else {
+        return Vec::new();
+    };
     // badge-info carries the true subscriber month count for the tooltip.
     let badge_info: HashMap<&str, &str> = msg
         .tag("badge-info")
@@ -317,7 +326,9 @@ pub fn build_badges(msg: &IrcMessage, badges: &BadgeLookup) -> Vec<Badge> {
 }
 
 pub fn timestamp(msg: &IrcMessage) -> i64 {
-    msg.tag("tmi-sent-ts").and_then(|t| t.parse().ok()).unwrap_or(0)
+    msg.tag("tmi-sent-ts")
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Milliseconds since the epoch, in the same units a message's `tmi-sent-ts`
@@ -350,9 +361,18 @@ pub fn build_chat_message(
     // Present only on replies (a native Twitch reply, not our own convention):
     // the parent's login/name/body ride along on the child PRIVMSG's tags.
     let reply_to = msg.tag("reply-parent-msg-id").map(|_| ReplyInfo {
-        login: msg.tag("reply-parent-user-login").unwrap_or_default().to_string(),
-        display_name: msg.tag("reply-parent-display-name").unwrap_or_default().to_string(),
-        body: msg.tag("reply-parent-msg-body").unwrap_or_default().to_string(),
+        login: msg
+            .tag("reply-parent-user-login")
+            .unwrap_or_default()
+            .to_string(),
+        display_name: msg
+            .tag("reply-parent-display-name")
+            .unwrap_or_default()
+            .to_string(),
+        body: msg
+            .tag("reply-parent-msg-body")
+            .unwrap_or_default()
+            .to_string(),
     });
 
     ChatMessage {
@@ -382,7 +402,11 @@ pub fn build_usernotice(
     emotes: &EmoteLookup,
     badges: &BadgeLookup,
 ) -> ChatMessage {
-    let login = msg.tag("login").or_else(|| msg.nick()).unwrap_or("twitch").to_string();
+    let login = msg
+        .tag("login")
+        .or_else(|| msg.nick())
+        .unwrap_or("twitch")
+        .to_string();
     let display_name = msg.tag("display-name").unwrap_or(&login).to_string();
     // USERNOTICE has an optional user comment in the trailing param.
     let body = msg.text().unwrap_or("");
@@ -484,7 +508,10 @@ mod tests {
     }
 
     fn lookup(map: &HashMap<String, Emote>) -> EmoteLookup<'_> {
-        EmoteLookup { channel: None, global: map }
+        EmoteLookup {
+            channel: None,
+            global: map,
+        }
     }
 
     fn text_of(segment: &Segment) -> &str {
@@ -510,7 +537,12 @@ mod tests {
         let segments = build_segments("Kappa hello", Some("25:0-4"), &lookup(&map));
         assert_eq!(segments.len(), 2);
         match &segments[0] {
-            Segment::Emote { name, url, provider, .. } => {
+            Segment::Emote {
+                name,
+                url,
+                provider,
+                ..
+            } => {
                 assert_eq!(name, "Kappa");
                 assert_eq!(provider, "twitch");
                 assert!(url.contains("/25/"), "unexpected url {url}");
@@ -538,7 +570,10 @@ mod tests {
     fn multiple_ranges_for_one_emote_are_handled() {
         let map = HashMap::new();
         let segments = build_segments("Kappa a Kappa", Some("25:0-4,8-12"), &lookup(&map));
-        let count = segments.iter().filter(|s| matches!(s, Segment::Emote { .. })).count();
+        let count = segments
+            .iter()
+            .filter(|s| matches!(s, Segment::Emote { .. }))
+            .count();
         assert_eq!(count, 2);
     }
 
@@ -616,7 +651,10 @@ mod tests {
         map.insert("catJAM".to_string(), emote("catJAM", false));
         map.insert("RainTime".to_string(), emote("RainTime", true));
         let segments = build_segments("catJAM word RainTime", None, &lookup(&map));
-        let emotes = segments.iter().filter(|s| matches!(s, Segment::Emote { .. })).count();
+        let emotes = segments
+            .iter()
+            .filter(|s| matches!(s, Segment::Emote { .. }))
+            .count();
         assert_eq!(emotes, 2, "overlay separated by text stays separate");
     }
 
@@ -627,7 +665,9 @@ mod tests {
         let segments = build_segments("Kappa RainTime", Some("25:0-4"), &lookup(&map));
         assert_eq!(segments.len(), 1);
         match &segments[0] {
-            Segment::Emote { provider, overlays, .. } => {
+            Segment::Emote {
+                provider, overlays, ..
+            } => {
                 assert_eq!(provider, "twitch");
                 assert_eq!(overlays.len(), 1);
             }
@@ -639,7 +679,9 @@ mod tests {
     fn links_and_mentions_become_their_own_segments() {
         let map = HashMap::new();
         let segments = build_segments("hey @bob see https://x.com/a", None, &lookup(&map));
-        assert!(segments.iter().any(|s| matches!(s, Segment::Mention { text } if text == "@bob")));
+        assert!(segments
+            .iter()
+            .any(|s| matches!(s, Segment::Mention { text } if text == "@bob")));
         assert!(segments
             .iter()
             .any(|s| matches!(s, Segment::Link { href, .. } if href == "https://x.com/a")));
@@ -654,14 +696,21 @@ mod tests {
         let mut global_badges = BadgeMap::new();
         global_badges.insert(
             ("subscriber".to_string(), "12".to_string()),
-            Badge { id: "subscriber/12".into(), title: "Subscriber".into(), url: "u".into() },
+            Badge {
+                id: "subscriber/12".into(),
+                title: "Subscriber".into(),
+                url: "u".into(),
+            },
         );
 
         let message = build_chat_message(
             &irc,
             "forsen",
             &lookup(&emote_map),
-            &BadgeLookup { channel: None, global: &global_badges },
+            &BadgeLookup {
+                channel: None,
+                global: &global_badges,
+            },
         );
 
         assert_eq!(message.display_name, "SomeUser");
@@ -684,10 +733,15 @@ mod tests {
             &irc,
             "forsen",
             &lookup(&emote_map),
-            &BadgeLookup { channel: None, global: &badge_map },
+            &BadgeLookup {
+                channel: None,
+                global: &badge_map,
+            },
         );
 
-        let reply_to = message.reply_to.expect("reply tags should produce reply_to");
+        let reply_to = message
+            .reply_to
+            .expect("reply tags should produce reply_to");
         assert_eq!(reply_to.login, "origuser");
         assert_eq!(reply_to.display_name, "OrigUser");
         assert_eq!(reply_to.body, "original text");
@@ -704,7 +758,10 @@ mod tests {
             &irc,
             "forsen",
             &lookup(&emote_map),
-            &BadgeLookup { channel: None, global: &badge_map },
+            &BadgeLookup {
+                channel: None,
+                global: &badge_map,
+            },
         );
 
         assert!(message.reply_to.is_none());
@@ -720,7 +777,10 @@ mod tests {
             &irc,
             "c",
             &lookup(&map),
-            &BadgeLookup { channel: None, global: &badges },
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
         );
         assert!(message.is_action);
         assert_eq!(text_of(&message.segments[0]), "waves");
@@ -736,7 +796,10 @@ mod tests {
             &irc,
             "c",
             &lookup(&map),
-            &BadgeLookup { channel: None, global: &badges },
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
         );
         assert_eq!(message.badges.len(), 1);
         assert_eq!(message.badges[0].title, "mystery");
@@ -752,7 +815,10 @@ mod tests {
         override_emote.url = "https://cdn/channel-version.webp".to_string();
         channel.insert("Same".to_string(), override_emote);
 
-        let lookup = EmoteLookup { channel: Some(&channel), global: &global };
+        let lookup = EmoteLookup {
+            channel: Some(&channel),
+            global: &global,
+        };
         let segments = build_segments("Same", None, &lookup);
         match &segments[0] {
             Segment::Emote { url, .. } => assert_eq!(url, "https://cdn/channel-version.webp"),

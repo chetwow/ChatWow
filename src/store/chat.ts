@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../lib/api";
-import { IS_TAURI } from "../lib/tauri";
+import { IS_TAURI, MOCK_MODE } from "../lib/tauri";
 import { emotesIn } from "../lib/emoteComplete";
 import type { Chatters } from "../lib/chatterComplete";
 import { isAboutYou, mentionKind } from "../lib/mentions";
@@ -17,6 +17,7 @@ import {
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
+import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { ANONYMOUS } from "../types";
@@ -1147,7 +1148,7 @@ export const useChat = create<ChatState>((set) => ({
     const tab = tabById(useChat.getState(), id);
     if (!tab) return;
 
-    if (!IS_TAURI) {
+    if (MOCK_MODE) {
       const { buildOwnMockMessage } = await import("../dev/mockData");
       const login = loginOf(useChat.getState(), tab.account) ?? "you";
       useChat.getState().ingest([buildOwnMockMessage(tab, login, text, replyTo)]);
@@ -1180,7 +1181,7 @@ export const useChat = create<ChatState>((set) => ({
     let lines: string[];
     if (parsed.name === "help") {
       lines = helpLines(parsed.args, state.auth, tab.account);
-    } else if (IS_TAURI) {
+    } else if (!MOCK_MODE) {
       lines = [await api.runChatCommand(tab.account, tab.channel, input)];
     } else {
       const mock = await import("../dev/mockData");
@@ -1202,9 +1203,9 @@ export const useChat = create<ChatState>((set) => ({
   loadEmoteIndex: async (id) => {
     const tab = tabById(useChat.getState(), id);
     if (!tab || tab.kind !== "channel") return;
-    const index = IS_TAURI
-      ? await api.emoteIndex(tab.account, tab.channel)
-      : await import("../dev/mockData").then((mock) => mock.mockEmoteIndex());
+    const index = MOCK_MODE
+      ? await import("../dev/mockData").then((mock) => mock.mockEmoteIndex())
+      : await api.emoteIndex(tab.account, tab.channel);
     set((state) => ({
       emoteEntries: { ...state.emoteEntries, [id]: index.entries },
       // Counts are global, and the backend's copy is the persisted one.
@@ -1282,9 +1283,9 @@ export const useChat = create<ChatState>((set) => ({
       .updatePreferences({ alwaysOnTop: !useChat.getState().preferences.alwaysOnTop }),
 
   refreshUpdate: async () => {
-    const update = IS_TAURI
-      ? await api.updateState()
-      : await import("../dev/mockUpdates").then((mock) => mock.mockUpdateState());
+    const update = MOCK_MODE
+      ? await import("../dev/mockUpdates").then((mock) => mock.mockUpdateState())
+      : await api.updateState();
     // Only the resting stages: a `refreshUpdate` racing a download in mock
     // mode would otherwise snap the bar back to nothing.
     set((state) => (state.update.stage === "downloading" ? {} : { update }));
@@ -1292,14 +1293,14 @@ export const useChat = create<ChatState>((set) => ({
 
   checkForUpdate: async () => {
     set((state) => ({ update: { ...state.update, stage: "checking", error: null } }));
-    const update = IS_TAURI
-      ? await api.checkForUpdates()
-      : await import("../dev/mockUpdates").then((mock) => mock.mockCheck());
+    const update = MOCK_MODE
+      ? await import("../dev/mockUpdates").then((mock) => mock.mockCheck())
+      : await api.checkForUpdates();
     set({ update });
   },
 
   installUpdate: async () => {
-    if (!IS_TAURI) {
+    if (MOCK_MODE) {
       const { mockInstall } = await import("../dev/mockUpdates");
       await mockInstall((update) => set({ update }));
       return;
@@ -1311,7 +1312,7 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   restartForUpdate: async () => {
-    if (!IS_TAURI) {
+    if (MOCK_MODE) {
       console.info("mock: restarting");
       set({ update: IDLE_UPDATE });
       return;
@@ -1479,12 +1480,7 @@ export const useChat = create<ChatState>((set) => ({
   clear: ({ account, channel, login, messageId, duration }) => {
     set((state) => {
       const normalizedLogin = login?.toLocaleLowerCase() ?? "";
-      const hit = (message: StoredMessage) =>
-        messageId
-          ? message.id === messageId
-          : normalizedLogin
-            ? message.login.toLocaleLowerCase() === normalizedLogin
-            : false;
+      const hit = (message: StoredMessage) => messageCleared(message, messageId, login);
       const strike = (message: StoredMessage) =>
         hit(message) ? { ...message, deleted: true } : message;
 
@@ -1530,7 +1526,7 @@ export const useChat = create<ChatState>((set) => ({
     }),
 
   bootstrap: async () => {
-    if (!IS_TAURI) {
+    if (MOCK_MODE) {
       const {
         mockTabs,
         buildInitialMessages,
@@ -1592,7 +1588,7 @@ export const useChat = create<ChatState>((set) => ({
  * on design with `npm run dev`.
  */
 export async function subscribeToBackend(): Promise<() => void> {
-  if (!IS_TAURI) {
+  if (MOCK_MODE) {
     const { randomMockMessage } = await import("../dev/mockData");
     const interval = window.setInterval(() => {
       const tabs = useChat.getState().tabs.filter((tab) => tab.kind === "channel");

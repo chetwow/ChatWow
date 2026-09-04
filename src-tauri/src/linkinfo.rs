@@ -1,9 +1,8 @@
 //! What's behind a link, for the hover preview.
 //!
-//! A link that points straight at an image previews as that image, which the
-//! frontend can do on its own -- an `<img>` and the url are the whole of it.
-//! Every other link has to be *asked* what it is, and that's this: one GET,
-//! and the page's own description of itself out of the head.
+//! A link that points straight at an image is fetched here and returned as
+//! bounded data for a local blob URL. Every other link has to be *asked* what
+//! it is: one GET, and the page's own description of itself out of the head.
 //!
 //! What comes back is what a page already publishes for exactly this purpose --
 //! OpenGraph and friends, the same tags that make a link unfurl in Slack or
@@ -15,11 +14,10 @@
 //! they're why it's a module rather than four lines in a command:
 //!
 //! * **The url comes from a stranger.** Everything else here talks to Twitch,
-//!   7TV, FFZ, BTTV or ivr.fi -- hosts compiled in. This one goes wherever a
-//!   chatter said, so it gets its own client: a redirect policy that refuses
-//!   to walk off `http(s)` or into the machine's own network (`is_public_host`
-//!   below), and a short timeout, since a preview is a nicety and shouldn't
-//!   hold a connection open the way an emote set can.
+//!   7TV, FFZ, BTTV or ivr.fi -- hosts compiled in. This one resolves every hop
+//!   itself, refuses any non-public answer, and pins the request to the checked
+//!   addresses. That includes preview images: the webview never fetches a
+//!   chatter-selected host directly.
 //! * **The response is arbitrary too.** A url ending in `/page` can serve a
 //!   gigabyte. The body is read in chunks, abandoned at a cap, and stopped the
 //!   moment it holds what's wanted -- for most of the web that's the few KB up
@@ -29,18 +27,13 @@
 //!   whole reason these are settings at all, and defaults are the only thing
 //!   this module doesn't decide.
 //!
-//! The host check is on the literal in the url, hop by hop. A *name* that
-//! resolves to a private address still gets through: refusing that means
-//! owning DNS resolution, which is a great deal of machinery for a threat that
-//! ends at "a page title was fetched". The redirect check is the part worth
-//! having, since it's the one an attacker controls after the fact.
-
+use base64::Engine;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use anyhow::Result;
-use reqwest::Url;
+use reqwest::{Response, Url};
 use serde::Serialize;
 
 /// Enough of an ordinary page to reach `</head>` several times over. Sites put
@@ -51,6 +44,9 @@ const MAX_HEAD_BYTES: usize = 256 * 1024;
 /// under a little more. It compresses to about a fifth of that on the wire,
 /// which is what makes reading this far defensible at all.
 const MAX_PAGE_BYTES: usize = 1024 * 1024;
+/// Large enough for ordinary chat images without letting a hover pull an
+/// unbounded file through IPC and into a blob in the webview.
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 /// Long enough for a slow page, short enough that a hover isn't a hang.
 const TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_REDIRECTS: usize = 5;
@@ -92,6 +88,15 @@ pub struct Fact {
     pub value: String,
 }
 
+/// A validated preview image. Base64 is compact enough for the bounded IPC
+/// response, and the frontend immediately turns it into a local blob URL.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewImage {
+    pub mime_type: String,
+    pub data: String,
+}
+
 impl Fact {
     pub fn new(label: &str, value: impl Into<String>) -> Self {
         Fact {
@@ -101,33 +106,64 @@ impl Fact {
     }
 }
 
-/// The client link previews use, kept apart from `AppState::http` for the
-/// reasons in the module doc. Built once, in `AppState::new`.
-pub fn build_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        // Says what it is. A plain library agent is refused by enough hosts to
-        // make the feature look broken, and pretending to be somebody else's
-        // crawler to get a lighter page isn't a trade this app makes.
-        .user_agent("Mozilla/5.0 (compatible; chatwow link preview)")
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= MAX_REDIRECTS {
-                attempt.stop()
-            } else if is_public_url(attempt.url()) {
-                attempt.follow()
-            } else {
-                // Stopped rather than followed: the 3xx itself comes back,
-                // has no HTML in it, and answers `None`.
-                attempt.stop()
-            }
-        }))
-        .build()
-        .expect("failed to build link preview HTTP client")
+fn is_public_url(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https") && url.host_str().map(is_public_host).unwrap_or(false)
 }
 
-fn is_public_url(url: &Url) -> bool {
-    matches!(url.scheme(), "http" | "https")
-        && url.host_str().map(is_public_host).unwrap_or(false)
+/// Resolve a host once, reject the whole answer if any address belongs to the
+/// local machine/network, and return exactly the addresses the request may use.
+async fn public_addresses(url: &Url) -> Result<Option<(String, Vec<SocketAddr>)>> {
+    if !is_public_url(url) {
+        return Ok(None);
+    }
+    let Some(host) = url.host_str() else {
+        return Ok(None);
+    };
+    let port = url.port_or_known_default().unwrap_or(80);
+    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
+    if addresses.is_empty() || addresses.iter().any(|address| !is_public_ip(address.ip())) {
+        return Ok(None);
+    }
+    Ok(Some((host.to_string(), addresses)))
+}
+
+/// One safe HTTP GET, following redirects by hand so every hop gets a fresh
+/// DNS check and the connection is pinned to the addresses that passed it.
+async fn fetch(url: Url, accept: &str) -> Result<Option<(Response, Url)>> {
+    let mut current = url;
+    for redirects in 0..=MAX_REDIRECTS {
+        let Some((host, addresses)) = public_addresses(&current).await? else {
+            return Ok(None);
+        };
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (compatible; chatwow link preview)")
+            .timeout(TIMEOUT)
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(&host, &addresses)
+            .build()?;
+        let response = client
+            .get(current.clone())
+            .header("Accept", accept)
+            .send()
+            .await?;
+        if response.status().is_redirection() {
+            if redirects == MAX_REDIRECTS {
+                return Ok(None);
+            }
+            let Some(location) = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+            else {
+                return Ok(None);
+            };
+            current = current.join(location)?;
+            continue;
+        }
+        return Ok(Some((response, current)));
+    }
+    Ok(None)
 }
 
 /// Whether this host is somewhere on the internet, rather than this machine or
@@ -180,17 +216,65 @@ fn is_public_ip(ip: IpAddr) -> bool {
 ///
 /// `Err` is reserved for the request failing outright, which is worth a line
 /// in the log even though the preview handles it identically.
-pub async fn preview(client: &reqwest::Client, link: &str) -> Result<Option<LinkPreview>> {
+pub async fn preview(link: &str) -> Result<Option<LinkPreview>> {
     let url = Url::parse(link)?;
-    if !is_public_url(&url) {
-        return Ok(None);
-    }
     let video = youtube_id(&url);
 
-    let Some(html) = fetch_html(client, url, video.is_some()).await? else {
+    let Some((html, final_url)) = fetch_html(url, video.is_some()).await? else {
         return Ok(None);
     };
-    Ok(build_preview(&html, video.is_some()))
+    let mut preview = match build_preview(&html, video.is_some()) {
+        Some(preview) => preview,
+        None => return Ok(None),
+    };
+    if !preview.image.is_empty() {
+        preview.image = final_url
+            .join(&preview.image)
+            .map(|image| image.to_string())
+            .unwrap_or_default();
+    }
+    Ok(Some(preview))
+}
+
+/// Fetch an image through the same public-address gate used for HTML. The
+/// caller receives data rather than a remote URL, so the webview cannot issue
+/// a second, unchecked request while decoding it.
+pub async fn preview_image(link: &str) -> Result<Option<PreviewImage>> {
+    let url = Url::parse(link)?;
+    let Some((mut response, _)) = fetch(url, "image/*").await? else {
+        return Ok(None);
+    };
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if !mime_type.starts_with("image/") {
+        return Ok(None);
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_IMAGE_BYTES as u64)
+    {
+        return Ok(None);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
+            return Ok(None);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(Some(PreviewImage {
+        mime_type,
+        data: base64::engine::general_purpose::STANDARD.encode(body),
+    }))
 }
 
 /// Split from `preview` so the parsing is testable without a socket.
@@ -233,16 +317,11 @@ fn build_preview(html: &str, youtube: bool) -> Option<LinkPreview> {
 
 /// The body of an HTML response, up to the point there's no reason to read on.
 /// `None` when it isn't a page at all.
-async fn fetch_html(
-    client: &reqwest::Client,
-    url: Url,
-    youtube: bool,
-) -> Result<Option<String>> {
-    let mut response = client
-        .get(url)
-        .header("Accept", "text/html,application/xhtml+xml")
-        .send()
-        .await?;
+async fn fetch_html(url: Url, youtube: bool) -> Result<Option<(String, Url)>> {
+    let Some((mut response, final_url)) = fetch(url, "text/html,application/xhtml+xml").await?
+    else {
+        return Ok(None);
+    };
     if !response.status().is_success() {
         return Ok(None);
     }
@@ -259,7 +338,11 @@ async fn fetch_html(
         return Ok(None);
     }
 
-    let cap = if youtube { MAX_PAGE_BYTES } else { MAX_HEAD_BYTES };
+    let cap = if youtube {
+        MAX_PAGE_BYTES
+    } else {
+        MAX_HEAD_BYTES
+    };
     let mut body: Vec<u8> = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         body.extend_from_slice(&chunk);
@@ -267,7 +350,10 @@ async fn fetch_html(
             break;
         }
     }
-    Ok(Some(String::from_utf8_lossy(&body).into_owned()))
+    Ok(Some((
+        String::from_utf8_lossy(&body).into_owned(),
+        final_url,
+    )))
 }
 
 /// Whether to stop reading. An ordinary page is done at `</head>`; YouTube's
@@ -302,7 +388,9 @@ fn meta_tags(html: &str) -> HashMap<String, String> {
 
     while let Some(found) = lower[at..].find("<meta") {
         let start = at + found;
-        let Some(len) = lower[start..].find('>') else { break };
+        let Some(len) = lower[start..].find('>') else {
+            break;
+        };
         let tag = &html[start..start + len];
         at = start + len;
 
@@ -347,7 +435,12 @@ fn attribute_value(tag: &str, attribute: &str) -> Option<String> {
         let (open, close) = if quote == '"' || quote == '\'' {
             (1, value[1..].find(quote)? + 1)
         } else {
-            (0, value.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(value.len()))
+            (
+                0,
+                value
+                    .find(|c: char| c.is_whitespace() || c == '>')
+                    .unwrap_or(value.len()),
+            )
         };
         return Some(value[open..close].to_string());
     }
@@ -507,7 +600,9 @@ fn youtube_facts(html: &str, meta: &HashMap<String, String>) -> Vec<Fact> {
     // case-sensitive, and YouTube writes `datePublished`.
     let mut facts = Vec::new();
 
-    if let Some(channel) = json_string(html, "ownerChannelName").or_else(|| meta.get("author").cloned()) {
+    if let Some(channel) =
+        json_string(html, "ownerChannelName").or_else(|| meta.get("author").cloned())
+    {
         facts.push(Fact::new("Channel", channel));
     }
     let seconds = meta
@@ -564,7 +659,10 @@ fn json_number(html: &str, field: &str) -> Option<u64> {
     }
     let needle = format!("\"{field}\":");
     let start = html.find(&needle)? + needle.len();
-    let digits: String = html[start..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = html[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     digits.parse().ok()
 }
 
@@ -640,7 +738,7 @@ fn separated(count: u64) -> String {
     let digits = count.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);
@@ -677,8 +775,8 @@ mod tests {
 
     #[test]
     fn a_page_with_only_a_title_tag_still_previews() {
-        let preview = build_preview("<html><head><TITLE>Hello</TITLE></head>", false)
-            .expect("a preview");
+        let preview =
+            build_preview("<html><head><TITLE>Hello</TITLE></head>", false).expect("a preview");
         assert_eq!(preview.title, "Hello");
         assert_eq!(preview.description, "");
         assert_eq!(preview.image, "");
@@ -729,7 +827,10 @@ mod tests {
     #[test]
     fn youtube_urls_are_recognized_in_every_shape() {
         let id = |link: &str| youtube_id(&Url::parse(link).unwrap());
-        assert_eq!(id("https://youtu.be/qMpBobAonKs"), Some("qMpBobAonKs".into()));
+        assert_eq!(
+            id("https://youtu.be/qMpBobAonKs"),
+            Some("qMpBobAonKs".into())
+        );
         assert_eq!(
             id("https://www.youtube.com/watch?v=qMpBobAonKs&t=42"),
             Some("qMpBobAonKs".into())
@@ -802,7 +903,10 @@ mod tests {
 
     #[test]
     fn dates_lose_the_time_and_the_uploaders_time_zone() {
-        assert_eq!(format_date("2023-03-03T04:14:46-08:00"), Some("3 Mar 2023".into()));
+        assert_eq!(
+            format_date("2023-03-03T04:14:46-08:00"),
+            Some("3 Mar 2023".into())
+        );
         assert_eq!(format_date("2011-05-19"), Some("19 May 2011".into()));
         assert_eq!(format_date("not a date"), None);
     }
@@ -852,7 +956,10 @@ mod tests {
 
     #[test]
     fn reading_stops_once_the_head_is_in() {
-        assert!(has_enough(b"<html><head><title>x</title></head><body>", false));
+        assert!(has_enough(
+            b"<html><head><title>x</title></head><body>",
+            false
+        ));
         assert!(!has_enough(b"<html><head><title>x</title>", false));
         // YouTube waits for the last of the numbers, not the head.
         assert!(!has_enough(b"</head>\"viewCount\":\"1\"", true));

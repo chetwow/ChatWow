@@ -3,13 +3,13 @@ mod color;
 mod diagnostics;
 mod emotes;
 mod irc;
+mod linkinfo;
 #[cfg(test)]
 mod livecheck;
 mod render;
 mod settings;
 mod state;
 mod twitch;
-mod linkinfo;
 mod updater;
 mod usercard;
 
@@ -30,7 +30,10 @@ type Shared = Arc<AppState>;
 
 /// Normalize user input into a Twitch channel login.
 fn normalize_channel(input: &str) -> Result<String, String> {
-    let name = input.trim().trim_start_matches(['#', '@']).to_ascii_lowercase();
+    let name = input
+        .trim()
+        .trim_start_matches(['#', '@'])
+        .to_ascii_lowercase();
     let valid = name.len() >= 3
         && name.len() <= 25
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
@@ -66,7 +69,10 @@ fn prepare_outgoing(text: &str) -> Result<(bool, String, String), String> {
     }
 
     // Strip control characters that could otherwise smuggle extra IRC lines.
-    let clean: String = trimmed.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+    let clean: String = trimmed
+        .chars()
+        .filter(|c| *c != '\r' && *c != '\n')
+        .collect();
     if clean.chars().count() > MAX_MESSAGE_CHARS {
         return Err("Message is too long".to_string());
     }
@@ -85,6 +91,7 @@ fn prepare_outgoing(text: &str) -> Result<(bool, String, String), String> {
 }
 
 fn persist(app: &AppHandle, state: &AppState) {
+    let _write = state.settings_write.lock();
     let auth = state.auth.read();
     let settings = settings::Settings {
         client_id_override: auth.client_id_override.clone(),
@@ -149,8 +156,15 @@ enum TokenCheck {
 /// avatar". A row without one draws the login's initial instead.
 async fn fetch_avatar(state: &Shared, token: &str, login: &str) -> Option<String> {
     let client_id = { state.auth.read().client_id().map(str::to_string)? };
-    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token };
-    twitch::users::fetch_profile(&helix, login).await.ok().map(|profile| profile.avatar_url)
+    let helix = twitch::helix::Helix {
+        client: &state.http,
+        client_id: &client_id,
+        token,
+    };
+    twitch::users::fetch_profile(&helix, login)
+        .await
+        .ok()
+        .map(|profile| profile.avatar_url)
 }
 
 /// Validate one account's token, renewing it if Twitch says it has expired or
@@ -191,7 +205,11 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
             stored.login = validation.login;
             stored.scopes = validation.scopes;
             stored.avatar_url = avatar;
-            return if differs { TokenCheck::Validated } else { TokenCheck::Unchanged };
+            return if differs {
+                TokenCheck::Validated
+            } else {
+                TokenCheck::Unchanged
+            };
         }
     }
 
@@ -207,11 +225,17 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
             // Worth saying out loud even though nothing changes: a token that
             // keeps failing to renew is the shape of the bug this poller was
             // written for, and silence is how it went unnoticed the first time.
-            log::warn!("couldn't renew {}'s token, will retry: {reason}", account.login);
+            log::warn!(
+                "couldn't renew {}'s token, will retry: {reason}",
+                account.login
+            );
             return TokenCheck::Unchanged;
         }
         auth::RefreshOutcome::Rejected(reason) => {
-            log::warn!("signing {} out -- Twitch rejected the refresh: {reason}", account.login);
+            log::warn!(
+                "signing {} out -- Twitch rejected the refresh: {reason}",
+                account.login
+            );
             let mut auth_state = state.auth.write();
             auth_state.accounts.retain(|a| a.id != account.id);
             if auth_state.default_account == account.id {
@@ -422,7 +446,10 @@ fn apply_always_on_top(app: &AppHandle, pinned: bool) {
 /// is a better answer than an error. See `diagnostics` for what's in there.
 #[tauri::command]
 fn open_log_dir(app: AppHandle) -> Result<String, String> {
-    let dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
     // The folder isn't made until the first line is written, and on a run
     // that hasn't logged anything yet an open would simply fail.
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -507,7 +534,11 @@ fn set_client_id_override(
     client_id: String,
 ) -> AuthStatus {
     let trimmed = client_id.trim().to_string();
-    let next = if trimmed.is_empty() { None } else { Some(trimmed) };
+    let next = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
 
     if next == state.auth.read().client_id_override {
         return state.auth_status();
@@ -540,7 +571,11 @@ fn set_permission_groups(
     // sign-in and would sit in the settings file looking meaningful.
     let known: Vec<String> = groups
         .into_iter()
-        .filter(|id| auth::PERMISSION_GROUPS.iter().any(|group| group.id == id && !group.required))
+        .filter(|id| {
+            auth::PERMISSION_GROUPS
+                .iter()
+                .any(|group| group.id == id && !group.required)
+        })
         .collect();
 
     state.auth.write().permission_groups = known;
@@ -585,7 +620,11 @@ async fn run_chat_command(
         return Err("Channel isn't ready yet".to_string());
     };
 
-    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token: &token };
+    let helix = twitch::helix::Helix {
+        client: &state.http,
+        client_id: &client_id,
+        token: &token,
+    };
     let context = twitch::commands::Context {
         helix: &helix,
         channel: &name,
@@ -593,7 +632,9 @@ async fn run_chat_command(
         user_id: &user_id,
     };
 
-    twitch::commands::run(&context, &command, args).await.map_err(|e| e.to_string())
+    twitch::commands::run(&context, &command, args)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// How often to re-ask Twitch who's live. Cheap -- one request covers every
@@ -665,17 +706,29 @@ async fn fetch_channel_avatars(
     credentials: Option<(String, String)>,
     logins: &[String],
 ) {
-    let Some((client_id, token)) = credentials else { return };
+    let Some((client_id, token)) = credentials else {
+        return;
+    };
     let missing: Vec<String> = {
         let known = state.channel_avatars.read();
-        logins.iter().filter(|login| !known.contains_key(*login)).cloned().collect()
+        logins
+            .iter()
+            .filter(|login| !known.contains_key(*login))
+            .cloned()
+            .collect()
     };
     if missing.is_empty() {
         return;
     }
 
-    let helix = twitch::helix::Helix { client: &state.http, client_id: &client_id, token: &token };
-    let Ok(found) = twitch::users::fetch_avatars(&helix, &missing).await else { return };
+    let helix = twitch::helix::Helix {
+        client: &state.http,
+        client_id: &client_id,
+        token: &token,
+    };
+    let Ok(found) = twitch::users::fetch_avatars(&helix, &missing).await else {
+        return;
+    };
     if found.is_empty() {
         return;
     }
@@ -756,7 +809,14 @@ async fn link_preview(
         }
     }
 
-    linkinfo::preview(&state.link_http, &url)
+    linkinfo::preview(&url).await.map_err(|e| e.to_string())
+}
+
+/// A link-preview image after Rust has resolved and pinned every public
+/// address. The webview turns this bounded response into a local blob URL.
+#[tauri::command]
+async fn link_preview_image(url: String) -> Result<Option<linkinfo::PreviewImage>, String> {
+    linkinfo::preview_image(&url)
         .await
         .map_err(|e| e.to_string())
 }
@@ -854,7 +914,10 @@ async fn poll_device_auth(
             // Badges need a token, so refetch everything; sockets belonging to
             // this account (a re-sign-in) need to log in again with the new one.
             let shared: Shared = Arc::clone(&state);
-            diagnostics::supervise("global assets", client::load_global_assets(app.clone(), shared));
+            diagnostics::supervise(
+                "global assets",
+                client::load_global_assets(app.clone(), shared),
+            );
             state.send(&validation.user_id, state::IrcCommand::Reconnect);
             // We can ask about live status now that there's a token, and the
             // whisper socket has one to subscribe with.
@@ -1191,7 +1254,10 @@ fn update_mentions_tab(
         .unwrap_or_else(|| ANONYMOUS.to_string());
     {
         let mut tabs = state.tabs.write();
-        let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id && tab.mention.is_some()) else {
+        let Some(tab) = tabs
+            .iter_mut()
+            .find(|tab| tab.id == id && tab.mention.is_some())
+        else {
             return Err("That mentions tab has no editable options".to_string());
         };
         if tab.mention.as_ref() == Some(&mention) && tab.account == account {
@@ -1486,7 +1552,9 @@ pub fn run() {
                         .body(bytes),
                     Err(error) => {
                         log::debug!("emote cache: {key}: {error}");
-                        tauri::http::Response::builder().status(404).body(Vec::new())
+                        tauri::http::Response::builder()
+                            .status(404)
+                            .body(Vec::new())
                     }
                 };
                 if let Ok(response) = response {
@@ -1594,6 +1662,7 @@ pub fn run() {
             search_channels,
             user_card,
             link_preview,
+            link_preview_image,
             start_device_auth,
             poll_device_auth,
             remove_account,
@@ -1637,15 +1706,14 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_channel, normalize_login, prepare_outgoing, REFRESH_MARGIN_SECS,
-        TOKEN_CHECK_SECS,
+        normalize_channel, normalize_login, prepare_outgoing, REFRESH_MARGIN_SECS, TOKEN_CHECK_SECS,
     };
 
     #[test]
     fn tokens_are_renewed_further_ahead_than_the_gap_between_checks() {
         // Otherwise a token can expire in the hour between two checks, which
         // is the exact failure the poller exists to prevent.
-        assert!(REFRESH_MARGIN_SECS > TOKEN_CHECK_SECS);
+        const { assert!(REFRESH_MARGIN_SECS > TOKEN_CHECK_SECS) };
     }
 
     #[test]

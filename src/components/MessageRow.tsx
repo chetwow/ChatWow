@@ -9,7 +9,7 @@ import { isBlacklisted } from "../lib/emoteBlacklist";
 import { providerEnabled } from "../lib/emoteProviders";
 import { imagePreviewUrl, linkHost, linkKind, type LinkKind } from "../lib/links";
 import { messageTime } from "../lib/messageText";
-import { cachedLinkPreview, loadLinkPreview } from "../lib/linkPreviews";
+import { cachedLinkPreview, loadLinkPreview, loadPreviewImage } from "../lib/linkPreviews";
 import type { Badge, LinkPreview, ReplyInfo, Segment, StoredMessage } from "../types";
 
 function BadgeView({ badge }: { badge: Badge }) {
@@ -335,7 +335,16 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
 
   const preview = (element: HTMLElement) => {
     const anchor = () => element.getBoundingClientRect();
-    if (image) return show({ kind: "image", url: image }, anchor());
+    if (image) {
+      show({ kind: "loading" }, anchor());
+      const token = hover.current;
+      void loadPreviewImage(image).then((local) => {
+        if (hover.current !== token) return;
+        if (!local) return hide();
+        show({ kind: "image", url: local }, anchor());
+      });
+      return;
+    }
 
     // A resolved emote is drawn as the emote it is -- image, name, who by --
     // rather than as a card about a web page. `description` is the owner; see

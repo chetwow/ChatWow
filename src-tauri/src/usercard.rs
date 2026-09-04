@@ -146,7 +146,11 @@ fn history_from(response: SubageResponse) -> History {
     History {
         followed_at: response.followed_at.unwrap_or_default(),
         sub_months: response.cumulative.map(|c| c.months).unwrap_or_default(),
-        sub_tier: response.meta.as_ref().map(|m| m.tier.clone()).unwrap_or_default(),
+        sub_tier: response
+            .meta
+            .as_ref()
+            .map(|m| m.tier.clone())
+            .unwrap_or_default(),
         subscribed: response.meta.is_some(),
         sub_hidden: response.status_hidden,
     }
@@ -187,7 +191,11 @@ async fn profile(
     login: &str,
 ) -> Result<Profile> {
     if let Some((client_id, token)) = credentials {
-        let helix = Helix { client, client_id, token };
+        let helix = Helix {
+            client,
+            client_id,
+            token,
+        };
         match users::fetch_profile(&helix, login).await {
             Ok(profile) => return Ok(profile),
             Err(error) => log::debug!("user card: Helix profile failed ({error}); trying ivr.fi"),
@@ -286,7 +294,8 @@ mod tests {
 
     #[test]
     fn someone_who_doesnt_follow_has_no_date_rather_than_a_wrong_one() {
-        let history = subage(r#"{"statusHidden":false,"followedAt":null,"cumulative":null,"meta":null}"#);
+        let history =
+            subage(r#"{"statusHidden":false,"followedAt":null,"cumulative":null,"meta":null}"#);
         assert!(history.followed_at.is_empty());
         assert_eq!(history.sub_months, 0);
         assert!(!history.subscribed);
@@ -295,7 +304,8 @@ mod tests {
 
     #[test]
     fn a_hidden_subscription_is_flagged_rather_than_reported_as_absent() {
-        let history = subage(r#"{"statusHidden":true,"followedAt":null,"cumulative":null,"meta":null}"#);
+        let history =
+            subage(r#"{"statusHidden":true,"followedAt":null,"cumulative":null,"meta":null}"#);
         assert!(history.sub_hidden);
         assert!(!history.subscribed);
     }
@@ -309,7 +319,10 @@ mod tests {
         )
         .unwrap();
         let profile = profile_from(users).expect("a user");
-        assert_eq!(profile.avatar_url, "https://static-cdn.jtvnw.net/f-600x600.png");
+        assert_eq!(
+            profile.avatar_url,
+            "https://static-cdn.jtvnw.net/f-600x600.png"
+        );
         assert_eq!(profile.created_at, "2011-05-19T00:28:28.310449Z");
     }
 

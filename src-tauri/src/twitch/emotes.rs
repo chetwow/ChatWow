@@ -44,7 +44,10 @@ fn emotes(response: EmoteResponse) -> Vec<TwitchEmote> {
         .data
         .into_iter()
         .filter(|e| !e.id.is_empty() && !e.name.is_empty())
-        .map(|e| TwitchEmote { id: e.id, name: e.name })
+        .map(|e| TwitchEmote {
+            id: e.id,
+            name: e.name,
+        })
         .collect()
 }
 
@@ -72,7 +75,13 @@ pub async fn fetch_global(
     client_id: &str,
     token: &str,
 ) -> Result<Vec<TwitchEmote>> {
-    fetch(client, "https://api.twitch.tv/helix/chat/emotes/global", client_id, token).await
+    fetch(
+        client,
+        "https://api.twitch.tv/helix/chat/emotes/global",
+        client_id,
+        token,
+    )
+    .await
 }
 
 /// A channel's own emotes (subscriber, bits, follower). Returned whether or not
@@ -92,7 +101,10 @@ mod tests {
     use super::*;
 
     fn emote(id: &str, name: &str) -> TwitchEmote {
-        TwitchEmote { id: id.to_string(), name: name.to_string() }
+        TwitchEmote {
+            id: id.to_string(),
+            name: name.to_string(),
+        }
     }
 
     #[test]
@@ -108,7 +120,10 @@ mod tests {
     #[test]
     fn entries_missing_an_id_or_a_name_are_dropped() {
         let json = r#"{"data":[{"id":"1"},{"name":"orphan"},{"id":"2","name":"LUL"}]}"#;
-        assert_eq!(emotes(serde_json::from_str(json).unwrap()), vec![emote("2", "LUL")]);
+        assert_eq!(
+            emotes(serde_json::from_str(json).unwrap()),
+            vec![emote("2", "LUL")]
+        );
     }
 
     #[test]

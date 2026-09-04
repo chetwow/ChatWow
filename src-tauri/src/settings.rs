@@ -6,7 +6,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 /// One signed-in Twitch account.
@@ -320,7 +322,18 @@ pub struct Settings {
 fn path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir()?;
     std::fs::create_dir_all(&dir)?;
-    Ok(dir.join("settings.json"))
+    let file = dir.join("settings.json");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+        match std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(file)
 }
 
 /// Bring a file written by an earlier build up to the current shape.
@@ -372,7 +385,9 @@ fn migrate(settings: &mut Settings, raw: &str) {
     // two more. It's an ordinary tab now, so it's placed once, here, and the
     // pane boundary moves with it -- reading those three keys straight out of
     // the JSON keeps them from having to live on in `Preferences`.
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else { return };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return;
+    };
     let old = &value["preferences"];
     if old["mentionsTab"].as_bool() != Some(true) {
         return;
@@ -401,22 +416,106 @@ fn migrate(settings: &mut Settings, raw: &str) {
 }
 
 pub fn load(app: &AppHandle) -> Settings {
-    let Ok(file) = path(app) else { return Settings::default() };
-    let Ok(raw) = std::fs::read_to_string(file) else { return Settings::default() };
-    let mut settings: Settings = serde_json::from_str(&raw).unwrap_or_default();
+    let Ok(file) = path(app) else {
+        return Settings::default();
+    };
+    let raw = match std::fs::read_to_string(&file) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Settings::default(),
+        Err(error) => {
+            log::error!("failed to read settings from {}: {error}", file.display());
+            return Settings::default();
+        }
+    };
+    let mut settings: Settings = match serde_json::from_str(&raw) {
+        Ok(settings) => settings,
+        Err(error) => {
+            match preserve_invalid(&file) {
+                Ok(backup) => log::error!(
+                    "refusing malformed settings from {}; preserved them at {}: {error}",
+                    file.display(),
+                    backup.display()
+                ),
+                Err(backup_error) => log::error!(
+                    "refusing malformed settings from {} and could not preserve them ({backup_error}): {error}",
+                    file.display()
+                ),
+            }
+            return Settings::default();
+        }
+    };
     migrate(&mut settings, &raw);
     settings
 }
 
-pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
-    let file = path(app)?;
-    std::fs::write(file, serde_json::to_string_pretty(settings)?)?;
+fn preserve_invalid(file: &Path) -> std::io::Result<PathBuf> {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let backup = file.with_file_name(format!("settings.invalid-{stamp}.json"));
+    std::fs::rename(file, &backup)?;
+    Ok(backup)
+}
+
+fn save_to(file: &Path, settings: &Settings) -> Result<()> {
+    let dir = file.parent().expect("settings path has a parent");
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".settings-")
+        .tempfile_in(dir)?;
+    temporary.write_all(serde_json::to_string_pretty(settings)?.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(file)?;
+    #[cfg(unix)]
+    std::fs::File::open(dir)?.sync_all()?;
     Ok(())
+}
+
+pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
+    save_to(&path(app)?, settings)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_replace_atomically_with_valid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let mut settings = Settings {
+            default_account: "first".into(),
+            ..Default::default()
+        };
+        save_to(&file, &settings).unwrap();
+        settings.default_account = "second".into();
+        save_to(&file, &settings).unwrap();
+
+        let written: Settings =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(written.default_account, "second");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(file).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_settings_are_preserved_before_defaults_replace_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        std::fs::write(&file, "{not json").unwrap();
+
+        let backup = preserve_invalid(&file).unwrap();
+        assert!(!file.exists());
+        assert_eq!(std::fs::read_to_string(backup).unwrap(), "{not json");
+    }
 
     /// Existing custom listeners predate the per-listener notification switch
     /// and should keep notifying after their first load in the new build.

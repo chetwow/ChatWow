@@ -81,7 +81,12 @@ impl<'a> Helix<'a> {
         self.request(Method::GET, path, query, None).await
     }
 
-    pub async fn post(&self, path: &str, query: &[(&str, &str)], body: Option<Value>) -> Result<Value> {
+    pub async fn post(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        body: Option<Value>,
+    ) -> Result<Value> {
         self.request(Method::POST, path, query, body).await
     }
 
@@ -115,7 +120,10 @@ mod tests {
     #[test]
     fn an_error_with_no_message_falls_back_to_the_error_and_status() {
         let body = r#"{"error":"Forbidden","status":403}"#;
-        assert_eq!(error_message(StatusCode::FORBIDDEN, body), "Forbidden (403)");
+        assert_eq!(
+            error_message(StatusCode::FORBIDDEN, body),
+            "Forbidden (403)"
+        );
     }
 
     #[test]

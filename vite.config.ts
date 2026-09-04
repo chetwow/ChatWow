@@ -6,8 +6,14 @@ import tailwindcss from "@tailwindcss/vite";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(async ({ command }) => ({
   plugins: [react(), tailwindcss()],
+  // Mock modules are useful to the Vite development server, but a dynamic
+  // import alone still creates a production chunk. Compile their entire path
+  // away for release builds.
+  define: {
+    __CHATWOW_MOCKS__: JSON.stringify(command === "serve"),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

@@ -117,15 +117,25 @@ fn pick_image(images: &[Image]) -> Option<&Image> {
 }
 
 fn badges_from(response: Response, ids: &[String]) -> HashMap<String, Badge> {
-    let Some(data) = response.data else { return HashMap::new() };
+    let Some(data) = response.data else {
+        return HashMap::new();
+    };
     let mut map = HashMap::new();
 
     for (index, id) in ids.iter().enumerate() {
-        let Some(Some(user)) = data.users.get(&format!("u{index}")) else { continue };
-        let Some(badge) = user.style.as_ref().and_then(|style| style.active_badge.as_ref()) else {
+        let Some(Some(user)) = data.users.get(&format!("u{index}")) else {
             continue;
         };
-        let Some(image) = pick_image(&badge.images) else { continue };
+        let Some(badge) = user
+            .style
+            .as_ref()
+            .and_then(|style| style.active_badge.as_ref())
+        else {
+            continue;
+        };
+        let Some(image) = pick_image(&badge.images) else {
+            continue;
+        };
         if badge.id.is_empty() {
             continue;
         }
@@ -180,7 +190,9 @@ pub async fn run(app: AppHandle, state: Arc<AppState>, mut queue: mpsc::Unbounde
         let started = Instant::now();
 
         while batch.len() < BATCH {
-            let Some(remaining) = WINDOW.checked_sub(started.elapsed()) else { break };
+            let Some(remaining) = WINDOW.checked_sub(started.elapsed()) else {
+                break;
+            };
             match timeout(remaining, queue.recv()).await {
                 Ok(Some(id)) => batch.push(id),
                 // The sender is gone: the app is shutting down.
@@ -189,7 +201,9 @@ pub async fn run(app: AppHandle, state: Arc<AppState>, mut queue: mpsc::Unbounde
             }
         }
 
-        let Ok(badges) = fetch(&state.http, &batch).await else { continue };
+        let Ok(badges) = fetch(&state.http, &batch).await else {
+            continue;
+        };
         if badges.is_empty() {
             continue;
         }
@@ -241,10 +255,19 @@ mod tests {
 
         let xqc = map.get("71092938").expect("the first id keeps its badge");
         assert_eq!(xqc.title, "Minecraft Event Winner");
-        assert_eq!(xqc.url, "https://cdn.7tv.app/badge/01JJ/2x_static.webp", "2x webp");
-        assert_eq!(xqc.id, "7tv-01JJ", "namespaced, so it can't collide with a Twitch badge id");
+        assert_eq!(
+            xqc.url, "https://cdn.7tv.app/badge/01JJ/2x_static.webp",
+            "2x webp"
+        );
+        assert_eq!(
+            xqc.id, "7tv-01JJ",
+            "namespaced, so it can't collide with a Twitch badge id"
+        );
 
-        assert!(!map.contains_key("26301881"), "a user with no badge equipped");
+        assert!(
+            !map.contains_key("26301881"),
+            "a user with no badge equipped"
+        );
         assert_eq!(
             map["62300805"].url, "https://cdn.7tv.app/badge/01JF/2x_static.avif",
             "no webp, so whatever is offered"

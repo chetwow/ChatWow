@@ -61,7 +61,11 @@ fn build_map(response: BadgeResponse) -> BadgeMap {
             };
             map.insert(
                 (set.set_id.clone(), version.id.clone()),
-                Badge { id: format!("{}/{}", set.set_id, version.id), title, url },
+                Badge {
+                    id: format!("{}/{}", set.set_id, version.id),
+                    title,
+                    url,
+                },
             );
         }
     }
@@ -91,7 +95,13 @@ pub async fn fetch_global(
     client_id: &str,
     token: &str,
 ) -> Result<BadgeMap> {
-    fetch(client, "https://api.twitch.tv/helix/chat/badges/global", client_id, token).await
+    fetch(
+        client,
+        "https://api.twitch.tv/helix/chat/badges/global",
+        client_id,
+        token,
+    )
+    .await
 }
 
 pub async fn fetch_channel(
@@ -100,8 +110,7 @@ pub async fn fetch_channel(
     token: &str,
     broadcaster_id: &str,
 ) -> Result<BadgeMap> {
-    let url =
-        format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={broadcaster_id}");
+    let url = format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={broadcaster_id}");
     fetch(client, &url, client_id, token).await
 }
 
@@ -125,7 +134,10 @@ mod tests {
         assert_eq!(m.url, "a4");
         assert_eq!(m.title, "Moderator");
         assert_eq!(m.id, "moderator/1");
-        assert_eq!(map.get(&("subscriber".into(), "12".into())).unwrap().title, "1-Year Subscriber");
+        assert_eq!(
+            map.get(&("subscriber".into(), "12".into())).unwrap().title,
+            "1-Year Subscriber"
+        );
     }
 
     #[test]

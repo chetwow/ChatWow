@@ -122,7 +122,10 @@ fn dispatch(payload: &Value) -> Incoming {
 
     let update = SetUpdate {
         set: set.to_string(),
-        actor: body["actor"]["display_name"].as_str().unwrap_or_default().to_string(),
+        actor: body["actor"]["display_name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
         // `pushed` carries the whole set entry, so an added emote is
         // renderable straight away without going back to the API for it.
         added: emote_changes(&body["pushed"])
@@ -131,7 +134,9 @@ fn dispatch(payload: &Value) -> Incoming {
         removed: emote_changes(&body["pulled"])
             .filter_map(|change| named(&change["old_value"]))
             .collect(),
-        renamed: emote_changes(&body["updated"]).filter_map(renamed).collect(),
+        renamed: emote_changes(&body["updated"])
+            .filter_map(renamed)
+            .collect(),
     };
 
     match update.is_empty() {
@@ -155,7 +160,10 @@ fn emote_changes(list: &Value) -> impl Iterator<Item = &Value> {
 fn named(value: &Value) -> Option<NamedEmote> {
     let id = value["id"].as_str().filter(|id| !id.is_empty())?;
     let name = value["name"].as_str().filter(|name| !name.is_empty())?;
-    Some(NamedEmote { id: id.to_string(), name: name.to_string() })
+    Some(NamedEmote {
+        id: id.to_string(),
+        name: name.to_string(),
+    })
 }
 
 /// A rename, read from the pair a change carries. Only the alias is read from
@@ -167,14 +175,20 @@ fn renamed(change: &Value) -> Option<Rename> {
     if before.name == after.name {
         return None;
     }
-    Some(Rename { id: after.id, from: before.name, to: after.name })
+    Some(Rename {
+        id: after.id,
+        from: before.name,
+        to: after.name,
+    })
 }
 
 /// The emote we're holding under a name, if it's the 7TV one this change is
 /// about. Guards every removal: a name can also be some other provider's, or a
 /// different 7TV emote aliased over the top.
 fn ours<'a>(merged: &'a HashMap<String, Emote>, name: &str, id: &str) -> Option<&'a Emote> {
-    merged.get(name).filter(|emote| emote.provider == "7tv" && emote.id == id)
+    merged
+        .get(name)
+        .filter(|emote| emote.provider == "7tv" && emote.id == id)
 }
 
 /// Take a 7TV emote out of the merged map, putting back whatever name it was
@@ -217,7 +231,12 @@ fn apply(state: &AppState, update: &SetUpdate) -> Vec<String> {
             let Some(mut emote) = ours(&entry.emotes, &rename.from, &rename.id).cloned() else {
                 continue;
             };
-            uncover(&mut entry.emotes, &entry.other_emotes, &rename.from, &rename.id);
+            uncover(
+                &mut entry.emotes,
+                &entry.other_emotes,
+                &rename.from,
+                &rename.id,
+            );
             emote.name = rename.to.clone();
             entry.emotes.insert(rename.to.clone(), emote);
         }
@@ -266,7 +285,10 @@ fn lines(update: &SetUpdate) -> Vec<String> {
         lines.push(format!("7TV: {who}renamed {} emotes", update.renamed.len()));
     } else {
         for rename in &update.renamed {
-            lines.push(format!("7TV: {who}renamed {} to {}", rename.from, rename.to));
+            lines.push(format!(
+                "7TV: {who}renamed {} to {}",
+                rename.from, rename.to
+            ));
         }
     }
 
@@ -294,7 +316,12 @@ fn handle(app: &AppHandle, state: &Arc<AppState>, sink: &MessageSink, update: &S
             }
         }
 
-        let count = state.data.read().get(&channel).map(|data| data.emotes.len()).unwrap_or(0);
+        let count = state
+            .data
+            .read()
+            .get(&channel)
+            .map(|data| data.emotes.len())
+            .unwrap_or(0);
         let _ = app.emit(
             "chat://emote-set",
             json!({ "channel": channel, "emoteCount": count }),
@@ -442,7 +469,9 @@ mod tests {
                "pushed":[{{"key":"emotes","index":0,"value":{}}}]}}}}}}"#,
             entry("abc", "catJAM")
         );
-        let Incoming::Update(update) = classify(&raw) else { panic!("expected an update") };
+        let Incoming::Update(update) = classify(&raw) else {
+            panic!("expected an update")
+        };
 
         assert_eq!(update.set, "set-1");
         assert_eq!(update.actor, "NymN");
@@ -457,9 +486,17 @@ mod tests {
         let raw = r#"{"op":0,"d":{"type":"emote_set.update","body":{"id":"set-1",
             "actor":{"display_name":"NymN"},
             "pulled":[{"key":"emotes","index":0,"old_value":{"id":"abc","name":"catJAM"}}]}}}"#;
-        let Incoming::Update(update) = classify(raw) else { panic!("expected an update") };
+        let Incoming::Update(update) = classify(raw) else {
+            panic!("expected an update")
+        };
 
-        assert_eq!(update.removed, vec![NamedEmote { id: "abc".into(), name: "catJAM".into() }]);
+        assert_eq!(
+            update.removed,
+            vec![NamedEmote {
+                id: "abc".into(),
+                name: "catJAM".into()
+            }]
+        );
         assert_eq!(lines(&update), vec!["7TV: NymN removed catJAM"]);
     }
 
@@ -468,11 +505,17 @@ mod tests {
         let raw = r#"{"op":0,"d":{"type":"emote_set.update","body":{"id":"set-1",
             "updated":[{"key":"emotes","index":0,
               "old_value":{"id":"abc","name":"catJAM"},"value":{"id":"abc","name":"catJam"}}]}}}"#;
-        let Incoming::Update(update) = classify(raw) else { panic!("expected an update") };
+        let Incoming::Update(update) = classify(raw) else {
+            panic!("expected an update")
+        };
 
         assert_eq!(
             update.renamed,
-            vec![Rename { id: "abc".into(), from: "catJAM".into(), to: "catJam".into() }]
+            vec![Rename {
+                id: "abc".into(),
+                from: "catJAM".into(),
+                to: "catJam".into()
+            }]
         );
         // No actor in that dispatch, so the line keeps the verb and drops the
         // subject rather than reading as though nobody did it.
@@ -490,11 +533,17 @@ mod tests {
 
     #[test]
     fn other_frames_are_read_for_what_they_are() {
-        assert_eq!(classify(r#"{"op":1,"d":{"session_id":"x"}}"#), Incoming::Hello);
+        assert_eq!(
+            classify(r#"{"op":1,"d":{"session_id":"x"}}"#),
+            Incoming::Hello
+        );
         assert_eq!(classify(r#"{"op":2,"d":{"count":3}}"#), Incoming::Ignored);
         assert_eq!(classify(r#"{"op":4,"d":{}}"#), Incoming::Restart);
         assert_eq!(classify(r#"{"op":7,"d":{"code":4000}}"#), Incoming::Restart);
-        assert_eq!(classify(r#"{"op":0,"d":{"type":"cosmetic.create"}}"#), Incoming::Ignored);
+        assert_eq!(
+            classify(r#"{"op":0,"d":{"type":"cosmetic.create"}}"#),
+            Incoming::Ignored
+        );
         assert_eq!(classify("not json at all"), Incoming::Ignored);
     }
 
@@ -507,10 +556,16 @@ mod tests {
         ]);
 
         assert!(uncover(&mut merged, &others, "KEKW", "s-1"));
-        assert_eq!(merged["KEKW"].provider, "bttv", "BTTV's was there all along");
+        assert_eq!(
+            merged["KEKW"].provider, "bttv",
+            "BTTV's was there all along"
+        );
 
         assert!(uncover(&mut merged, &others, "catJAM", "s-2"));
-        assert!(!merged.contains_key("catJAM"), "nothing underneath, so the name goes");
+        assert!(
+            !merged.contains_key("catJAM"),
+            "nothing underneath, so the name goes"
+        );
     }
 
     #[test]
@@ -570,7 +625,10 @@ mod tests {
             set: "set-1".to_string(),
             actor: "NymN".to_string(),
             added: vec![emote("7tv", "s-3", "catJAM")],
-            removed: vec![NamedEmote { id: "s-1".into(), name: "KEKW".into() }],
+            removed: vec![NamedEmote {
+                id: "s-1".into(),
+                name: "KEKW".into(),
+            }],
             renamed: vec![Rename {
                 id: "s-2".into(),
                 from: "Pepega".into(),
@@ -581,12 +639,24 @@ mod tests {
 
         let data = state.data.read();
         let moved = &data["forsen"].emotes;
-        assert_eq!(moved["catJAM"].id, "s-3", "the added emote renders straight away");
-        assert_eq!(moved["KEKW"].provider, "bttv", "BTTV's was under the one removed");
+        assert_eq!(
+            moved["catJAM"].id, "s-3",
+            "the added emote renders straight away"
+        );
+        assert_eq!(
+            moved["KEKW"].provider, "bttv",
+            "BTTV's was under the one removed"
+        );
         assert!(!moved.contains_key("Pepega"), "the old alias stops working");
-        assert_eq!(moved["Pepege"].id, "s-2", "and the new one is the same image");
+        assert_eq!(
+            moved["Pepege"].id, "s-2",
+            "and the new one is the same image"
+        );
 
-        assert_eq!(data["nymn"].emotes["KEKW"].provider, "7tv", "another set is untouched");
+        assert_eq!(
+            data["nymn"].emotes["KEKW"].provider, "7tv",
+            "another set is untouched"
+        );
     }
 
     #[test]

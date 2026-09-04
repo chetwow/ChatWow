@@ -101,6 +101,9 @@ mod tests {
 
         let merged = merge(vec![ffz, bttv, seventv]);
         assert_eq!(merged["KEKW"].provider, "7tv");
-        assert_eq!(merged["haHAA"].provider, "bttv", "names only one provider has survive");
+        assert_eq!(
+            merged["haHAA"].provider, "bttv",
+            "names only one provider has survive"
+        );
     }
 }

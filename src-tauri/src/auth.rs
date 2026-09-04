@@ -181,7 +181,9 @@ pub async fn start_device(
     let status = response.status();
     let body = response.text().await?;
     if !status.is_success() {
-        return Err(anyhow!("Twitch rejected the device request ({status}): {body}"));
+        return Err(anyhow!(
+            "Twitch rejected the device request ({status}): {body}"
+        ));
     }
     serde_json::from_str(&body)
         .map_err(|e| anyhow!("unexpected device response: {e} -- body was {body}"))
@@ -302,7 +304,10 @@ mod tests {
     fn the_chat_scopes_are_requested_whatever_else_is_ticked() {
         let scopes = scope_string(&[]);
         for required in ["chat:read", "chat:edit", "user:write:chat"] {
-            assert!(scopes.split(' ').any(|s| s == required), "{required} missing from {scopes}");
+            assert!(
+                scopes.split(' ').any(|s| s == required),
+                "{required} missing from {scopes}"
+            );
         }
     }
 
