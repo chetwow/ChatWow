@@ -21,6 +21,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added a configurable warning before closing the last channel tab feeding a mentions listener.
 - Added username suggestion popups when typing `@` in chat and when entering users in listener
   settings, populated from chatters seen during the current session.
+- Added moderator context-menu controls for deleting messages, banning or unbanning users, and
+  applying default or custom-length timeouts, with a configurable default timeout duration.
 
 ### Changed
 

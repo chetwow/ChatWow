@@ -18,6 +18,7 @@ import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
 import { messageText } from "../lib/messageText";
+import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
@@ -62,6 +63,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notifyActiveTab: false,
   warnOnListenerClose: true,
   showMessageHistory: true,
+  defaultTimeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
   checkForUpdates: true,
   enableSeventv: true,
   enableBttv: true,
@@ -126,6 +128,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.emoteCompleteBlacklist = normalizeRules(merged.emoteCompleteBlacklist);
   merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
   merged.blockedUsers = normalizeLogins(merged.blockedUsers);
+  if (!validTimeout(merged.defaultTimeoutSeconds)) {
+    merged.defaultTimeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
+  }
   if (!SPLIT_LAYOUTS.has(merged.splitLayout)) merged.splitLayout = DEFAULT_PREFERENCES.splitLayout;
   if (!NEW_TAB_AVATAR_MODE_IDS.has(merged.newTabAvatarMode)) {
     merged.newTabAvatarMode = DEFAULT_PREFERENCES.newTabAvatarMode;
@@ -404,6 +409,26 @@ function settleActive(layout: Layout, preferred: (string | null)[]): [string | n
   return next as [string | null, string | null];
 }
 
+export type ActiveModeration = {
+  kind: "ban" | "timeout";
+  /** Permanent for bans; wall-clock expiry for timeouts. */
+  expiresAt: number | null;
+};
+
+const moderationKey = (channel: string, login: string) =>
+  `${channel.toLocaleLowerCase()}\n${login.toLocaleLowerCase()}`;
+
+/** A live ban/timeout learned from IRC, excluding timeouts that have expired. */
+export function activeModeration(
+  moderations: Record<string, ActiveModeration>,
+  channel: string,
+  login: string,
+  now = Date.now(),
+): ActiveModeration | undefined {
+  const held = moderations[moderationKey(channel, login)];
+  return held && (held.expiresAt === null || held.expiresAt > now) ? held : undefined;
+}
+
 type ChatState = {
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];
@@ -464,6 +489,8 @@ type ChatState = {
    * because it's per account: one login can be a mod where another isn't.
    */
   roles: Record<string, ChannelRole>;
+  /** Current bans/timeouts observed from IRC, keyed by channel and login. */
+  moderations: Record<string, ActiveModeration>;
   /** Completable emotes per tab, sorted case-insensitively by name. */
   emoteEntries: Record<string, EmoteEntry[]>;
   /**
@@ -569,6 +596,8 @@ type ChatState = {
   restartForUpdate: () => Promise<void>;
   ingest: (batch: ChatMessage[]) => void;
   clear: (event: ClearEvent) => void;
+  /** Forget a ban/timeout after Twitch accepts the matching unban command. */
+  clearModeration: (channel: string, login: string) => void;
   bootstrap: () => Promise<void>;
 };
 
@@ -781,6 +810,7 @@ export const useChat = create<ChatState>((set) => ({
   channelAvatars: {},
   emoteCounts: {},
   roles: {},
+  moderations: {},
   emoteEntries: {},
   seventvBadges: {},
   mentionLog: {},
@@ -1446,10 +1476,15 @@ export const useChat = create<ChatState>((set) => ({
     if (mentioned) playMentionSound();
   },
 
-  clear: ({ account, channel, login, messageId }) => {
+  clear: ({ account, channel, login, messageId, duration }) => {
     set((state) => {
+      const normalizedLogin = login?.toLocaleLowerCase() ?? "";
       const hit = (message: StoredMessage) =>
-        messageId ? message.id === messageId : login ? message.login === login : false;
+        messageId
+          ? message.id === messageId
+          : normalizedLogin
+            ? message.login.toLocaleLowerCase() === normalizedLogin
+            : false;
       const strike = (message: StoredMessage) =>
         hit(message) ? { ...message, deleted: true } : message;
 
@@ -1473,9 +1508,26 @@ export const useChat = create<ChatState>((set) => ({
         );
       }
 
-      return { messages, mentionLog };
+      const moderations = { ...state.moderations };
+      if (normalizedLogin) {
+        moderations[moderationKey(channel, normalizedLogin)] = {
+          kind: duration == null ? "ban" : "timeout",
+          expiresAt: duration == null ? null : Date.now() + duration * 1_000,
+        };
+      }
+
+      return { messages, mentionLog, moderations };
     });
   },
+
+  clearModeration: (channel, login) =>
+    set((state) => {
+      const key = moderationKey(channel, login);
+      if (!(key in state.moderations)) return {};
+      const moderations = { ...state.moderations };
+      delete moderations[key];
+      return { moderations };
+    }),
 
   bootstrap: async () => {
     if (!IS_TAURI) {

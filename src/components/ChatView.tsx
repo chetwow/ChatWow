@@ -11,10 +11,21 @@ import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageR
 import { Composer } from "./Composer";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
-import { loginOf, useChat, type BlacklistKind } from "../store/chat";
+import {
+  activeModeration,
+  loginOf,
+  useChat,
+  type BlacklistKind,
+} from "../store/chat";
+import {
+  ModerationErrorDialog,
+  TimeoutDialog,
+  type TimeoutTarget,
+} from "./ModerationDialogs";
 import { messageLine, messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
 import { ignoreForChannel, ignoreForUser, mentionIgnored, userBlocked } from "../lib/ignores";
+import { formatTimeout } from "../lib/timeout";
 import type { EmoteRule, StoredMessage } from "../types";
 
 /** How close to the bottom still counts as "pinned". */
@@ -66,8 +77,14 @@ export function ChatView({
   const mentionLog = useChat((state) => state.mentionLog[id]);
   const ready = useChat((state) => state.ready[id]);
   const tabs = useChat((state) => state.tabs);
+  const auth = useChat((state) => state.auth);
   const setActive = useChat((state) => state.setActive);
   const openMentionsTab = useChat((state) => state.openMentionsTab);
+  const runCommand = useChat((state) => state.runCommand);
+  const roles = useChat((state) => state.roles);
+  const moderations = useChat((state) => state.moderations);
+  const clearModeration = useChat((state) => state.clearModeration);
+  const defaultTimeoutSeconds = useChat((state) => state.preferences.defaultTimeoutSeconds);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -111,6 +128,8 @@ export function ChatView({
   const myLogin = useChat((state) => loginOf(state, account));
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
+  const [timeoutTarget, setTimeoutTarget] = useState<TimeoutTarget | null>(null);
+  const [moderationError, setModerationError] = useState<string | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
@@ -154,6 +173,8 @@ export function ChatView({
     setMenu(null);
     setReplyTo(null);
     setCard(null);
+    setTimeoutTarget(null);
+    setModerationError(null);
   }, [id]);
 
   useLayoutEffect(() => {
@@ -402,6 +423,84 @@ export function ChatView({
     ];
   };
 
+  /** A channel tab whose account can moderate the room this message came from. */
+  const moderatorTabFor = (message: StoredMessage) => {
+    const eligible = tabs.filter(
+      (candidate) =>
+        candidate.kind === "channel" &&
+        candidate.channel === message.channel &&
+        roles[candidate.id] !== undefined &&
+        roles[candidate.id] !== "viewer",
+    );
+    return eligible.find((candidate) => candidate.account === message.account) ?? eligible[0];
+  };
+
+  const runDirectModeration = (tabId: string, command: string, after?: () => void) => {
+    void runCommand(tabId, command).then(after).catch((cause) => setModerationError(String(cause)));
+  };
+
+  /** Controls apply to the clicked message's room, including rows in listener tabs. */
+  const moderationOptions = (message: StoredMessage): ContextMenuOption[] => {
+    if (message.kind !== "chat" || !message.channel) return [];
+    const actingTab = moderatorTabFor(message);
+    if (!actingTab) return [];
+
+    const login = message.login.toLocaleLowerCase();
+    const actingLogin = loginOf({ auth }, actingTab.account)?.toLocaleLowerCase();
+    const mayTargetUser = Boolean(login && actingLogin !== login);
+    const held = message.deleted
+      ? activeModeration(moderations, message.channel, login)
+      : undefined;
+    const controls: ContextMenuOption[] = [];
+
+    if (!message.deleted && message.id) {
+      controls.push({
+        label: "Delete this message",
+        onSelect: () => runDirectModeration(actingTab.id, `/delete ${message.id}`),
+      });
+    }
+
+    if (mayTargetUser) {
+      if (held) {
+        controls.push({
+          label: "Unban this user",
+          onSelect: () =>
+            runDirectModeration(actingTab.id, `/unban ${login}`, () =>
+              clearModeration(message.channel, login),
+            ),
+        });
+      } else {
+        controls.push(
+          {
+            label: "Ban this user",
+            onSelect: () => runDirectModeration(actingTab.id, `/ban ${login}`),
+          },
+          {
+            label: `Time out user for ${formatTimeout(defaultTimeoutSeconds)}`,
+            onSelect: () =>
+              runDirectModeration(
+                actingTab.id,
+                `/timeout ${login} ${defaultTimeoutSeconds}`,
+              ),
+          },
+          {
+            label: "Time out user for…",
+            onSelect: () =>
+              setTimeoutTarget({
+                tabId: actingTab.id,
+                login,
+                displayName: message.displayName || login,
+              }),
+          },
+        );
+      }
+    }
+
+    return controls.length > 0
+      ? [{ separator: true }, { heading: "Moderation" }, ...controls]
+      : [];
+  };
+
   const menuOptions: ContextMenuOption[] = menu
     ? [
         {
@@ -429,6 +528,7 @@ export function ChatView({
         ...(menu.message.kind === "chat" && !isMentions
           ? [{ label: "Reply", onSelect: () => setReplyTo(menu.message) }]
           : []),
+        ...moderationOptions(menu.message),
         ...personOptions(menu.message, menu.chatterName),
         ...(menu.emote ? emoteOptions(menu.emote) : []),
       ]
@@ -586,6 +686,25 @@ export function ChatView({
 
         {menu && (
           <ContextMenu x={menu.x} y={menu.y} options={menuOptions} onClose={() => setMenu(null)} />
+        )}
+
+        {timeoutTarget && (
+          <TimeoutDialog
+            key={`${timeoutTarget.tabId}|${timeoutTarget.login}`}
+            target={timeoutTarget}
+            initialSeconds={defaultTimeoutSeconds}
+            onSubmit={(seconds) =>
+              runCommand(timeoutTarget.tabId, `/timeout ${timeoutTarget.login} ${seconds}`)
+            }
+            onClose={() => setTimeoutTarget(null)}
+          />
+        )}
+
+        {moderationError && (
+          <ModerationErrorDialog
+            error={moderationError}
+            onClose={() => setModerationError(null)}
+          />
         )}
 
         {/* Keyed by who it's about: clicking a second name reuses this slot, and

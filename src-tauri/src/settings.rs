@@ -151,6 +151,9 @@ pub struct Preferences {
     /// the one thing that talks to a third party, which is why it's a setting
     /// -- see `irc::history`.
     pub show_message_history: bool,
+    /// Duration in seconds used by the context menu's one-click timeout.
+    /// The frontend keeps this within Twitch's one-second to two-week range.
+    pub default_timeout_seconds: u64,
     /// Ask GitHub whether there's a newer release, once, a moment after
     /// launch. On by default: an unsigned app has no other way to say it's out
     /// of date. Off means the check only happens when you press the button in
@@ -249,6 +252,7 @@ impl Default for Preferences {
             notify_active_tab: false,
             warn_on_listener_close: true,
             show_message_history: true,
+            default_timeout_seconds: 600,
             check_for_updates: true,
             enable_seventv: true,
             enable_bttv: true,

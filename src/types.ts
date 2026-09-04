@@ -227,6 +227,8 @@ export type Preferences = {
   warnOnListenerClose: boolean;
   /** Load a channel's recent messages when you join it. */
   showMessageHistory: boolean;
+  /** Duration used by the one-click moderator timeout action. */
+  defaultTimeoutSeconds: number;
   /**
    * Ask GitHub for a newer release a moment after launch. Nothing is
    * downloaded until it's asked for either way.

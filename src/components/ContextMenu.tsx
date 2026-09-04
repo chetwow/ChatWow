@@ -62,7 +62,7 @@ export function ContextMenu({
     <div
       ref={ref}
       style={{ left: style.left, top: style.top, visibility: style.visibility }}
-      className="fixed z-50 min-w-[140px] overflow-hidden rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60"
+      className="scroller fixed z-50 max-h-[calc(100vh-1rem)] min-w-[140px] overflow-y-auto rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60"
     >
       {options.map((option, index) =>
         "separator" in option ? (

@@ -9,6 +9,7 @@ import { Hinted } from "./Hinted";
 import { imageKey, ruleKey } from "../lib/emoteBlacklist";
 import { normalizeIgnore } from "../lib/ignores";
 import { NEW_TAB_AVATAR_MODES } from "../lib/tabAvatar";
+import { formatTimeout, TIMEOUT_PRESETS } from "../lib/timeout";
 import type { ChatFontSize, EmoteEntry, EmoteRule, NewTabAvatarMode } from "../types";
 
 export type SettingsTab = "general" | "account" | "appearance" | "notifications" | "emotes";
@@ -776,6 +777,24 @@ export function SettingsDialog({
                     onChange={(previewPages) => updatePreferences({ previewPages })}
                     label="Preview other links"
                   />
+                </Row>
+              </Section>
+              <Section title="Moderation">
+                <Row label="Default timeout duration">
+                  <select
+                    value={preferences.defaultTimeoutSeconds}
+                    onChange={(event) =>
+                      updatePreferences({ defaultTimeoutSeconds: Number(event.target.value) })
+                    }
+                    className="appearance-none rounded-md border border-line bg-surface px-2 py-1 text-[11px] text-ink outline-none transition-colors hover:bg-surface-hover focus:border-accent"
+                    aria-label="Default timeout duration"
+                  >
+                    {TIMEOUT_PRESETS.map((seconds) => (
+                      <option key={seconds} value={seconds}>
+                        {formatTimeout(seconds)}
+                      </option>
+                    ))}
+                  </select>
                 </Row>
               </Section>
               <Section title="Updates">

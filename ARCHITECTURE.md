@@ -149,6 +149,16 @@ on sign-in with nothing rebuilt, and the picker has to answer on every keystroke
 trip. A failed command keeps your text in the composer, since the usual cause is an argument to
 fix; a successful one prints what it did as a notice.
 
+The message context menu exposes delete, ban and timeout commands when at least one open tab on
+that message's channel has a moderator or broadcaster role. In a listener tab it prefers the
+channel tab using the account that received that copy, then falls back to another moderator tab
+on the same channel. The commands still go through `runCommand`, so the chosen tab's account and
+granted scopes remain authoritative. `CLEARCHAT` events keep a session-only channel-and-login
+record of active bans and timeouts; that is what changes moderation controls on a deleted row to
+Unban. Timeout records carry their expiry, while a successful unban clears either kind locally.
+The one-click duration is a persisted preference; the arbitrary-duration dialog accepts one
+second through Twitch's two-week maximum.
+
 `/me` is the exception: it's a message rather than a command and goes out through the send path
 like any other text.
 
@@ -859,7 +869,8 @@ deliberately doesn't validate the values: the store normalizes an unknown one ba
 default, so a hand-edited file can't wedge the UI. The font-size preset resolves to a
 `--chat-font-size` custom property set on the app root; only message bodies and the composer
 follow it, so nothing that measures its own layout moves when it changes. Mock mode has no
-backend to write to and falls back to `localStorage`.
+backend to write to and falls back to `localStorage`. The default moderator timeout is stored as
+seconds and normalized in the frontend to Twitch's one-second through two-week range.
 
 The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100%)`, setting rows
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
