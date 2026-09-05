@@ -239,6 +239,8 @@ export type Preferences = {
   notifyOnTag: boolean;
   /** Ping when someone uses your name without the `@`. */
   notifyOnName: boolean;
+  /** Draw positions for highlighted mentions beside the chat scrollbar. */
+  showMentionMarkers: boolean;
   /** Silence mention sounds for the channel currently being read. */
   muteActiveTab: boolean;
   /** Silence every notification sound while the app window has focus. */

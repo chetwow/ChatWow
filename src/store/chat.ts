@@ -22,6 +22,7 @@ import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { isThemeId } from "../lib/themes";
+import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
 import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
@@ -65,6 +66,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   chatFontSize: "medium",
   notifyOnTag: true,
   notifyOnName: true,
+  showMentionMarkers: true,
   muteActiveTab: true,
   muteWhenWindowActive: false,
   warnOnListenerClose: true,
@@ -534,6 +536,8 @@ type ChatState = {
   mentionLog: Record<string, StoredMessage[]>;
   /** A channel close waiting for the user to acknowledge stopped listeners. */
   listenerCloseWarning: ListenerCloseWarning | null;
+  /** The most recently closed tab, kept for this session's reopen action. */
+  lastClosedTab: ClosedTab | null;
   /** Send count per emote name, shared across channels and accounts. */
   emoteUses: Record<string, number>;
   /**
@@ -590,6 +594,8 @@ type ChatState = {
   updateMentionsTab: (id: string, mention: MentionFilter) => Promise<void>;
   /** Close immediately, or open the listener warning when this is a source tab. */
   requestCloseTab: (id: string) => void;
+  /** Restore the most recently closed tab, if its remaining identity is valid. */
+  reopenLastClosedTab: () => Promise<void>;
   cancelListenerClose: () => void;
   confirmListenerClose: (dontShowAgain: boolean) => Promise<void>;
   /** Read (and send) as a different account, keeping the tab and its messages. */
@@ -813,15 +819,34 @@ function listenersStoppedByClosing(state: ChatState, closing: Tab): string[] {
 
 /** The one unguarded close operation; only the request/confirmation flow calls it. */
 async function closeTabNow(id: string) {
+  const before = useChat.getState();
+  const tab = tabById(before, id);
+  if (!tab) return;
+  const pane = paneOf(before, id) ?? before.focusedPane;
+  const index = paneTabs(before, pane).findIndex((candidate) => candidate.id === id);
+  const closed: ClosedTab = { tab, pane, index: Math.max(0, index) };
+  const shrinkFirstPane = before.preferences.splitLayout !== "none" && pane === 0;
+
   const tabs = IS_TAURI
     ? await api.closeTab(id)
-    : useChat.getState().tabs.filter((tab) => tab.id !== id);
+    : before.tabs.filter((open) => open.id !== id);
 
   useChat.setState((state) => ({
     tabs,
+    lastClosedTab: closed,
     listenerCloseWarning: null,
     ...forgetTab(state, id),
   }));
+  // Preserve the remaining pane memberships. Without moving the boundary, a
+  // close in the first pane would pull the second pane's first tab across.
+  if (
+    shrinkFirstPane &&
+    useChat.getState().preferences.splitLayout === before.preferences.splitLayout
+  ) {
+    useChat
+      .getState()
+      .updatePreferences({ splitIndex: Math.max(0, before.preferences.splitIndex - 1) });
+  }
   const settled = useChat.getState();
   useChat.setState({ active: settleActive(settled, settled.active) });
 }
@@ -846,6 +871,7 @@ export const useChat = create<ChatState>((set) => ({
   seventvBadges: {},
   mentionLog: {},
   listenerCloseWarning: null,
+  lastClosedTab: null,
   emoteUses: {},
   sentHistory: {},
   connections: {},
@@ -1125,6 +1151,67 @@ export const useChat = create<ChatState>((set) => ({
     void closeTabNow(id);
   },
 
+  reopenLastClosedTab: async () => {
+    const state = useChat.getState();
+    const closed = state.lastClosedTab && restorableClosedTab(state.lastClosedTab, state.auth);
+    if (!closed) return;
+
+    // Consume it before crossing IPC so key repeat cannot launch two opens.
+    set({ lastClosedTab: null });
+    try {
+      const duplicate = state.tabs.find(
+        (open) =>
+          closed.tab.kind === "channel" &&
+          open.kind === "channel" &&
+          open.channel === closed.tab.channel &&
+          open.account === closed.tab.account,
+      );
+      if (duplicate) {
+        useChat.getState().setActive(duplicate.id);
+        return;
+      }
+
+      let tabs = IS_TAURI ? await api.addTab(closed.tab, true) : [...state.tabs, closed.tab];
+      let opened = tabs.find((tab) => tab.id === closed.tab.id);
+      if (!opened) {
+        // The backend can still spot a duplicate opened during the round trip.
+        const existing = tabs.find(
+          (tab) =>
+            closed.tab.kind === "channel" &&
+            tab.kind === "channel" &&
+            tab.channel === closed.tab.channel &&
+            tab.account === closed.tab.account,
+        );
+        set({ tabs });
+        if (existing) useChat.getState().setActive(existing.id);
+        return;
+      }
+
+      // `add_tab` stamps brand-new channel avatars from the preference. A
+      // reopened tab keeps its own prior choice instead.
+      if (
+        IS_TAURI &&
+        opened.kind === "channel" &&
+        opened.avatarMode !== closed.tab.avatarMode
+      ) {
+        tabs = await api.setTabAvatarMode(opened.id, closed.tab.avatarMode);
+        opened = tabs.find((tab) => tab.id === closed.tab.id) ?? opened;
+      }
+
+      set((current) => ({
+        tabs,
+        ...(IS_TAURI ? {} : { ready: { ...current.ready, [opened.id]: true } }),
+      }));
+      const current = useChat.getState();
+      const pane = current.preferences.splitLayout === "none" ? 0 : closed.pane;
+      current.moveTab(opened.id, pane, closed.index);
+      useChat.getState().setActive(opened.id, pane);
+    } catch {
+      // Keep the action available after a transient persistence/IPC failure.
+      set((current) => ({ lastClosedTab: current.lastClosedTab ?? closed }));
+    }
+  },
+
   cancelListenerClose: () => set({ listenerCloseWarning: null }),
 
   confirmListenerClose: async (dontShowAgain) => {
@@ -1267,7 +1354,10 @@ export const useChat = create<ChatState>((set) => ({
             }
           : null,
       }));
-      return { auth, roles, tabs };
+      const lastClosedTab = state.lastClosedTab
+        ? restorableClosedTab(state.lastClosedTab, auth)
+        : null;
+      return { auth, roles, tabs, lastClosedTab };
     }),
 
   updatePreferences: (patch) => {

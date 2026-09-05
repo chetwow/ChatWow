@@ -6,11 +6,13 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
 } from "react";
 import { mentionTabName, paneTabs, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
 import { AccountMenu } from "./AccountMenu";
+import { ContextMenu } from "./ContextMenu";
 import { MentionOptionsDialog } from "./MentionOptionsDialog";
 import { RenameListenerDialog } from "./RenameListenerDialog";
 import type { PaneIndex, Tab } from "../types";
@@ -38,9 +40,12 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const channelAvatars = useChat((state) => state.channelAvatars);
   const setActive = useChat((state) => state.setActive);
   const requestCloseTab = useChat((state) => state.requestCloseTab);
+  const canReopenClosedTab = useChat((state) => state.lastClosedTab !== null);
+  const reopenLastClosedTab = useChat((state) => state.reopenLastClosedTab);
   const moveTab = useChat((state) => state.moveTab);
   /** Which tab's account menu is open, and where it was opened. */
   const [accountMenu, setAccountMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [barMenu, setBarMenu] = useState<{ x: number; y: number } | null>(null);
   const [optionsTab, setOptionsTab] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   // One scrolling row, or as many wrapped rows as the tabs need.
@@ -346,6 +351,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            setBarMenu(null);
             setAccountMenu({ id: tab.id, x: event.clientX, y: event.clientY });
           }}
           className={`group relative flex h-8 cursor-pointer items-center gap-1 rounded-t-md pl-1.5 pr-0.5 text-[12px] transition-colors ${
@@ -479,6 +485,26 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       onClose={() => setAccountMenu(null)}
     />
   );
+  const barContextMenu = barMenu && canReopenClosedTab && (
+    <ContextMenu
+      x={barMenu.x}
+      y={barMenu.y}
+      options={[
+        {
+          label: "Reopen closed tab",
+          onSelect: () => void reopenLastClosedTab(),
+        },
+      ]}
+      onClose={() => setBarMenu(null)}
+    />
+  );
+  const openBarMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (!canReopenClosedTab) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setAccountMenu(null);
+    setBarMenu({ x: event.clientX, y: event.clientY });
+  };
   const renameDialog = renaming && (
     <RenameListenerDialog
       tabId={renaming.id}
@@ -497,6 +523,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     return (
       <div
         className="relative flex shrink-0 items-stretch border-b border-line bg-surface-raised px-1"
+        onContextMenu={openBarMenu}
         {...dragHandlers}
       >
         <div className="min-w-0 flex-1">
@@ -517,6 +544,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
         {hiddenMentions.left && <MentionEdge side="left" />}
         {hiddenMentions.right && <MentionEdge side="right" />}
         {menu}
+        {barContextMenu}
         {optionsDialog}
         {renameDialog}
       </div>
@@ -527,12 +555,14 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     <div
       ref={rowRef}
       className="flex shrink-0 flex-wrap items-stretch gap-x-1 border-b border-line bg-surface-raised px-1"
+      onContextMenu={openBarMenu}
       {...dragHandlers}
     >
       {tabs}
       {breakBeforeAdd && <div className="h-1 basis-full" />}
       {addButton}
       {menu}
+      {barContextMenu}
       {optionsDialog}
       {renameDialog}
     </div>

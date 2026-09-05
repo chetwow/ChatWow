@@ -33,6 +33,8 @@ export function AccountMenu({
   const tab = useChat((state) => state.tabs.find((open) => open.id === tabId));
   const setTabAccount = useChat((state) => state.setTabAccount);
   const requestCloseTab = useChat((state) => state.requestCloseTab);
+  const canReopenClosedTab = useChat((state) => state.lastClosedTab !== null);
+  const reopenLastClosedTab = useChat((state) => state.reopenLastClosedTab);
   const setMentionsTabNotify = useChat((state) => state.setMentionsTabNotify);
   const setTabAvatarMode = useChat((state) => state.setTabAvatarMode);
   if (!tab) return null;
@@ -59,6 +61,18 @@ export function AccountMenu({
     onSelect: () => void setTabAvatarMode(tabId, mode),
   });
 
+  const tabActions: ContextMenuOption[] = [
+    { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
+    ...(canReopenClosedTab
+      ? [
+          {
+            label: "Reopen closed tab",
+            onSelect: () => void reopenLastClosedTab(),
+          } satisfies ContextMenuOption,
+        ]
+      : []),
+  ];
+
   const options: ContextMenuOption[] = tab.kind === "mentions" ? [
     ...(tab.mention && onOptions && onRename
       ? [
@@ -71,7 +85,7 @@ export function AccountMenu({
           { separator: true } satisfies ContextMenuOption,
         ]
       : []),
-    { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
+    ...tabActions,
   ] : [
     ...accounts.map((account) => choose(account.id)),
     choose(ANONYMOUS),
@@ -83,7 +97,7 @@ export function AccountMenu({
     { heading: "Background avatar" },
     ...TAB_AVATAR_MODES.map((mode) => background(mode.id, mode.label)),
     { separator: true },
-    { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
+    ...tabActions,
   ];
 
   return <ContextMenu x={x} y={y} options={options} onClose={onClose} />;

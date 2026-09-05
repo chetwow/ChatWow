@@ -11,7 +11,14 @@ import {
   unseenReleaseNotes,
 } from "./lib/whatsNew";
 import type { ReleaseNotes } from "./lib/releaseNotes";
+import {
+  isMacSettingsShortcut,
+  isReopenClosedTabShortcut,
+  tabForShortcut,
+  tabShortcut,
+} from "./lib/tabShortcuts";
 import { themeStyle } from "./lib/themes";
+import { IS_MACOS } from "./lib/tauri";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -87,13 +94,41 @@ export default function App() {
     );
   }, []);
 
-  // Ctrl+K opens the channel switcher, matching the command-palette
-  // convention. Ctrl/Cmd+F searches the active tab. Ctrl/Cmd+T and Ctrl/Cmd+W
-  // are the browser's new-tab and close-tab, which is what a row of tabs sets people up to expect --
-  // reaching the page at all on macOS took dropping Close Window from the menu
-  // bar (see `macos_menu` in src-tauri/src/lib.rs).
+  // The tab shortcuts follow Chrome: the platform primary modifier plus 1-8
+  // jumps by position, 9 jumps to the end, and cycling is Ctrl+Tab off macOS
+  // or Cmd+Option+Left/Right on it. Ctrl+K opens the channel switcher;
+  // Ctrl/Cmd+F, T and W keep their browser-like search/new/close meanings;
+  // Cmd+, opens Settings on macOS. Cmd+W reaching the page at all took
+  // dropping Close Window from the macOS menu bar (see `macos_menu` in
+  // src-tauri/src/lib.rs).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const tabs = tabShortcut(event, IS_MACOS);
+      if (tabs) {
+        if (document.querySelector("[data-modal]")) return;
+        event.preventDefault();
+        const state = useChat.getState();
+        const current = state.active[state.focusedPane];
+        const target = tabForShortcut(state.tabs, current, tabs);
+        if (target) state.setActive(target.id);
+        return;
+      }
+
+      if (isMacSettingsShortcut(event, IS_MACOS)) {
+        event.preventDefault();
+        // If Settings itself is open, preserve the section being viewed. If
+        // another modal is open, it remains the window's active context.
+        if (!document.querySelector("[data-modal]")) setSettingsTab("general");
+        return;
+      }
+
+      if (isReopenClosedTabShortcut(event, IS_MACOS)) {
+        if (document.querySelector("[data-modal]")) return;
+        event.preventDefault();
+        void useChat.getState().reopenLastClosedTab();
+        return;
+      }
+
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "k") {

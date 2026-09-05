@@ -9,6 +9,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added Chrome-style keyboard shortcuts for selecting tabs by number, jumping to the final tab,
+  and cycling forward or backward with platform-native modifier combinations, plus `Cmd+,` for
+  opening Settings on macOS.
+- Added a session-level Reopen Closed Tab action to the tab bar and the Chrome-style
+  `Ctrl/Cmd+Shift+T` shortcut, with safe Anonymous fallback when its account was removed.
+- Added optional clickable markers on the chat scrollbar track showing where highlighted mentions
+  occurred in the retained log, with a message preview on hover.
 - Added six built-in color themes, with the original color scheme named Twitch.
 
 ### Changed

@@ -34,7 +34,7 @@ export const api = {
   setDefaultAccount: (id: string) => invoke<AuthStatus>("set_default_account", { id }),
   listTabs: () => invoke<Tab[]>("list_tabs"),
   /** The id is ours to mint, so a new view has a key before the round trip. */
-  addTab: (tab: Tab) => invoke<Tab[]>("add_tab", tab),
+  addTab: (tab: Tab, reopening = false) => invoke<Tab[]>("add_tab", { ...tab, reopening }),
   closeTab: (id: string) => invoke<Tab[]>("close_tab", { id }),
   /** Change a custom mentions listener's visible name. */
   renameMentionsTab: (id: string, name: string) =>

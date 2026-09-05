@@ -25,11 +25,38 @@ import {
 import { messageLine, messageText } from "../lib/messageText";
 import { imageKey, rulesMatching } from "../lib/emoteBlacklist";
 import { ignoreForChannel, ignoreForUser, mentionIgnored, userBlocked } from "../lib/ignores";
+import { isAboutYou } from "../lib/mentions";
+import { markerUnderScrollbarThumb, mentionMarkerLayout } from "../lib/mentionMarkers";
 import { formatTimeout } from "../lib/timeout";
+import { useTooltip } from "../store/tooltip";
 import type { EmoteRule, StoredMessage } from "../types";
 
 /** How close to the bottom still counts as "pinned". */
 const PIN_THRESHOLD = 40;
+/** Visual markers are smaller; this is the clickable track footprint. */
+const MENTION_MARKER_HEIGHT = 8;
+
+function syncMentionMarkerOverlap(scroller: HTMLElement, rail: HTMLElement | null) {
+  if (!rail) return;
+  for (const marker of rail.querySelectorAll<HTMLElement>("[data-mention-marker-top]")) {
+    const top = Number(marker.dataset.mentionMarkerTop);
+    marker.dataset.thumbOverlap = String(
+      markerUnderScrollbarThumb(
+        top,
+        MENTION_MARKER_HEIGHT,
+        scroller.scrollTop,
+        scroller.clientHeight,
+        scroller.scrollHeight,
+      ),
+    );
+  }
+}
+
+type MentionMarkerPosition = {
+  index: number;
+  top: number;
+  scrollTop: number;
+};
 
 /** The text visibly associated with a row, without fetching or re-resolving anything. */
 function searchableText(message: StoredMessage, includeChannel: boolean): string {
@@ -87,6 +114,7 @@ export function ChatView({
   const defaultTimeoutSeconds = useChat((state) => state.preferences.defaultTimeoutSeconds);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const mentionRail = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   const [menu, setMenu] = useState<{
     x: number;
@@ -112,6 +140,7 @@ export function ChatView({
   const removeEmoteRule = useChat((state) => state.removeEmoteRule);
   const mentionIgnores = useChat((state) => state.preferences.mentionIgnores);
   const blockedUsers = useChat((state) => state.preferences.blockedUsers);
+  const showMentionMarkers = useChat((state) => state.preferences.showMentionMarkers);
 
   // Filtered here rather than dropped on the way in, for the reason the emote
   // blacklists are: adding a rule has to clear out what's already listed, and
@@ -126,6 +155,39 @@ export function ChatView({
   // Who "you" are here, which is this tab's account rather than the app's:
   // the same message can name you in one tab and nobody in the one beside it.
   const myLogin = useChat((state) => loginOf(state, account));
+  const mentionMarkerMessages = useMemo(
+    () =>
+      isMentions || !showMentionMarkers
+        ? []
+        : (messages ?? [])
+            .filter(
+              (message) =>
+                isAboutYou(message, myLogin) &&
+                !mentionIgnored(message, mentionIgnores) &&
+                !userBlocked(message, blockedUsers),
+            ),
+    [
+      isMentions,
+      showMentionMarkers,
+      messages,
+      myLogin,
+      mentionIgnores,
+      blockedUsers,
+    ],
+  );
+  const mentionMarkerKeys = useMemo(
+    () => mentionMarkerMessages.map((message) => message.key),
+    [mentionMarkerMessages],
+  );
+  const mentionMarkerIndex = useMemo(
+    () => new Map(mentionMarkerKeys.map((key, index) => [key, index])),
+    [mentionMarkerKeys],
+  );
+  const [mentionMarkerPositions, setMentionMarkerPositions] = useState<MentionMarkerPosition[]>(
+    [],
+  );
+  const showTooltip = useTooltip((state) => state.show);
+  const hideTooltip = useTooltip((state) => state.hide);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
   const [timeoutTarget, setTimeoutTarget] = useState<TimeoutTarget | null>(null);
@@ -234,11 +296,75 @@ export function ChatView({
     };
   }, []);
 
+  // Rows have variable heights, and content-visibility can replace an
+  // off-screen estimate with its measured height later. Measure the rows that
+  // actually highlight, then remap them whenever either the viewport or the
+  // transcript changes size. An index would drift badly around wrapped links,
+  // GIFs and multi-line messages.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    const transcript = content.current;
+    if (!element || !transcript || mentionMarkerKeys.length === 0) {
+      setMentionMarkerPositions([]);
+      return;
+    }
+
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const scrollerTop = element.getBoundingClientRect().top;
+      const next = Array.from(
+        transcript.querySelectorAll<HTMLElement>("[data-mention-marker]"),
+      ).flatMap((row) => {
+        const index = Number(row.dataset.mentionMarker);
+        if (!Number.isInteger(index)) return [];
+        const rect = row.getBoundingClientRect();
+        const rowTop = rect.top - scrollerTop + element.scrollTop;
+        const layout = mentionMarkerLayout(
+          rowTop,
+          rect.height,
+          element.clientHeight,
+          element.scrollHeight,
+          MENTION_MARKER_HEIGHT,
+        );
+        return layout ? [{ index, ...layout }] : [];
+      });
+      setMentionMarkerPositions((current) =>
+        current.length === next.length &&
+        current.every(
+          (marker, index) =>
+            marker.index === next[index].index &&
+            marker.top === next[index].top &&
+            marker.scrollTop === next[index].scrollTop,
+        )
+          ? current
+          : next,
+      );
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    observer.observe(transcript);
+    schedule();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [mentionMarkerKeys]);
+
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (element) syncMentionMarkerOverlap(element, mentionRail.current);
+  }, [mentionMarkerPositions]);
+
   const onScroll = () => {
     const element = scroller.current;
     if (!element) return;
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
     setPinned(distance < PIN_THRESHOLD);
+    syncMentionMarkerOverlap(element, mentionRail.current);
   };
 
   const jumpToPresent = () => {
@@ -653,8 +779,13 @@ export function ChatView({
           <div ref={content}>
             {messages?.map((message) => {
               const match = searchMatchIndex.get(message.key);
+              const mentionMarker = mentionMarkerIndex.get(message.key);
               return (
-                <div key={message.key} data-search-match={match}>
+                <div
+                  key={message.key}
+                  data-search-match={match}
+                  data-mention-marker={mentionMarker}
+                >
                   <MessageRow
                     message={message}
                     onContextMenu={openMenu}
@@ -674,6 +805,54 @@ export function ChatView({
             })}
           </div>
         </div>
+
+        {mentionMarkerPositions.length > 0 && (
+          <div
+            ref={mentionRail}
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[10px]"
+          >
+            {mentionMarkerPositions.map((marker) => (
+              <button
+                key={marker.index}
+                type="button"
+                aria-label={`Jump to mention ${marker.index + 1} of ${mentionMarkerPositions.length}`}
+                data-mention-marker-top={marker.top}
+                data-thumb-overlap="false"
+                onMouseEnter={(event) => {
+                  const message = mentionMarkerMessages[marker.index];
+                  if (message) {
+                    showTooltip(
+                      { kind: "message", line: messageLine(message, false) },
+                      event.currentTarget.getBoundingClientRect(),
+                    );
+                  }
+                }}
+                onMouseLeave={hideTooltip}
+                onFocus={(event) => {
+                  const message = mentionMarkerMessages[marker.index];
+                  if (message) {
+                    showTooltip(
+                      { kind: "message", line: messageLine(message, false) },
+                      event.currentTarget.getBoundingClientRect(),
+                    );
+                  }
+                }}
+                onBlur={hideTooltip}
+                onClick={() => {
+                  const element = scroller.current;
+                  if (!element) return;
+                  element.scrollTop = marker.scrollTop;
+                  const distance = element.scrollHeight - marker.scrollTop - element.clientHeight;
+                  setPinned(distance < PIN_THRESHOLD);
+                }}
+                className="pointer-events-auto absolute right-0 grid h-2 w-[10px] cursor-pointer place-items-center transition-opacity data-[thumb-overlap=true]:pointer-events-none data-[thumb-overlap=true]:opacity-20"
+                style={{ top: marker.top }}
+              >
+                <span className="h-[3px] w-1 rounded-sm bg-rose-400/90 shadow-sm shadow-black/40 transition-colors hover:bg-rose-300" />
+              </button>
+            ))}
+          </div>
+        )}
 
         {!pinned && (
           <button

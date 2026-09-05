@@ -1129,7 +1129,9 @@ fn normalize_mention_filter(
 ///
 /// The same channel twice under one account is refused: two identical views of
 /// one stream is a mistake, not a feature. Under a *different* account it's the
-/// whole point, so that passes.
+/// whole point, so that passes. `reopening` is the one path allowed to restore
+/// a legacy mentions tab with no custom filter; ordinary creation still
+/// requires the current listener shape.
 #[tauri::command]
 fn add_tab(
     app: AppHandle,
@@ -1139,29 +1141,29 @@ fn add_tab(
     channel: String,
     account: String,
     mention: Option<MentionFilter>,
+    reopening: bool,
 ) -> Result<Vec<Tab>, String> {
     if id.trim().is_empty() {
         return Err("A tab needs an id".to_string());
     }
     let tab = match kind.as_str() {
         "mentions" => {
-            let Some(listener) = mention else {
-                return Err("A mentions tab needs a listener".to_string());
+            let listener = match mention {
+                Some(listener) => Some(normalize_mention_filter(&state, listener)?),
+                None if reopening => None,
+                None => return Err("A mentions tab needs a listener".to_string()),
             };
-            let listener = normalize_mention_filter(&state, listener)?;
-
             let account = listener
-                .accounts
-                .first()
-                .cloned()
-                .unwrap_or_else(|| ANONYMOUS.to_string());
+                .as_ref()
+                .and_then(|listener| listener.accounts.first().cloned())
+                .unwrap_or_else(|| resolve_account(&state, &account));
             Tab {
                 id,
                 kind,
                 channel: String::new(),
                 account,
                 avatar_mode: Some("none".to_string()),
-                mention: Some(listener),
+                mention: listener,
             }
         }
         _ => {

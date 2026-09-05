@@ -1134,6 +1134,13 @@ export function SettingsDialog({
                     label="Notify on your name without the @"
                   />
                 </Row>
+                <Row label="Show mention markers">
+                  <Toggle
+                    checked={preferences.showMentionMarkers}
+                    onChange={(showMentionMarkers) => updatePreferences({ showMentionMarkers })}
+                    label="Show mention markers"
+                  />
+                </Row>
                 <Row label="Mute notifications for active tab">
                   <Toggle
                     checked={preferences.muteActiveTab}

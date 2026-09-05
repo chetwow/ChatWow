@@ -19,6 +19,7 @@ export type Preview =
   | { kind: "emote"; name: string; urlLarge: string; provider: string; by?: string }
   | { kind: "image"; url: string }
   | { kind: "gif"; url: string; alt: string }
+  | { kind: "message"; line: string }
   | { kind: "page"; preview: LinkPreview; host: string }
   | { kind: "loading" };
 

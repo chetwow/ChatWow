@@ -289,6 +289,17 @@ more often than every 1.5s.
 Mentions are counted per tab alongside unread, and a tab holding any turns its unread badge
 from accent to rose. The badge only changes color, never size -- see below.
 
+Channel views also project every currently retained highlighted mention onto the scrollbar track,
+unless `showMentionMarkers` is disabled. The rail uses the same per-tab
+`isAboutYou` and ignore/block decisions as `MessageRow`, so it cannot disagree with the row's rose
+highlight. Each marker maps the measured row position to the scroll position that would center it,
+previews that message on hover or keyboard focus, and can make the jump when clicked. While the
+native thumb passes over one, the marker fades and
+stops accepting pointer input so dragging or clicking the scrollbar takes precedence.
+Measurements rerun through a `ResizeObserver`: row heights vary, and `content-visibility` can
+replace an off-screen estimate after layout. Listener tabs omit the rail because every visible
+row is already a match; filling the track would add no location signal.
+
 `isAboutYou` in [src/lib/mentions.ts](src/lib/mentions.ts) is the single answer to "is chat
 talking to this login": named, or replied to, and never that login's own message. Ordinary
 channel-row highlighting reads it directly. A custom mentions listener applies that same answer
@@ -463,6 +474,26 @@ you, so the edge it's past gets a marker. It's anchored to the tab bar rather th
 it marks -- and positions come from `getBoundingClientRect`, since a tab's `offsetParent` sits
 outside the scroller and its offsets don't move as the row does. The check is keyed on which
 channels have mentions rather than on the mentions map, which is a fresh object on every batch.
+
+Keyboard tab selection follows the same single `tabs` order that persistence and the pane
+boundary use. The platform primary modifier plus 1–8 selects that numbered tab, while 9 selects
+the final one; Ctrl+Tab/Ctrl+Shift+Tab on Windows and Linux or Cmd+Option+Left/Right on macOS
+cycles with wraparound. `setActive` derives the selected tab's pane and focuses it, so a shortcut
+crossing the split boundary also makes that pane the owner of subsequent focused-pane actions.
+These shortcuts pause while a modal is open, where the dialog remains the active context.
+macOS also maps `Cmd+,` to the General settings screen in the webview; there is no Windows
+binding because that platform has no universal Settings shortcut.
+
+The most recently closed tab is retained in frontend memory with its former pane position.
+`Ctrl+Shift+T` on Windows/Linux, `Cmd+Shift+T` on macOS, or **Reopen closed tab** in a tab-bar
+context menu adds it through the ordinary validated backend path and moves it back into that
+pane. This is deliberately one session-only undo record, not another persisted tab list. Closing
+a first-pane tab moves `splitIndex` with it so the other pane's first tab is not silently pulled
+across the boundary. If the closed tab's account has since been removed, a channel or legacy
+listener reopens Anonymous; custom listeners drop removed account IDs, and an account-only
+listener left with no valid account or other matching criterion is no longer reopenable. The
+backend's reopen flag exists solely to admit old `mention: None` listener tabs that ordinary new
+tab creation correctly refuses.
 
 `Ctrl/Cmd+W` closing a tab is why the macOS menu bar is built by hand
 ([`macos_menu`](src-tauri/src/lib.rs)): Tauri's default menu binds `Cmd+W` to Close Window, and

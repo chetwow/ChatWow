@@ -146,6 +146,8 @@ pub struct Preferences {
     pub notify_on_tag: bool,
     /// Ping when someone uses your name without the `@`.
     pub notify_on_name: bool,
+    /// Draw positions for highlighted mentions beside the chat scrollbar.
+    pub show_mention_markers: bool,
     /// Silence mention sounds for the channel currently being read. Whispers
     /// remain audible because they arrived from outside that room.
     pub mute_active_tab: bool,
@@ -263,6 +265,7 @@ impl Default for Preferences {
             chat_font_size: "medium".to_string(),
             notify_on_tag: true,
             notify_on_name: true,
+            show_mention_markers: true,
             mute_active_tab: true,
             mute_when_window_active: false,
             warn_on_listener_close: true,
@@ -608,6 +611,13 @@ mod tests {
         let mut settings: Settings = serde_json::from_str(raw).unwrap();
         migrate(&mut settings, raw);
         assert!(!settings.preferences.mute_active_tab);
+    }
+
+    #[test]
+    fn mention_markers_default_on_for_existing_settings() {
+        let settings: Settings = serde_json::from_str(r#"{"preferences":{}}"#).unwrap();
+
+        assert!(settings.preferences.show_mention_markers);
     }
 
     /// A file from before accounts existed comes back as one account and a tab

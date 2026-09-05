@@ -231,6 +231,10 @@ export function HoverPreview() {
             host={preview.host}
             onSettled={resettle}
           />
+        ) : preview.kind === "message" ? (
+          <div className="max-h-[min(160px,30vh)] w-[min(360px,70vw)] overflow-hidden whitespace-pre-wrap break-words text-left text-[11px] leading-relaxed text-ink">
+            {preview.line}
+          </div>
         ) : preview.kind === "gif" ? (
           <ImageCard
             key={preview.url}
