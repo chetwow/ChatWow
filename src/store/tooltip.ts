@@ -29,25 +29,89 @@ export type Preview =
  * hovering where there's room for it and below where there isn't.
  */
 export type Anchor = { x: number; top: number; bottom: number };
+export type PointerPosition = { x: number; y: number };
+
+type ShowOptions =
+  | { holdUntilInput?: false }
+  | {
+      holdUntilInput: true;
+      source: HTMLElement;
+      pointer: PointerPosition;
+      replaceGeneration?: number;
+    };
 
 type TooltipState = {
   preview: Preview | null;
   anchor: Anchor;
-  show: (preview: Preview, from: DOMRect) => void;
+  /**
+   * Changes whenever one preview replaces or dismisses another. Callers doing
+   * asynchronous work can use the value returned by `show` to avoid reviving
+   * a preview that the user has already dismissed.
+   */
+  generation: number;
+  holdUntilInput: boolean;
+  heldSource: HTMLElement | null;
+  heldOrigin: PointerPosition | null;
+  show: (preview: Preview, from: DOMRect, options?: ShowOptions) => number | null;
+  /** Hide regardless of whether a link preview is being held. */
   hide: () => void;
+  /** Hide an ordinary hover, but leave an interaction-held link preview alone. */
+  hideTransient: () => void;
 };
 
 /**
  * The preview renders fixed-position at the app root rather than inside the
  * message row, so the scroll container can't clip it.
  */
-export const useTooltip = create<TooltipState>((set) => ({
+export const useTooltip = create<TooltipState>((set, get) => ({
   preview: null,
   anchor: { x: 0, top: 0, bottom: 0 },
-  show: (preview, from) =>
+  generation: 0,
+  holdUntilInput: false,
+  heldSource: null,
+  heldOrigin: null,
+  show: (preview, from, options) => {
+    const current = get();
+    // Chat reflow can synthesize mouseenter on an emote or marker that slides
+    // beneath a stationary pointer. Do not let that replace a held link card.
+    // The link resolver may replace its own loading card by presenting the
+    // generation that loading card received.
+    if (
+      current.holdUntilInput &&
+      (options?.holdUntilInput !== true ||
+        options.replaceGeneration !== current.generation)
+    ) {
+      return null;
+    }
+    const generation = current.generation + 1;
     set({
       preview,
       anchor: { x: from.left + from.width / 2, top: from.top, bottom: from.bottom },
-    }),
-  hide: () => set({ preview: null }),
+      generation,
+      holdUntilInput: options?.holdUntilInput ?? false,
+      heldSource: options?.holdUntilInput ? options.source : null,
+      heldOrigin: options?.holdUntilInput ? options.pointer : null,
+    });
+    return generation;
+  },
+  hide: () =>
+    set((state) => ({
+      preview: null,
+      generation: state.generation + 1,
+      holdUntilInput: false,
+      heldSource: null,
+      heldOrigin: null,
+    })),
+  hideTransient: () =>
+    set((state) =>
+      state.holdUntilInput
+        ? state
+        : {
+            preview: null,
+            generation: state.generation + 1,
+            holdUntilInput: false,
+            heldSource: null,
+            heldOrigin: null,
+          },
+    ),
 }));

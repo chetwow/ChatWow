@@ -14,6 +14,7 @@ in a browser.
 - Moderator shortcuts for deleting messages, bans, unbans, and timeouts
 - Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
 - Replies, whispers, badges, hover-previewable scrollbar mention markers, Twitch chat commands, and link previews
+- Automatic chat reconnection and missed-message recovery after the computer wakes from sleep
 - An offline What's New summary the first time each new version launches
 - Six built-in color themes, plus customizable appearance and notifications
 

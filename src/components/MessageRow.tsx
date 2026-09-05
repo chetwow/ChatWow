@@ -86,7 +86,7 @@ function HiddenEmote({
   urlLarge: string;
 }) {
   const show = useTooltip((s) => s.show);
-  const hide = useTooltip((s) => s.hide);
+  const hideTransient = useTooltip((s) => s.hideTransient);
 
   return (
     <span
@@ -98,7 +98,7 @@ function HiddenEmote({
       onMouseEnter={(event) =>
         show({ kind: "emote", name, urlLarge, provider }, event.currentTarget.getBoundingClientRect())
       }
-      onMouseLeave={hide}
+      onMouseLeave={hideTransient}
     >
       {name}
     </span>
@@ -123,7 +123,7 @@ function SevenTvBadge({ userId }: { userId: string }) {
 
 function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }) {
   const show = useTooltip((s) => s.show);
-  const hide = useTooltip((s) => s.hide);
+  const hideTransient = useTooltip((s) => s.hideTransient);
   // Subscribed here rather than passed down through the row: `MessageRow` is
   // memoized on message identity, so a prop would never reach a message that's
   // already on screen. A store subscription re-renders this component directly,
@@ -201,7 +201,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
             event.currentTarget.getBoundingClientRect(),
           )
         }
-        onMouseLeave={hide}
+        onMouseLeave={hideTransient}
       >
         <EmoteImage
           id={segment.id}
@@ -230,7 +230,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
 
 function HiddenGif({ segment }: { segment: Extract<Segment, { kind: "gif" }> }) {
   const show = useTooltip((state) => state.show);
-  const hide = useTooltip((state) => state.hide);
+  const hideTransient = useTooltip((state) => state.hideTransient);
 
   return (
     <span
@@ -241,7 +241,7 @@ function HiddenGif({ segment }: { segment: Extract<Segment, { kind: "gif" }> }) 
           event.currentTarget.getBoundingClientRect(),
         )
       }
-      onMouseLeave={hide}
+      onMouseLeave={hideTransient}
     >
       {segment.text}
     </span>
@@ -379,31 +379,36 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   const enabled = useChat((state) => state.preferences[PREFERENCE[kind]]);
   const image = kind === "image" ? imagePreviewUrl(segment.href) : null;
   const timer = useRef<number | undefined>(undefined);
-  /**
-   * Bumped every time the pointer leaves. A title arrives whenever the host
-   * answers, which may be long after that -- and a preview that appears over
-   * chat you're no longer pointing at is worse than none.
-   */
-  const hover = useRef(0);
+  const pointer = useRef({ x: 0, y: 0 });
 
   const cancel = () => {
     window.clearTimeout(timer.current);
     timer.current = undefined;
-    hover.current += 1;
   };
-  // A row trimmed out of the backlog mid-hover would otherwise fire into
-  // nothing and leave the preview up.
+  // A row trimmed out of the backlog during the initial delay must not start
+  // a preview. Once shown, the app-level interaction listener owns dismissal.
   useEffect(() => cancel, []);
 
   const preview = (element: HTMLElement) => {
-    const anchor = () => element.getBoundingClientRect();
+    // Keep the popup at the point where the user hovered. If incoming chat
+    // moves (or eventually removes) this element, remeasuring it would make a
+    // held preview drift or jump to the corner of the window.
+    const anchor = element.getBoundingClientRect();
+    const origin = { ...pointer.current };
+    const showHeld = (preview: Parameters<typeof show>[0], replaceGeneration?: number) =>
+      show(preview, anchor, {
+        holdUntilInput: true,
+        source: element,
+        pointer: origin,
+        replaceGeneration,
+      });
     if (image) {
-      show({ kind: "loading" }, anchor());
-      const token = hover.current;
+      const token = showHeld({ kind: "loading" });
+      if (token === null) return;
       void loadPreviewImage(image).then((local) => {
-        if (hover.current !== token) return;
+        if (useTooltip.getState().generation !== token) return;
         if (!local) return hide();
-        show({ kind: "image", url: local }, anchor());
+        showHeld({ kind: "image", url: local }, token);
       });
       return;
     }
@@ -425,38 +430,52 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
     const known = cachedLinkPreview(segment.href);
     if (known !== undefined) {
       // Asked before: draw it or don't, with no spinner in between.
-      return known ? show(found(known), anchor()) : undefined;
+      return known ? showHeld(found(known)) : undefined;
     }
 
     // The spinner goes up before the request, so the wait is visibly a wait.
-    show({ kind: "loading" }, anchor());
-    const token = hover.current;
+    const token = showHeld({ kind: "loading" });
+    if (token === null) return;
     void loadLinkPreview(segment.href).then((preview) => {
-      if (hover.current !== token) return;
+      if (useTooltip.getState().generation !== token) return;
       if (!preview) return hide();
-      show(found(preview), anchor());
+      showHeld(found(preview), token);
     });
   };
 
   return (
     <button
-      onClick={() => void openUrl(segment.href)}
+      onClick={() => {
+        cancel();
+        hide();
+        void openUrl(segment.href);
+      }}
       onMouseEnter={
         enabled
           ? (event) => {
               const element = event.currentTarget;
+              pointer.current = { x: event.clientX, y: event.clientY };
               window.clearTimeout(timer.current);
               // Measured when it fires, not now: chat may have scrolled under
               // the pointer in between.
-              timer.current = window.setTimeout(() => preview(element), PREVIEW_DELAY_MS);
+              timer.current = window.setTimeout(() => {
+                timer.current = undefined;
+                preview(element);
+              }, PREVIEW_DELAY_MS);
             }
           : undefined
       }
+      onPointerMove={(event) => {
+        pointer.current = { x: event.clientX, y: event.clientY };
+      }}
       onMouseLeave={
         enabled
           ? () => {
-              cancel();
-              hide();
+              // Before the delay, an ordinary pass over a link should still
+              // do nothing. After the popup appears, mouseleave may merely be
+              // chat reflow; the app-level pointermove listener distinguishes
+              // real input and dismisses it instead.
+              if (timer.current !== undefined) cancel();
             }
           : undefined
       }

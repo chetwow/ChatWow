@@ -11,9 +11,38 @@ const LABEL: Record<string, string> = {
 /** Clearance from the window edges, and from the thing being hovered. */
 const MARGIN = 8;
 const GAP = 8;
+/** Pointer travel allowed after chat moves a held link away. */
+const HELD_PREVIEW_SLOP_PX = 8;
 
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(value, low), Math.max(low, high));
+
+const containsPoint = (rect: DOMRect, x: number, y: number) =>
+  x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+/** Squared distance from a point to the finite line segment `start` -> `end`. */
+function distanceToSegmentSquared(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const segmentX = end.x - start.x;
+  const segmentY = end.y - start.y;
+  const lengthSquared = segmentX * segmentX + segmentY * segmentY;
+  if (lengthSquared === 0) {
+    const x = point.x - start.x;
+    const y = point.y - start.y;
+    return x * x + y * y;
+  }
+  const progress = clamp(
+    ((point.x - start.x) * segmentX + (point.y - start.y) * segmentY) / lengthSquared,
+    0,
+    1,
+  );
+  const x = point.x - (start.x + progress * segmentX);
+  const y = point.y - (start.y + progress * segmentY);
+  return x * x + y * y;
+}
 
 /**
  * Shown while a preview is on its way -- which for an image is however long
@@ -168,6 +197,9 @@ function PageCard({
 export function HoverPreview() {
   const preview = useTooltip((state) => state.preview);
   const anchor = useTooltip((state) => state.anchor);
+  const holdUntilInput = useTooltip((state) => state.holdUntilInput);
+  const heldSource = useTooltip((state) => state.heldSource);
+  const heldOrigin = useTooltip((state) => state.heldOrigin);
   const hide = useTooltip((state) => state.hide);
   const box = useRef<HTMLDivElement>(null);
   /**
@@ -177,6 +209,61 @@ export function HoverPreview() {
   const [settled, setSettled] = useState(0);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
   const resettle = useCallback(() => setSettled((count) => count + 1), []);
+
+  useLayoutEffect(() => {
+    if (!holdUntilInput || !heldSource || !heldOrigin) return;
+
+    // A stationary pointer can lose its CSS hover when new chat moves the
+    // link beneath it. That produces mouseleave, but not pointermove, so link
+    // previews stay put through layout movement. Movement while the original
+    // link is still beneath the pointer is harmless; once it is not, measure
+    // from the last position that genuinely hovered the link and allow a
+    // small amount of hand jitter before dismissing.
+    let graceOrigin = heldOrigin;
+    const onPointerMove = (event: PointerEvent) => {
+      const point = { x: event.clientX, y: event.clientY };
+      const previewBox = box.current?.getBoundingClientRect();
+      if (previewBox && containsPoint(previewBox, point.x, point.y)) {
+        graceOrigin = point;
+        return;
+      }
+
+      const underPointer = document.elementFromPoint(event.clientX, event.clientY);
+      if (
+        heldSource.isConnected &&
+        underPointer &&
+        (underPointer === heldSource || heldSource.contains(underPointer))
+      ) {
+        graceOrigin = point;
+        return;
+      }
+
+      const toleranceSquared = HELD_PREVIEW_SLOP_PX * HELD_PREVIEW_SLOP_PX;
+      if (previewBox) {
+        // The popup is separated from its source by a visual gap. Keep a
+        // narrow corridor from the last genuinely hovered point to the
+        // nearest edge of the popup so crossing that gap remains possible.
+        const previewEdge = {
+          x: clamp(graceOrigin.x, previewBox.left, previewBox.right),
+          y: clamp(graceOrigin.y, previewBox.top, previewBox.bottom),
+        };
+        if (distanceToSegmentSquared(point, graceOrigin, previewEdge) < toleranceSquared) return;
+      }
+
+      const x = point.x - graceOrigin.x;
+      const y = point.y - graceOrigin.y;
+      if (x * x + y * y >= toleranceSquared) hide();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") hide();
+    };
+    window.addEventListener("pointermove", onPointerMove, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [holdUntilInput, heldSource, heldOrigin, hide]);
 
   useLayoutEffect(() => {
     const element = box.current;

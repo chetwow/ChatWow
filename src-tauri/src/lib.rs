@@ -1648,6 +1648,10 @@ pub fn run() {
                 "session restore",
                 restore_session(handle.clone(), Arc::clone(&shared)),
             );
+            diagnostics::supervise(
+                "system sleep watchdog",
+                client::watch_for_system_sleep(Arc::clone(&shared)),
+            );
             diagnostics::supervise("live poll", poll_live(handle.clone(), Arc::clone(&shared)));
             // Tokens outlive neither the app nor a long session on their own.
             diagnostics::supervise(

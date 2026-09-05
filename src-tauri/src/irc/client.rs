@@ -13,7 +13,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -35,6 +35,11 @@ const ASSET_TIMEOUT: Duration = Duration::from_secs(8);
 /// has been placed (it belongs above the live messages waiting behind it), so
 /// a slow history server would otherwise hold up the whole join.
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
+/// Desktop event loops do not expose a portable wake-from-sleep event. Check
+/// wall time often enough that a suspended runtime can repair its sockets soon
+/// after the machine wakes.
+const SLEEP_CHECK_INTERVAL: Duration = Duration::from_secs(15);
+const SLEEP_RECONNECT_GAP: Duration = Duration::from_secs(45);
 
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
 
@@ -1407,6 +1412,40 @@ pub fn reconnect_all(state: &Arc<AppState>) {
     }
 }
 
+fn recover_after_pause(state: &Arc<AppState>, elapsed: Duration) -> bool {
+    if elapsed < SLEEP_RECONNECT_GAP {
+        return false;
+    }
+    reconnect_all(state);
+    state.eventsub_restart.notify_one();
+    // The same pause makes the live-channel answer stale even when a socket
+    // happened to survive it.
+    state.live_poll.notify_one();
+    true
+}
+
+/// Rebuild sockets after the process was suspended with the rest of the
+/// machine. Tokio's monotonic timers are not guaranteed to include system
+/// sleep on every desktop platform, so compare wall-clock samples instead.
+/// Even where the interval itself resumes late, the next fifteen-second tick
+/// observes the full gap and wakes each socket's command branch.
+pub async fn watch_for_system_sleep(state: Arc<AppState>) {
+    let mut ticker = tokio::time::interval(SLEEP_CHECK_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker.tick().await;
+    let mut checked_at = SystemTime::now();
+
+    loop {
+        ticker.tick().await;
+        let now = SystemTime::now();
+        let elapsed = now.duration_since(checked_at).unwrap_or_default();
+        checked_at = now;
+        if recover_after_pause(&state, elapsed) {
+            log::info!("system sleep detected; rebuilding Twitch chat connections");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1511,6 +1550,25 @@ mod tests {
         assert_eq!(resumed(0), "Reconnected");
         assert_eq!(resumed(1), "Reconnected -- 1 message recovered");
         assert_eq!(resumed(12), "Reconnected -- 12 messages recovered");
+    }
+
+    #[test]
+    fn a_long_runtime_pause_reconnects_live_sockets() {
+        let state = Arc::new(AppState::new());
+        let (commands, mut received) = mpsc::unbounded_channel();
+        state.connections.write().insert(
+            "account".to_string(),
+            Connection {
+                commands,
+                generation: 1,
+                joined: HashSet::new(),
+            },
+        );
+
+        assert!(!recover_after_pause(&state, Duration::from_secs(44)));
+        assert!(received.try_recv().is_err());
+        assert!(recover_after_pause(&state, Duration::from_secs(45)));
+        assert!(matches!(received.try_recv(), Ok(IrcCommand::Reconnect)));
     }
 
     #[test]

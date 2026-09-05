@@ -116,6 +116,15 @@ its connection and load generation are still current. This prevents a closing so
 removing the replacement's session and prevents two ROOMSTATE frames from racing duplicate
 history loads into the same view.
 
+Desktop Tauri does not expose a portable resume event, and an operating system can leave a TCP
+socket looking open after the machine wakes even though its route disappeared during sleep.
+`watch_for_system_sleep` samples wall time every fifteen seconds; a gap of at least forty-five
+seconds means the runtime was suspended, so every IRC task receives its ordinary reconnect
+command, whisper EventSub sockets are rebuilt, and the live-channel poll is refreshed. Wall time
+is deliberate: monotonic timers do not include system sleep on every desktop platform. Reusing
+the normal reconnect path also preserves the disconnect notices, session generations, and
+missed-message recovery above.
+
 ## Sending messages
 
 Outgoing messages go through Twitch's Helix `POST /helix/chat/messages` API rather than a raw
@@ -858,9 +867,17 @@ empty space and the frame would otherwise be placed at a size it's about to outg
 Four things about the timing are deliberate. The preview waits ~220ms before anything is fetched,
 because a request goes out to a host a stranger picked and a pointer crossing a message on its
 way elsewhere shouldn't announce the reader to it. After that the spinner goes up *before* the
-request, so the wait reads as a wait rather than as nothing happening. A preview that arrives
-after the pointer has left is dropped, by comparing a counter bumped on every `mouseleave`. And
-answers are cached for the session either way ([src/lib/linkPreviews.ts](src/lib/linkPreviews.ts))
+request, so the wait reads as a wait rather than as nothing happening. Once visible, a link
+preview stays anchored where it opened until real pointer movement or Escape dismisses it:
+incoming chat can move the link out from under a stationary pointer and generate `mouseleave`,
+but it does not generate `pointermove`. While held, the shared store also rejects ordinary hover
+previews synthesized by elements sliding under that pointer. Pointer movement over the original
+link or the preview itself refreshes the held position rather than dismissing anything. A narrow
+movement corridor bridges the visual gap between them; after leaving both, an eight-pixel radius
+absorbs hand jitter before movement closes the card. Dismissal advances the shared preview
+generation so an in-flight fetch cannot revive the card afterward. Answers are cached for the
+session either way
+([src/lib/linkPreviews.ts](src/lib/linkPreviews.ts))
 -- "this link has no preview" is an answer, and hovering the same link twice shouldn't ask twice
 -- with a cap, since chat is endless where the user cards are a handful of names you clicked. A
 cached link draws with no spinner at all, since there's nothing to wait for.

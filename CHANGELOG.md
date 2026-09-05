@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept an open link preview anchored while incoming chat moves its source link, dismissing it on
+  Escape or deliberate pointer movement away while allowing movement over the link or preview,
+  crossing the gap between them, and a small movement margin instead of reacting to
+  layout-generated hover changes or hand jitter.
+- Reconnected Twitch chat and whisper sockets automatically after a laptop or desktop wakes from
+  system sleep, including the ordinary missed-message recovery and live-channel refresh.
+
 ## [1.2.0] - 2026-09-05
 
 ### Added

@@ -187,7 +187,7 @@ export function ChatView({
     [],
   );
   const showTooltip = useTooltip((state) => state.show);
-  const hideTooltip = useTooltip((state) => state.hide);
+  const hideTooltip = useTooltip((state) => state.hideTransient);
   const [replyTo, setReplyTo] = useState<StoredMessage | null>(null);
   const [card, setCard] = useState<UserCardTarget | null>(null);
   const [timeoutTarget, setTimeoutTarget] = useState<TimeoutTarget | null>(null);
