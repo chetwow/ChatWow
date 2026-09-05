@@ -1133,6 +1133,9 @@ fn normalize_mention_filter(
 /// a legacy mentions tab with no custom filter; ordinary creation still
 /// requires the current listener shape.
 #[tauri::command]
+// Tauri exposes command fields as independent IPC arguments; keeping this
+// shape preserves the hand-mirrored frontend contract.
+#[allow(clippy::too_many_arguments)]
 fn add_tab(
     app: AppHandle,
     state: State<'_, Shared>,

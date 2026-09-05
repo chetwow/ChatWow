@@ -284,15 +284,17 @@ mod tests {
     fn snapshot_round_trips_positive_and_negative_answers() {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("badge-catalogs.json");
-        let mut snapshot = Snapshot::default();
-        snapshot.global = Some(encode_twitch(&HashMap::from([(
-            ("moderator".to_string(), "1".to_string()),
-            badge(
-                "twitch",
-                "moderator/1",
-                "https://static-cdn.jtvnw.net/badges/v1/mod/3",
-            ),
-        )])));
+        let mut snapshot = Snapshot {
+            global: Some(encode_twitch(&HashMap::from([(
+                ("moderator".to_string(), "1".to_string()),
+                badge(
+                    "twitch",
+                    "moderator/1",
+                    "https://static-cdn.jtvnw.net/badges/v1/mod/3",
+                ),
+            )]))),
+            ..Default::default()
+        };
         snapshot.seventv.insert(
             "123".to_string(),
             StoredSevenTvBadge {
