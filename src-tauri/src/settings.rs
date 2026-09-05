@@ -146,9 +146,11 @@ pub struct Preferences {
     pub notify_on_tag: bool,
     /// Ping when someone uses your name without the `@`.
     pub notify_on_name: bool,
-    /// Ping for mentions in the channel you're currently reading. Off by
-    /// default -- you can see that tab, so the sound is just noise.
-    pub notify_active_tab: bool,
+    /// Silence mention sounds for the channel currently being read. Whispers
+    /// remain audible because they arrived from outside that room.
+    pub mute_active_tab: bool,
+    /// Silence every notification sound while the ChatWow window has focus.
+    pub mute_when_window_active: bool,
     /// Ask before closing the last channel tab feeding a mentions listener.
     pub warn_on_listener_close: bool,
     /// Load a channel's recent messages when you join it. On by default: an
@@ -243,8 +245,8 @@ pub struct Preferences {
     /// Logins whose messages aren't drawn at all. Matched at render time in
     /// the frontend, so unblocking brings the backlog back.
     pub blocked_users: Vec<String>,
-    /// The title bar's quick mute. Silences the ping without touching the two
-    /// toggles above, so unmuting restores exactly what you had.
+    /// The title bar's quick mute. Silences the ping without touching the
+    /// saved sound choices, so unmuting restores exactly what you had.
     pub muted: bool,
     /// Emotes drawn as their underlined name instead of their image.
     pub emote_blacklist: Vec<EmoteRule>,
@@ -261,7 +263,8 @@ impl Default for Preferences {
             chat_font_size: "medium".to_string(),
             notify_on_tag: true,
             notify_on_name: true,
-            notify_active_tab: false,
+            mute_active_tab: true,
+            mute_when_window_active: false,
             warn_on_listener_close: true,
             show_message_history: true,
             default_timeout_seconds: 600,
@@ -358,6 +361,11 @@ fn path(app: &AppHandle) -> Result<PathBuf> {
 fn migrate(settings: &mut Settings, raw: &str) {
     let parsed = serde_json::from_str::<serde_json::Value>(raw).ok();
     if let Some(old) = parsed.as_ref().map(|value| &value["preferences"]) {
+        if old.get("muteActiveTab").is_none() {
+            if let Some(enabled) = old["notifyActiveTab"].as_bool() {
+                settings.preferences.mute_active_tab = !enabled;
+            }
+        }
         if old.get("composerAvatarMode").is_none() {
             if let Some(shown) = old["showComposerAvatar"].as_bool() {
                 settings.preferences.composer_avatar_mode =
@@ -579,6 +587,27 @@ mod tests {
         let mut settings: Settings = serde_json::from_str(raw).unwrap();
         migrate(&mut settings, raw);
         assert_eq!(settings.preferences.composer_avatar_mode, "generic");
+    }
+
+    #[test]
+    fn the_active_tab_notification_setting_becomes_an_equivalent_mute() {
+        for (enabled, muted) in [(true, false), (false, true)] {
+            let raw = format!(r#"{{"preferences":{{"notifyActiveTab":{enabled}}}}}"#);
+            let mut settings: Settings = serde_json::from_str(&raw).unwrap();
+            migrate(&mut settings, &raw);
+            assert_eq!(settings.preferences.mute_active_tab, muted);
+            assert!(!settings.preferences.mute_when_window_active);
+        }
+
+        let raw = r#"{
+            "preferences": {
+                "muteActiveTab": false,
+                "notifyActiveTab": false
+            }
+        }"#;
+        let mut settings: Settings = serde_json::from_str(raw).unwrap();
+        migrate(&mut settings, raw);
+        assert!(!settings.preferences.mute_active_tab);
     }
 
     /// A file from before accounts existed comes back as one account and a tab

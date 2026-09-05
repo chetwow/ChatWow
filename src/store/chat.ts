@@ -17,6 +17,7 @@ import {
 import { helpLines, splitCommand } from "../lib/commands";
 import { localNotice } from "../lib/notice";
 import { playMentionSound } from "../lib/notify";
+import { notificationSoundAllowed, windowIsActive } from "../lib/notificationSound";
 import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
@@ -64,7 +65,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   chatFontSize: "medium",
   notifyOnTag: true,
   notifyOnName: true,
-  notifyActiveTab: false,
+  muteActiveTab: true,
+  muteWhenWindowActive: false,
   warnOnListenerClose: true,
   showMessageHistory: true,
   defaultTimeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
@@ -131,13 +133,19 @@ const NEW_TAB_AVATAR_MODE_IDS = new Set<NewTabAvatarMode>([
  * than rendering chat with missing CSS values.
  */
 function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
-  const source = (raw ?? {}) as Partial<Preferences> & { showComposerAvatar?: unknown };
-  const { showComposerAvatar, ...current } = source;
+  const source = (raw ?? {}) as Partial<Preferences> & {
+    showComposerAvatar?: unknown;
+    notifyActiveTab?: unknown;
+  };
+  const { showComposerAvatar, notifyActiveTab, ...current } = source;
   const merged = { ...DEFAULT_PREFERENCES, ...current };
   // Mock-mode localStorage can still contain the boolean used before the
   // three explicit modes. The native backend performs the same migration.
   if (!("composerAvatarMode" in source) && typeof showComposerAvatar === "boolean") {
     merged.composerAvatarMode = showComposerAvatar ? "twitch" : "none";
+  }
+  if (!("muteActiveTab" in source) && typeof notifyActiveTab === "boolean") {
+    merged.muteActiveTab = !notifyActiveTab;
   }
   if (!isThemeId(merged.theme)) merged.theme = DEFAULT_PREFERENCES.theme;
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
@@ -1344,6 +1352,7 @@ export const useChat = create<ChatState>((set) => ({
 
   ingest: (batch) => {
     if (batch.length === 0) return;
+    const windowActive = windowIsActive();
 
     // Set inside the update below, played after it: the ping belongs to the
     // batch as a whole, and one sound per batch is what keeps a spammed name
@@ -1414,19 +1423,22 @@ export const useChat = create<ChatState>((set) => ({
         // no unread, no reddened tab.
         const fresh = incoming.filter((message) => !message.historical);
 
-        const { notifyOnTag, notifyOnName, notifyActiveTab, muted } = state.preferences;
+        const { notifyOnTag, notifyOnName } = state.preferences;
         // Either pane counts as looking at it: a message you can see land
         // isn't news, whichever half of the window it landed in.
         const watching = state.active.includes(id);
         // A whisper always pings, unlike a mention in the channel you're
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
-        if (!muted && fresh.some((message) => message.kind === "whisper" && heard(message))) {
+        if (
+          notificationSoundAllowed(state.preferences, windowActive, watching, true) &&
+          fresh.some((message) => message.kind === "whisper" && heard(message))
+        ) {
           mentioned = true;
         }
         // The tab you're looking at stays silent unless you ask for it: you
         // can already see the mention land.
-        const audible = !muted && (!watching || notifyActiveTab);
+        const audible = notificationSoundAllowed(state.preferences, windowActive, watching);
         const naming = fresh.filter((message) => {
           if (!heard(message)) return false;
           const kind = mentionKind(message, login);
@@ -1482,8 +1494,7 @@ export const useChat = create<ChatState>((set) => ({
         const watching = state.active.includes(tab.id) || sourceVisible;
         if (
           listenerNotifies(tab) &&
-          !state.preferences.muted &&
-          (!watching || state.preferences.notifyActiveTab) &&
+          notificationSoundAllowed(state.preferences, windowActive, watching) &&
           addressed.some((message) => listenerWouldSound(state, tab, message))
         ) {
           mentioned = true;
@@ -1493,7 +1504,7 @@ export const useChat = create<ChatState>((set) => ({
       return { messages, unread, mentions, chatters, mentionLog };
     });
 
-    // Global mute and mention-kind toggles only take the sound. A listener's
+    // Global and situational mute controls only take the sound. A listener's
     // own notification switch also gates its rose badge, while its ordinary
     // unread count and highlighted rows remain.
     if (mentioned) playMentionSound();

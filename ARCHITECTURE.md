@@ -348,6 +348,14 @@ affected channel view. Replayed and recovered backlog never enters a listener or
 unread count or notification. A custom listener's notification flag gates both the existing
 mention sound and rose tab badge; collection and the ordinary unread count continue when it is off.
 
+The global mention-kind toggles and both situational mute controls gate only the sound: message
+highlighting, collection, unread counts and rose badges are computed independently. By default,
+ordinary mentions visible in either active pane are silent, while whispers keep their existing
+exception because they arrived from outside that room. The optional window-active mute is broader:
+when `document.hasFocus()` says ChatWow is the focused app, it silences every ping, including a
+whisper or a notification from a background tab. The title-bar mute remains the unconditional
+sound override.
+
 Tabs saved before custom listeners have `mention: None`. They retain the old behavior -- one
 account's mentions, replies and whispers across its open channels -- while still obeying the new
 rule that the mentions tab itself does not keep an account socket alive.

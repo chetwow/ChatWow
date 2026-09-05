@@ -239,8 +239,10 @@ export type Preferences = {
   notifyOnTag: boolean;
   /** Ping when someone uses your name without the `@`. */
   notifyOnName: boolean;
-  /** Ping for mentions in the channel you're currently reading. */
-  notifyActiveTab: boolean;
+  /** Silence mention sounds for the channel currently being read. */
+  muteActiveTab: boolean;
+  /** Silence every notification sound while the app window has focus. */
+  muteWhenWindowActive: boolean;
   /** Ask before the last channel feeding a mentions listener is closed. */
   warnOnListenerClose: boolean;
   /** Load a channel's recent messages when you join it. */
@@ -293,7 +295,7 @@ export type Preferences = {
   mentionIgnores: string[];
   /** Logins whose messages aren't drawn at all. */
   blockedUsers: string[];
-  /** The title bar's quick mute, which leaves the two toggles above alone. */
+  /** The title bar's quick mute, which leaves the saved sound choices alone. */
   muted: boolean;
   /** Emotes drawn as their underlined name instead of their image. */
   emoteBlacklist: EmoteRule[];

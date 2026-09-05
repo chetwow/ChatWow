@@ -13,6 +13,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Clarified the active-tab notification control as a sound mute and added an independent option
+  to mute all notification sounds while the ChatWow window is active.
 - Persisted Twitch and 7TV badge metadata and images in the bounded cache, including expiring
   positive and no-badge 7TV answers, so familiar badges render without a cold-start refetch.
 - Reorganized Appearance settings and expanded the composer avatar control with Twitch avatar,

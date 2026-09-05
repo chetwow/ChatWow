@@ -1134,11 +1134,20 @@ export function SettingsDialog({
                     label="Notify on your name without the @"
                   />
                 </Row>
-                <Row label="Notify for active tab">
+                <Row label="Mute notifications for active tab">
                   <Toggle
-                    checked={preferences.notifyActiveTab}
-                    onChange={(notifyActiveTab) => updatePreferences({ notifyActiveTab })}
-                    label="Notify for active tab"
+                    checked={preferences.muteActiveTab}
+                    onChange={(muteActiveTab) => updatePreferences({ muteActiveTab })}
+                    label="Mute notifications for active tab"
+                  />
+                </Row>
+                <Row label="Mute notifications when window is active">
+                  <Toggle
+                    checked={preferences.muteWhenWindowActive}
+                    onChange={(muteWhenWindowActive) =>
+                      updatePreferences({ muteWhenWindowActive })
+                    }
+                    label="Mute notifications when window is active"
                   />
                 </Row>
                 <Row label="Warn before closing listened channels">
