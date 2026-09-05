@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Signed and notarized macOS releases with Apple Developer ID and enabled automatic in-app update
+  installation on macOS.
+
 ## [1.1.0] - 2026-09-04
 
 ### Added

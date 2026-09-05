@@ -67,9 +67,8 @@ pub struct UpdateState {
     pub total: Option<u64>,
     /// One short line for the user. The detail goes to the log.
     pub error: Option<String>,
-    /// Whether this build is one that can replace itself. False on macOS until
-    /// the app is signed, where the update is real but applying it would break
-    /// the install -- see `can_install`.
+    /// Whether this build can replace itself. Shipped builds can; mock mode
+    /// also uses this field to exercise the manual-download presentation.
     pub can_install: bool,
 }
 
@@ -83,7 +82,7 @@ impl UpdateState {
             downloaded: 0,
             total: None,
             error: None,
-            can_install: can_install(),
+            can_install: true,
         }
     }
 
@@ -98,7 +97,7 @@ impl UpdateState {
             downloaded: 0,
             total: None,
             error: None,
-            can_install: can_install(),
+            can_install: true,
         }
     }
 }
@@ -124,29 +123,6 @@ impl Updates {
             pending: tokio::sync::Mutex::new(None),
         }
     }
-}
-
-/// Whether this build can put an update in place itself.
-///
-/// Only macOS can't, and only until the app is signed. Replacing an *unsigned*
-/// bundle in place is what produces "ChatWow is damaged and can't be opened" on
-/// the next launch -- a worse thing to hand somebody than no update at all.
-/// Nothing in the plugin is at fault and nothing here can work around it: the
-/// fix is a Developer ID Application certificate and notarization, at which
-/// point this arm comes out and nothing else changes. Tauri's own docs say
-/// ad-hoc signing (`signingIdentity: "-"`) isn't enough.
-///
-/// Every other format is fine, `.deb` and `.rpm` included -- the bundler stamps
-/// each binary with the format it was packaged as, so an installed copy asks
-/// `latest.json` for its own (`linux-x86_64-deb` and friends are all there) and
-/// the plugin hands it to `dpkg -i` behind a graphical root prompt. Nothing
-/// here has to tell those apart.
-///
-/// The check still runs where this is false: knowing a new version exists is
-/// useful even when the button can't be what fetches it, so it opens the
-/// releases page instead.
-fn can_install() -> bool {
-    !cfg!(target_os = "macos")
 }
 
 /// Store a state and tell the frontend, in that order and never separately.
@@ -205,9 +181,6 @@ pub async fn check(app: AppHandle, shared: Arc<AppState>) -> UpdateState {
 /// exits underneath us.
 pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String> {
     let _operation = shared.updates.operation.lock().await;
-    if !can_install() {
-        return Err("This build can't replace itself".to_string());
-    }
     let update = match shared.updates.pending.lock().await.take() {
         Some(update) => update,
         None => return Err("There's no update waiting".to_string()),

@@ -127,6 +127,75 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Direct-download macOS apps need both a Developer ID signature and an
+      # Apple notarization ticket. Keep both private keys ephemeral: the
+      # certificate is imported into an isolated keychain and the notary key
+      # exists only under RUNNER_TEMP for the life of this job.
+      - name: Prepare Apple signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          for name in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY \
+            APPLE_API_KEY_BASE64 \
+            KEYCHAIN_PASSWORD
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for signed, notarized macOS releases."
+              exit 1
+            fi
+          done
+
+          certificate_path="$RUNNER_TEMP/chatwow-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/chatwow-signing.keychain-db"
+          api_key_path="$RUNNER_TEMP/AuthKey.p8"
+
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$certificate_path"
+          printf '%s' "$APPLE_API_KEY_BASE64" | openssl base64 -d -A > "$api_key_path"
+          chmod 600 "$certificate_path" "$api_key_path"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+
+          signing_identity="$(
+            security find-identity -v -p codesigning "$keychain_path" \
+              | awk -F'"' '/Developer ID Application:/ { print $2; exit }'
+          )"
+          if [ -z "$signing_identity" ]; then
+            echo "::error::The imported certificate has no usable Developer ID Application identity."
+            exit 1
+          fi
+
+          if ! xcrun notarytool history \
+            --key "$api_key_path" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" >/dev/null
+          then
+            echo "::error::Apple rejected the notarization API credentials."
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=$signing_identity" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
+
       # Tauri's Linux build needs the webview and its packaging tools; the
       # other two runners ship theirs.
       - name: Install Linux dependencies
@@ -170,6 +239,13 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri signs with the Developer ID identity imported above, submits
+          # the app to Apple's notary service, and staples the returned ticket.
+          # These arrive empty on non-macOS matrix entries and are ignored.
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
           # Optional: only a fork building against its own Twitch app needs
           # this. Unset, it arrives empty and build.rs falls back to the
           # committed Client ID, which is the one this app ships with.
@@ -195,13 +271,9 @@ jobs:
             You only need to come back to this page once: install this version by
             hand, and it will offer you the next one on its own.
 
-            **macOS is the exception**, until the app is signed: it will tell you
-            when a new version is out, but you'll download it from here. Swapping
-            an unsigned app bundle in place is what makes macOS declare the app
-            damaged, which is worse than an honest link.
-
-            Nothing here is code-signed yet, so both Windows and macOS will want
-            convincing on first launch.
+            macOS builds are signed with Developer ID and notarized by Apple.
+            Windows is not code-signed yet, so SmartScreen may ask for confirmation
+            on first launch.
           releaseDraft: true
           # A tag with a hyphen in it is a semver prerelease -- v0.6.0-rc.1 and
           # friends. That has to reach GitHub as an actual prerelease, because
@@ -211,3 +283,30 @@ jobs:
           # is the whole reason CHATWOW_UPDATE_ENDPOINT exists.
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
+
+      - name: Verify Apple signature and notarization ticket
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_path="$(
+            find src-tauri/target \
+              -path '*/release/bundle/macos/*.app' \
+              -prune -print -quit
+          )"
+          if [ -z "$app_path" ]; then
+            echo "::error::Couldn't find the bundled macOS app."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+
+      - name: Remove Apple signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/chatwow-signing.keychain-db" 2>/dev/null || true
+          rm -f \
+            "$RUNNER_TEMP/chatwow-developer-id.p12" \
+            "$RUNNER_TEMP/AuthKey.p8"

@@ -991,10 +991,10 @@ Every `npm ci` skips its automatic audit request and prefers cached packages bec
 runs one explicit, retry-protected `npm audit`; install-time audits would duplicate that network
 call once per platform without adding a security gate.
 
-That signing key is unrelated to Apple's or Microsoft's. Nothing here is code-signed and the
-updater doesn't care: it verifies with minisign only, and never consults Gatekeeper. What the
-key does mean is that **losing the private half permanently orphans every installed copy** --
-they will only accept a download signed with it, and there is no way to hand them a new one.
+That updater signing key is unrelated to Apple's or Microsoft's and the updater never substitutes
+platform trust for its own minisign verification. What the key does mean is that **losing the
+private half permanently orphans every installed copy** -- they will only accept a download
+signed with it, and there is no way to hand them a new one.
 
 **Rust owns it** ([src-tauri/src/updater.rs](src-tauri/src/updater.rs)), not the plugin's JS
 API. An update is an HTTPS fetch, a signature check and a filesystem swap, which is the Rust
@@ -1049,17 +1049,17 @@ all in there, `linux-x86_64-deb` included -- and the plugin hands the download t
 behind a graphical root prompt rather than swapping a file. Nothing on this side has to tell
 them apart.
 
-Which leaves `can_install` gating one thing: **macOS, until the app is signed**. Replacing an unsigned bundle in place is what produces "ChatWow is damaged and can't
-be opened" on the next launch -- the failure is well attested against Tauri, nothing in the
-plugin is at fault, and no amount of care on this side avoids it. Ad-hoc signing
-(`signingIdentity: "-"`) isn't enough either; Tauri's own docs say so. The fix is a Developer ID
-Application certificate and notarization, at which point the `#[cfg(target_os = "macos")]` arm
-comes out and nothing else has to change. It's deliberately a runtime gate rather than a build
-flag, so the one place that decides is the one place to edit.
+macOS release builds use a Developer ID Application identity, hardened runtime, secure timestamp,
+and Apple notarization, so replacing the app bundle in place no longer invalidates Gatekeeper's
+trust and automatic update installation is enabled there. The release job imports the base64
+PKCS#12 identity into an isolated temporary keychain and decodes the App Store Connect API key
+only under the runner's temporary directory. Tauri signs, notarizes, and staples the app; a
+post-build gate then makes `codesign`, `stapler`, and `spctl` independently accept the bundle
+before the macOS matrix entry succeeds. A final always-run step deletes both temporary keys.
 
-The check still runs where `can_install` is false: knowing a version exists is useful even when
-the button can't be what fetches it, so it opens the releases page instead of going dead. That's
-the whole difference in the UI -- the button says *Get it* rather than *Install*.
+Apple's signature and notarization are platform trust, while the updater's minisign signature is
+update provenance. Both remain required: Gatekeeper recognizing the publisher does not prove that
+an update came from the static key compiled into an older ChatWow installation.
 
 **The release matrix is serialized on purpose.** `tauri-action` builds `latest.json` by
 downloading the copy already on the release, merging its own platform in, and re-uploading it.
