@@ -241,6 +241,9 @@ pub struct AppState {
     /// Persisted provider snapshots used immediately while their network
     /// refreshes run. Images themselves live in `emotes::cache`.
     pub emote_catalogs: crate::emotes::catalog::CatalogCache,
+    /// Persisted Twitch definitions and expiring per-user 7TV answers. Badge
+    /// images themselves share the bounded cache in `emotes::cache`.
+    pub badge_cache: crate::badge_cache::BadgeCache,
     /// One room-asset fetch per channel even when two account sockets receive
     /// ROOMSTATE together.
     pub channel_asset_loads: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -316,6 +319,7 @@ impl AppState {
             global_emotes: RwLock::new(HashMap::new()),
             global_emotes_ready: AtomicBool::new(false),
             emote_catalogs: crate::emotes::catalog::CatalogCache::default(),
+            badge_cache: crate::badge_cache::BadgeCache::default(),
             channel_asset_loads: Mutex::new(HashMap::new()),
             twitch_global_emotes: RwLock::new(HashMap::new()),
             global_badges: RwLock::new(BadgeMap::new()),
@@ -489,6 +493,28 @@ impl AppState {
                     .map(|e| cache_key("twitch", &e.id)),
             );
         }
+        keys.extend(
+            self.global_badges
+                .read()
+                .values()
+                .map(|badge| badge.cache_key.clone())
+                .filter(|key| !key.is_empty()),
+        );
+        for data in self.data.read().values() {
+            keys.extend(
+                data.badges
+                    .values()
+                    .map(|badge| badge.cache_key.clone())
+                    .filter(|key| !key.is_empty()),
+            );
+        }
+        keys.extend(
+            self.seventv_badges
+                .read()
+                .values()
+                .map(|badge| badge.cache_key.clone())
+                .filter(|key| !key.is_empty()),
+        );
         keys
     }
 

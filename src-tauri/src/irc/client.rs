@@ -317,6 +317,29 @@ fn store_channel_catalog(
     });
 }
 
+fn store_global_badges(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    fresh: crate::twitch::badges::BadgeMap,
+) {
+    let app = app.clone();
+    let state = Arc::clone(state);
+    tauri::async_runtime::spawn_blocking(move || state.badge_cache.store_global(&app, &fresh));
+}
+
+fn store_channel_badges(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    room_id: String,
+    fresh: crate::twitch::badges::BadgeMap,
+) {
+    let app = app.clone();
+    let state = Arc::clone(state);
+    tauri::async_runtime::spawn_blocking(move || {
+        state.badge_cache.store_channel(&app, &room_id, &fresh)
+    });
+}
+
 /// Put a complete cached global snapshot in place before restored sockets are
 /// opened. It is still refreshed after token validation; this only removes the
 /// cold-start gap in which messages cannot resolve global third-party emotes.
@@ -333,6 +356,15 @@ pub fn load_cached_global_emotes(state: &Arc<AppState>) {
 /// Fetch the global emote sets and global Twitch badges. Safe to call again
 /// after login, or after the enabled providers change.
 pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
+    // Twitch art remains authenticated behavior: a disk snapshot is useful
+    // only while some account can still refresh it. Install it before any
+    // network work so restored messages have definitions immediately.
+    if state.auth.read().any_credentials().is_some() {
+        if let Some(cached) = state.badge_cache.global() {
+            *state.global_badges.write() = cached;
+        }
+    }
+
     let providers = providers(&state);
     let cached = state.emote_catalogs.global();
     let fresh = fetch_global_emotes(&state, providers).await;
@@ -350,7 +382,8 @@ pub async fn load_global_assets(app: AppHandle, state: Arc<AppState>) {
     if let Some((client_id, token)) = credentials {
         let fetch = badges::fetch_global(&state.http, &client_id, &token);
         if let Ok(Ok(map)) = timeout(ASSET_TIMEOUT, fetch).await {
-            *state.global_badges.write() = map;
+            *state.global_badges.write() = map.clone();
+            store_global_badges(&app, &state, map);
         }
     }
 
@@ -404,16 +437,23 @@ fn trim_image_cache(app: &AppHandle, state: &Arc<AppState>) {
     tauri::async_runtime::spawn_blocking(move || cache::trim(&app, &active));
 }
 
-async fn fetch_channel_badges(state: &AppState, room_id: &str) -> crate::twitch::badges::BadgeMap {
+async fn fetch_channel_badges(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    room_id: &str,
+) -> crate::twitch::badges::BadgeMap {
     let credentials = { state.auth.read().any_credentials() };
     match credentials {
         Some((client_id, token)) => {
+            let cached = state.badge_cache.channel(room_id).unwrap_or_default();
             let fetch = badges::fetch_channel(&state.http, &client_id, &token, room_id);
-            timeout(ASSET_TIMEOUT, fetch)
-                .await
-                .ok()
-                .and_then(|result| result.ok())
-                .unwrap_or_default()
+            match timeout(ASSET_TIMEOUT, fetch).await {
+                Ok(Ok(map)) => {
+                    store_channel_badges(app, state, room_id.to_string(), map.clone());
+                    map
+                }
+                _ => cached,
+            }
         }
         None => Default::default(),
     }
@@ -537,7 +577,7 @@ async fn ensure_channel_assets(
             ),
         );
 
-        let badge_map = fetch_channel_badges(state, room_id).await;
+        let badge_map = fetch_channel_badges(app, state, room_id).await;
         let mut data = state.data.write();
         let Some(entry) = data.get_mut(channel) else {
             return;
@@ -553,7 +593,7 @@ async fn ensure_channel_assets(
     let cached = cached.unwrap_or_default();
     let (fresh, badge_map) = tokio::join!(
         fetch_channel_emotes(state, providers, room_id),
-        fetch_channel_badges(state, room_id),
+        fetch_channel_badges(app, state, room_id),
     );
     let effective = fresh.clone().with_fallback(cached);
     store_channel_catalog(app, state, room_id.to_string(), fresh);

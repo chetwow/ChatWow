@@ -135,6 +135,9 @@ pub struct EmoteRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
+    /// Built-in color scheme. Unknown values fall back to `twitch` in the
+    /// frontend, alongside the other deliberately unvalidated visual presets.
+    pub theme: String,
     /// Size preset for chat text: `small`, `medium`, `large` or `larger`.
     /// A value the frontend doesn't know falls back to `medium` there rather
     /// than being rejected here, so a hand-edited file can't wedge the UI.
@@ -187,10 +190,10 @@ pub struct Preferences {
     /// go behind anything is a nuisance to inherit on a restart you'd
     /// forgotten about.
     pub always_on_top: bool,
-    /// Show the sending account's picture beside the message box. On by
-    /// default -- with two accounts signed in it's the only thing that keeps
-    /// saying which one a tab speaks as once the placeholder is typed over.
-    pub show_composer_avatar: bool,
+    /// What occupies the account slot beside the message box: the sending
+    /// account's `twitch` picture, a `generic` silhouette or `none`. The
+    /// frontend validates this like the other visual presets.
+    pub composer_avatar_mode: String,
     /// What a newly opened tab is stamped with for the picture behind its
     /// name: `none`, `owner` (the channel's), `account` (the one it reads as)
     /// or `otherAccount` -- that, but only when the new tab isn't on the
@@ -254,6 +257,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            theme: "twitch".to_string(),
             chat_font_size: "medium".to_string(),
             notify_on_tag: true,
             notify_on_name: true,
@@ -271,7 +275,7 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
-            show_composer_avatar: true,
+            composer_avatar_mode: "twitch".to_string(),
             new_tab_avatar_mode: "owner".to_string(),
             tab_avatar_opacity: 0.4,
             preview_images: true,
@@ -349,11 +353,19 @@ fn path(app: &AppHandle) -> Result<PathBuf> {
 
 /// Bring a file written by an earlier build up to the current shape.
 ///
-/// Two things moved: one account's tokens became a list, and the channel list
-/// became a list of tabs. Both are read from the keys they used to live under,
-/// which are `skip_serializing` -- so they survive exactly long enough to be
-/// migrated and leave the file on the next save.
+/// Accounts, tabs, and renamed preferences are read from the keys they used to
+/// live under, then leave the file on the next save.
 fn migrate(settings: &mut Settings, raw: &str) {
+    let parsed = serde_json::from_str::<serde_json::Value>(raw).ok();
+    if let Some(old) = parsed.as_ref().map(|value| &value["preferences"]) {
+        if old.get("composerAvatarMode").is_none() {
+            if let Some(shown) = old["showComposerAvatar"].as_bool() {
+                settings.preferences.composer_avatar_mode =
+                    if shown { "twitch" } else { "none" }.to_string();
+            }
+        }
+    }
+
     if settings.accounts.is_empty() {
         if let (Some(id), Some(login), Some(access), Some(refresh)) = (
             settings.user_id.clone(),
@@ -396,7 +408,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
     // two more. It's an ordinary tab now, so it's placed once, here, and the
     // pane boundary moves with it -- reading those three keys straight out of
     // the JSON keeps them from having to live on in `Preferences`.
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+    let Some(value) = parsed else {
         return;
     };
     let old = &value["preferences"];
@@ -548,6 +560,27 @@ mod tests {
         assert!(filter.users.is_empty());
     }
 
+    #[test]
+    fn the_composer_avatar_boolean_becomes_the_equivalent_mode() {
+        for (shown, expected) in [(true, "twitch"), (false, "none")] {
+            let raw = format!(r#"{{"preferences":{{"showComposerAvatar":{shown}}}}}"#);
+            let mut settings: Settings = serde_json::from_str(&raw).unwrap();
+            migrate(&mut settings, &raw);
+            assert_eq!(settings.preferences.composer_avatar_mode, expected);
+        }
+
+        // A new value wins if a hand-edited file happens to carry both keys.
+        let raw = r#"{
+            "preferences": {
+                "composerAvatarMode": "generic",
+                "showComposerAvatar": false
+            }
+        }"#;
+        let mut settings: Settings = serde_json::from_str(raw).unwrap();
+        migrate(&mut settings, raw);
+        assert_eq!(settings.preferences.composer_avatar_mode, "generic");
+    }
+
     /// A file from before accounts existed comes back as one account and a tab
     /// per channel, rather than as a signed-out app with nothing open.
     #[test]
@@ -565,6 +598,7 @@ mod tests {
         assert_eq!(settings.accounts[0].login, "someone");
         assert_eq!(settings.accounts[0].scopes, vec!["chat:read".to_string()]);
         assert_eq!(settings.default_account, "12345");
+        assert_eq!(settings.preferences.theme, "twitch");
 
         let tabs: Vec<&str> = settings.tabs.iter().map(|t| t.channel.as_str()).collect();
         assert_eq!(tabs, vec!["forsen", "xqc"]);

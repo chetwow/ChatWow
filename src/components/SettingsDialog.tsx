@@ -10,7 +10,15 @@ import { imageKey, ruleKey } from "../lib/emoteBlacklist";
 import { normalizeIgnore } from "../lib/ignores";
 import { NEW_TAB_AVATAR_MODES } from "../lib/tabAvatar";
 import { formatTimeout, TIMEOUT_PRESETS } from "../lib/timeout";
-import type { ChatFontSize, EmoteEntry, EmoteRule, NewTabAvatarMode } from "../types";
+import { THEMES, themeStyle } from "../lib/themes";
+import type {
+  ChatFontSize,
+  ComposerAvatarMode,
+  EmoteEntry,
+  EmoteRule,
+  NewTabAvatarMode,
+  ThemeId,
+} from "../types";
 
 export type SettingsTab = "general" | "account" | "appearance" | "notifications" | "emotes";
 
@@ -27,6 +35,12 @@ const FONT_SIZES: { id: ChatFontSize; label: string }[] = [
   { id: "medium", label: "Medium" },
   { id: "large", label: "Large" },
   { id: "larger", label: "Larger" },
+];
+
+const COMPOSER_AVATAR_MODES: { id: ComposerAvatarMode; label: string }[] = [
+  { id: "twitch", label: "Twitch avatar" },
+  { id: "generic", label: "Generic" },
+  { id: "none", label: "None" },
 ];
 
 /** The px each preset maps to. Mirrored by `--chat-font-size` in App. */
@@ -187,6 +201,82 @@ function SegmentedFontSize({
           {size.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function SegmentedComposerAvatar({
+  value,
+  onChange,
+}: {
+  value: ComposerAvatarMode;
+  onChange: (next: ComposerAvatarMode) => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-line p-0.5">
+      {COMPOSER_AVATAR_MODES.map((mode) => (
+        <button
+          key={mode.id}
+          onClick={() => onChange(mode.id)}
+          aria-pressed={value === mode.id}
+          className={`rounded px-2 py-1 text-[11px] transition-colors ${
+            value === mode.id
+              ? "bg-accent/20 font-semibold text-accent"
+              : "text-ink-dim hover:bg-surface-hover hover:text-ink"
+          }`}
+        >
+          {mode.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ThemePicker({
+  value,
+  onChange,
+}: {
+  value: ThemeId;
+  onChange: (next: ThemeId) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {THEMES.map((theme) => {
+        const selected = value === theme.id;
+        return (
+          <button
+            key={theme.id}
+            style={themeStyle(theme.id)}
+            onClick={() => onChange(theme.id)}
+            aria-pressed={selected}
+            className={`rounded-lg border bg-surface p-2 text-left outline-none transition-[border-color,transform] focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              selected
+                ? "border-accent"
+                : "border-line hover:-translate-y-px hover:border-ink-faint"
+            }`}
+          >
+            <div className="mb-2 flex h-7 items-end gap-1 overflow-hidden rounded border border-line bg-surface-raised p-1">
+              <span className="h-2 w-2 rounded-full bg-accent" />
+              <span className="h-1 flex-1 rounded-full bg-line" />
+              <span className="h-1 w-1/4 rounded-full bg-ink-dim" />
+            </div>
+            <span className="flex items-center justify-between gap-2">
+              <span>
+                <span className="block text-[11px] font-semibold text-ink">{theme.name}</span>
+                <span className="block text-[9px] text-ink-faint">{theme.description}</span>
+              </span>
+              <span
+                aria-hidden
+                className={`grid h-4 w-4 shrink-0 place-items-center rounded-full bg-accent text-[10px] font-bold text-white transition-opacity ${
+                  selected ? "opacity-100" : "opacity-0"
+                }`}
+              >
+                ✓
+              </span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -837,15 +927,6 @@ export function SettingsDialog({
 
           {tab === "appearance" && (
             <div className="flex flex-col gap-5">
-              <Section title="Window">
-                <Row label="Keep window on top">
-                  <Toggle
-                    checked={preferences.alwaysOnTop}
-                    onChange={(alwaysOnTop) => updatePreferences({ alwaysOnTop })}
-                    label="Keep window on top"
-                  />
-                </Row>
-              </Section>
               {/* No hints on this tab: every row here changes something you can
                   see the moment you flip it, which explains it better than a
                   sentence behind a dot would. */}
@@ -877,8 +958,6 @@ export function SettingsDialog({
                     label="Display 7TV badges"
                   />
                 </Row>
-              </Section>
-              <Section title="GIFs">
                 <Row label="Display GIF messages">
                   <Toggle
                     checked={preferences.showGifs}
@@ -970,15 +1049,24 @@ export function SettingsDialog({
                   </div>
                 </Row>
               </Section>
-              <Section title="Message box">
-                {/* Off is for a single account, where the picture only repeats
-                    what the placeholder says. With two signed in it's the one
-                    thing still naming the sender once you've typed over it. */}
-                <Row label="Display your Twitch avatar">
+              <Section title="Theme">
+                <ThemePicker
+                  value={preferences.theme}
+                  onChange={(theme) => updatePreferences({ theme })}
+                />
+              </Section>
+              <Section title="Miscellaneous">
+                <Row label="Keep window on top">
                   <Toggle
-                    checked={preferences.showComposerAvatar}
-                    onChange={(showComposerAvatar) => updatePreferences({ showComposerAvatar })}
-                    label="Display your Twitch avatar beside the message box"
+                    checked={preferences.alwaysOnTop}
+                    onChange={(alwaysOnTop) => updatePreferences({ alwaysOnTop })}
+                    label="Keep window on top"
+                  />
+                </Row>
+                <Row label="Avatar displayed in composer">
+                  <SegmentedComposerAvatar
+                    value={preferences.composerAvatarMode}
+                    onChange={(composerAvatarMode) => updatePreferences({ composerAvatarMode })}
                   />
                 </Row>
               </Section>

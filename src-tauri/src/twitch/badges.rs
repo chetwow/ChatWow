@@ -11,11 +11,43 @@ use std::collections::HashMap;
 /// Keyed by (set_id, version), e.g. ("subscriber", "12").
 pub type BadgeMap = HashMap<(String, String), Badge>;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Badge {
     pub id: String,
     pub title: String,
     pub url: String,
+    #[serde(rename = "cacheKey")]
+    pub cache_key: String,
+}
+
+impl Badge {
+    pub fn new(provider: &str, id: String, title: String, url: String) -> Self {
+        let encoded = id
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        // A provider may replace the art without replacing the badge id. The
+        // URL fingerprint changes the local key in that case, while the id
+        // remains the stable identity used by message rendering.
+        let fingerprint = url
+            .as_bytes()
+            .iter()
+            .fold(0xcbf29ce484222325_u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+            });
+        let cache_key = if matches!(provider, "twitch" | "7tv") && encoded.len() + 17 <= 192 {
+            format!("{provider}-badge-{encoded}_{fingerprint:016x}")
+        } else {
+            String::new()
+        };
+        Self {
+            id,
+            title,
+            url,
+            cache_key,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -61,11 +93,12 @@ fn build_map(response: BadgeResponse) -> BadgeMap {
             };
             map.insert(
                 (set.set_id.clone(), version.id.clone()),
-                Badge {
-                    id: format!("{}/{}", set.set_id, version.id),
+                Badge::new(
+                    "twitch",
+                    format!("{}/{}", set.set_id, version.id),
                     title,
                     url,
-                },
+                ),
             );
         }
     }
@@ -134,6 +167,7 @@ mod tests {
         assert_eq!(m.url, "a4");
         assert_eq!(m.title, "Moderator");
         assert_eq!(m.id, "moderator/1");
+        assert!(m.cache_key.starts_with("twitch-badge-"));
         assert_eq!(
             map.get(&("subscriber".into(), "12".into())).unwrap().title,
             "1-Year Subscriber"
@@ -151,5 +185,22 @@ mod tests {
     fn versions_without_any_image_are_dropped() {
         let json = r#"{"data":[{"set_id":"ghost","versions":[{"id":"1","title":"Ghost"}]}]}"#;
         assert!(build_map(serde_json::from_str(json).unwrap()).is_empty());
+    }
+
+    #[test]
+    fn replacing_badge_art_changes_its_image_cache_key() {
+        let first = Badge::new(
+            "twitch",
+            "moderator/1".to_string(),
+            "Moderator".to_string(),
+            "https://static-cdn.jtvnw.net/badges/v1/first/3".to_string(),
+        );
+        let second = Badge::new(
+            "twitch",
+            "moderator/1".to_string(),
+            "Moderator".to_string(),
+            "https://static-cdn.jtvnw.net/badges/v1/second/3".to_string(),
+        );
+        assert_ne!(first.cache_key, second.cache_key);
     }
 }

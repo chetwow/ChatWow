@@ -62,7 +62,7 @@ body {
   border-radius: 999px;
 }
 .scroller::-webkit-scrollbar-thumb:hover {
-  background: #33333f;
+  background: color-mix(in srgb, var(--color-line) 65%, var(--color-ink-dim));
 }
 .scroller::-webkit-scrollbar-track {
   background: transparent;
@@ -89,7 +89,7 @@ body {
 .quiet-scroller:hover::-webkit-scrollbar-thumb {
   /* The same grey the chat scroller's thumb brightens to -- `--color-line` is
      pitched for a 1px border and all but disappears as a 6px bar. */
-  background: #33333f;
+  background: color-mix(in srgb, var(--color-line) 65%, var(--color-ink-dim));
 }
 .quiet-scroller::-webkit-scrollbar-track {
   background: transparent;

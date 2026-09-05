@@ -425,6 +425,7 @@ pub fn build_badges(msg: &IrcMessage, badges: &BadgeLookup) -> Vec<Badge> {
                 id: format!("{set_id}/{version}"),
                 title: set_id.to_string(),
                 url: String::new(),
+                cache_key: String::new(),
             });
             if let Some(months) = badge_info.get(set_id) {
                 if set_id == "subscriber" {
@@ -899,6 +900,7 @@ mod tests {
                 id: "subscriber/12".into(),
                 title: "Subscriber".into(),
                 url: "u".into(),
+                cache_key: "twitch-badge-test".into(),
             },
         );
 

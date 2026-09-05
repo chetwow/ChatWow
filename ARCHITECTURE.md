@@ -398,10 +398,12 @@ status dot's is reserved whether or not a dot is in it.
 A tab deliberately doesn't say which account it reads as *in words*. The row is scanned for
 channel names, and a second word on every tab costs more room than it buys -- the question is
 answered where it's asked instead: the right-click menu ticks the current account, and the
-composer names the one it sends as twice over, in its placeholder and in the avatar beside it.
-The avatar is the half that survives typing, which is what it's for -- with the same channel
-open under two accounts the tabs look alike, and the placeholder is gone by the second
-character.
+composer names the one it sends as in its placeholder and, when enabled, the account slot beside
+it. `composer_avatar_mode` makes that slot the Twitch avatar, theme-colored generic initials, or
+nothing; the generic mode uses the first two username characters, while Twitch mode falls back
+to the account's first initial. Both use a silhouette for Anonymous, where no name exists. The
+slot is the half that survives typing -- with the same channel open under two
+accounts the tabs look alike, and the placeholder is gone by the second character.
 
 A picture is the exception, because it costs no words and no width: a tab can draw one behind
 its name, faintly (`tab_avatar_opacity`, 40% by default -- a setting because how visible a
@@ -431,8 +433,9 @@ They're keyed by channel like the emote sets, since the face belongs to the room
 
 Right-clicking a tab (or the composer, which is the same tab speaking) opens
 [AccountMenu.tsx](src/components/AccountMenu.tsx): every account, Anonymous, and Close tab.
-Clicking the composer's avatar opens the same menu, and is the only way in when the tab is
-anonymous -- a disabled input takes no mouse events at all, so the right-click never reaches it.
+Clicking either visible composer avatar opens the same menu, and is the direct way in when the tab
+is anonymous -- a disabled input takes no mouse events at all, so the right-click never reaches
+it. With the avatar set to none, the tab's right-click menu remains the account control.
 Context menus stay open when chat scrolls underneath them. They still close on selection, outside
 click, Escape, window blur, or when the caller replaces them with another menu.
 
@@ -688,13 +691,17 @@ for all but the first message from that person -- "no badge" is an answer, remem
 other. New ids go down a channel to a task that lets them pile up for 400ms (a join alone hands
 over a hundred chatters, between the backlog and the live messages) and then asks in one go.
 
+Positive and negative answers are also persisted in `badge-catalogs.json`, bounded to the 20,000
+most recently refreshed users. They are fresh for 24 hours. A fresh answer avoids the request; a
+stale positive is drawn immediately and then refreshed, so removing or changing an equipped badge
+eventually replaces it instead of making the disk snapshot authoritative forever.
+
 The results are pushed to the frontend as `chat://seventv-badges` and kept in the store, *not*
 folded into the messages: a badge lands after the message that prompted the lookup, and stored
 messages are immutable, so a row that already rendered would never get one. `MessageRow`
 subscribes to its own chatter's entry instead, which also makes the Appearance toggle apply to
 the backlog immediately. Switching it back on clears the "already asked" set, so people are
-resolved again as they talk -- the badges the frontend already holds stay put meanwhile, so
-familiar faces keep theirs.
+resolved from the persistent cache or provider again as they talk.
 
 ## User cards
 
@@ -881,14 +888,22 @@ Emoji come from a generated list of ~1,900 Unicode names
 (`scripts/generate-emoji.py` → `src/lib/emoji.json`), dynamically imported so it stays out of the
 initial bundle. Picking one inserts the literal character — Twitch doesn't expand `:shortcode:`.
 
-## Emote images on disk
+## Chat images on disk
 
-Emote images are cached under the app's cache directory and served to the webview over an
-`emote://` scheme handled in Rust, so a busy channel stops re-fetching the same emotes. Files are
-keyed by **provider id, not name** — 7TV emotes are aliased per channel, so a name is neither
-stable nor unique. The cache fills lazily (an emote is stored the first time it's actually
-displayed), and a miss or failure falls back to the CDN url. Concurrent misses for the same key
-share one download and its result.
+Emote and badge images are cached under the app's cache directory and served to the webview over
+an `emote://` scheme handled in Rust, so a busy channel stops re-fetching the same inline art.
+Files are keyed by **provider id, not name** — 7TV emotes are aliased per channel, so a name is
+neither stable nor unique. Badge keys also fingerprint the provider URL so revised art for the
+same badge id gets a new file. The cache fills lazily (an image is stored the first time it's
+actually displayed), and a miss or failure falls back to the CDN url. Concurrent misses for the
+same key share one download and its result.
+
+Badge URLs cannot be reconstructed from their ids, unlike emotes, so `badge-catalogs.json` keeps
+Twitch's global and 128 most recently refreshed channel definition sets beside the expiring 7TV
+answers. Twitch definitions are installed only when credentials exist and refreshed through
+Helix; signing out still clears the visible maps and produces text chips. The custom protocol
+accepts a badge URL only when that stored metadata names Twitch's or 7TV's HTTPS image host, so a
+webview-supplied cache key cannot turn the backend into an arbitrary URL fetcher.
 
 The image directory is a 300 MB recency cache. Serving a file touches its modification time;
 once the directory is over budget, the oldest images outside the current global/open-channel
@@ -917,7 +932,12 @@ renamed over the old snapshot. Missing files mean first run; malformed or unread
 logged before defaults are used, and a malformed file is moved to a timestamped
 `settings.invalid-*.json` rather than overwritten. Rust deliberately doesn't validate preference
 values: the store normalizes an unknown one back to the default, so a hand-edited file can't wedge
-the UI. The font-size preset resolves to a `--chat-font-size` custom property set on the app root;
+the UI. Themes are a frontend-owned catalog of semantic color-token sets, applied to the app root
+so changing one repaints the complete window without rewriting individual components. The current
+palette is the default `Twitch` theme. Every built-in chat surface stays below the conservative
+background luminance used by Rust's username-color contrast lift, so immutable messages remain
+readable as themes change without making message resolution depend on frontend state. The
+font-size preset resolves to a `--chat-font-size` custom property set on the app root;
 only message bodies and the composer follow it, so nothing that measures its own layout moves
 when it changes. GIF size similarly resolves to an independently clamped `--gif-scale` property.
 Mock mode has no backend to write to and falls back to `localStorage`. The default moderator
@@ -1097,8 +1117,9 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/emotes/bttv.rs` | BetterTTV global, channel and shared emotes |
 | `src-tauri/src/emotes/ffz.rs` | FrankerFaceZ global and room sets |
 | `src-tauri/src/emotes/seventv_badges.rs` | 7TV badges, batched per chatter over GraphQL |
-| `src-tauri/src/emotes/cache.rs` | On-disk emote images, served over `emote://` |
+| `src-tauri/src/emotes/cache.rs` | Bounded on-disk emote and badge images, served over `emote://` |
 | `src-tauri/src/emotes/catalog.rs` | Stale-while-revalidate provider catalog snapshots |
+| `src-tauri/src/badge_cache.rs` | Persistent Twitch definitions and expiring 7TV badge answers |
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
@@ -1124,6 +1145,7 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src/lib/links.ts` | What kind of link this is, and which preview switch it answers to |
 | `src/lib/linkPreviews.ts` | Link-preview session cache, and the shelf life Rust sets |
 | `src/lib/notify.ts` | The synthesized mention ping |
+| `src/lib/themes.ts` | Built-in theme catalog and semantic color-token mapping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |
 | `src/components/` | Title bar, tabs, chat view, composer, pickers, user card, settings |
 | `src-tauri/src/updater.rs` | The update check, download and restart |
@@ -1192,7 +1214,7 @@ cd src-tauri && cargo test
 Covers tag unescaping, code-point emote ranges, zero-width overlay folding, badge lookup
 fallbacks, the default color hash, emote-index ordering and use counting, command argument
 parsing, the backlog's filtering, the image cache's key validation, content-type sniffing and
-recency selection, catalog fallback and bounds, the 7TV event dispatches -- how one reads back as
+recency selection, catalog fallback, expiry and bounds, the 7TV event dispatches -- how one reads back as
 added, removed or renamed,
 and what folding it into a channel does to the merged map -- and, for link previews, the
 meta-tag scan, the entity decoding, YouTube and Twitch url recognition, the count and duration

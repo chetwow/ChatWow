@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
+use crate::badge_cache::CachedSevenTvBadge;
 use crate::state::AppState;
 use crate::twitch::badges::Badge;
 
@@ -142,11 +143,12 @@ fn badges_from(response: Response, ids: &[String]) -> HashMap<String, Badge> {
 
         map.insert(
             id.clone(),
-            Badge {
-                id: format!("7tv-{}", badge.id),
-                title: badge.name.clone(),
-                url: image.url.clone(),
-            },
+            Badge::new(
+                "7tv",
+                format!("7tv-{}", badge.id),
+                badge.name.clone(),
+                image.url.clone(),
+            ),
         );
     }
     map
@@ -201,17 +203,74 @@ pub async fn run(app: AppHandle, state: Arc<AppState>, mut queue: mpsc::Unbounde
             }
         }
 
-        let Ok(badges) = fetch(&state.http, &batch).await else {
-            continue;
-        };
-        if badges.is_empty() {
+        let mut cached = HashMap::new();
+        let mut refresh = Vec::new();
+        for id in batch.into_iter().filter(|id| is_user_id(id)) {
+            match state.badge_cache.seventv(&id) {
+                CachedSevenTvBadge::Fresh(badge) => {
+                    cached.insert(id, badge);
+                }
+                CachedSevenTvBadge::Stale(badge) => {
+                    cached.insert(id.clone(), badge);
+                    refresh.push(id);
+                }
+                CachedSevenTvBadge::Missing => refresh.push(id),
+            }
+        }
+
+        // A stale positive answer is still useful while its refresh is in
+        // flight. A cached negative explicitly removes any older frontend
+        // value for the same chatter.
+        apply_and_emit(&app, &state, &cached);
+
+        if refresh.is_empty() {
             continue;
         }
-        state.seventv_badges.write().extend(badges.clone());
-        // Only the new ones: the frontend merges them into what it holds, and
-        // a chatter's badge doesn't change while you're reading.
-        let _ = app.emit("chat://seventv-badges", &badges);
+        let Ok(badges) = fetch(&state.http, &refresh).await else {
+            continue;
+        };
+        let answers: HashMap<String, Option<Badge>> = refresh
+            .into_iter()
+            .map(|id| {
+                let badge = badges.get(&id).cloned();
+                (id, badge)
+            })
+            .collect();
+
+        // Serialize writes in this single resolver so a slower older snapshot
+        // cannot land after a newer one. The file is cache data and small, but
+        // still belongs off the async runtime thread.
+        let cache_app = app.clone();
+        let cache_state = Arc::clone(&state);
+        let cache_answers = answers.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            cache_state
+                .badge_cache
+                .store_seventv(&cache_app, &cache_answers)
+        })
+        .await;
+        apply_and_emit(&app, &state, &answers);
     }
+}
+
+fn apply_and_emit(app: &AppHandle, state: &AppState, answers: &HashMap<String, Option<Badge>>) {
+    if answers.is_empty() {
+        return;
+    }
+    {
+        let mut current = state.seventv_badges.write();
+        for (user_id, badge) in answers {
+            match badge {
+                Some(badge) => {
+                    current.insert(user_id.clone(), badge.clone());
+                }
+                None => {
+                    current.remove(user_id);
+                }
+            }
+        }
+    }
+    let _ = app.emit("chat://seventv-badges", answers);
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 mod auth;
+mod badge_cache;
 mod color;
 mod diagnostics;
 mod emotes;
@@ -1597,6 +1598,7 @@ pub fn run() {
             *shared.last_seen_version.write() = saved.last_seen_version;
             *shared.preferences.write() = saved.preferences;
             shared.emote_catalogs.initialize(&handle);
+            shared.badge_cache.initialize(&handle);
             client::load_cached_global_emotes(&shared);
             {
                 let mut data = shared.data.write();

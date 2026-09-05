@@ -11,6 +11,7 @@ import {
   unseenReleaseNotes,
 } from "./lib/whatsNew";
 import type { ReleaseNotes } from "./lib/releaseNotes";
+import { themeStyle } from "./lib/themes";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
   const [whatsNew, setWhatsNew] = useState<ReleaseNotes | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
   const gifScale = useChat((state) => state.preferences.gifScale);
+  const theme = useChat((state) => state.preferences.theme);
   const focusedTab = useChat((state) => state.active[state.focusedPane]);
 
   const openSearch = useCallback(() => {
@@ -190,9 +192,12 @@ export default function App() {
 
   return (
     <div
-      // Message text and GIFs read their independently persisted scales here.
+      // Appearance preferences resolve to CSS properties here so every part
+      // of the window, including dialogs and fixed previews, inherits them.
+      data-theme={theme}
       style={
         {
+          ...themeStyle(theme),
           "--chat-font-size": `${chatFontSize}px`,
           "--gif-scale": gifScale,
         } as CSSProperties

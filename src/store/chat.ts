@@ -20,6 +20,7 @@ import { playMentionSound } from "../lib/notify";
 import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
+import { isThemeId } from "../lib/themes";
 import { ANONYMOUS } from "../types";
 import type {
   AuthStatus,
@@ -35,6 +36,7 @@ import type {
   EmoteSetEvent,
   ClearEvent,
   ConnectionState,
+  ComposerAvatarMode,
   PaneIndex,
   ReplyInfo,
   NewTabAvatarMode,
@@ -58,6 +60,7 @@ const MAX_SENT_HISTORY = 100;
 const MAX_CHATTERS = 1000;
 
 export const DEFAULT_PREFERENCES: Preferences = {
+  theme: "twitch",
   chatFontSize: "medium",
   notifyOnTag: true,
   notifyOnName: true,
@@ -75,7 +78,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
-  showComposerAvatar: true,
+  composerAvatarMode: "twitch",
   newTabAvatarMode: "owner",
   tabAvatarOpacity: 0.4,
   previewImages: true,
@@ -110,6 +113,7 @@ const IDLE_UPDATE: UpdateState = {
 export type BlacklistKind = "emoteBlacklist" | "emoteCompleteBlacklist";
 
 const FONT_SIZES = new Set<Preferences["chatFontSize"]>(["small", "medium", "large", "larger"]);
+const COMPOSER_AVATAR_MODES = new Set<ComposerAvatarMode>(["twitch", "generic", "none"]);
 export const MIN_GIF_SCALE = 0.25;
 export const MAX_GIF_SCALE = 2;
 const SPLIT_LAYOUTS = new Set<SplitLayout>(["none", "row", "column"]);
@@ -122,13 +126,24 @@ const NEW_TAB_AVATAR_MODE_IDS = new Set<NewTabAvatarMode>([
 
 /**
  * Coerce whatever the backend hands over into a usable set. `settings.json` is
- * a plain file a user can edit, and Rust deliberately doesn't validate the
- * font-size string -- an unrecognized one lands back on the default here
- * rather than rendering chat at `undefined`.
+ * a plain file a user can edit, and Rust deliberately doesn't validate visual
+ * preset strings -- an unrecognized one lands back on its default here rather
+ * than rendering chat with missing CSS values.
  */
 function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
-  const merged = { ...DEFAULT_PREFERENCES, ...raw };
+  const source = (raw ?? {}) as Partial<Preferences> & { showComposerAvatar?: unknown };
+  const { showComposerAvatar, ...current } = source;
+  const merged = { ...DEFAULT_PREFERENCES, ...current };
+  // Mock-mode localStorage can still contain the boolean used before the
+  // three explicit modes. The native backend performs the same migration.
+  if (!("composerAvatarMode" in source) && typeof showComposerAvatar === "boolean") {
+    merged.composerAvatarMode = showComposerAvatar ? "twitch" : "none";
+  }
+  if (!isThemeId(merged.theme)) merged.theme = DEFAULT_PREFERENCES.theme;
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
+  if (!COMPOSER_AVATAR_MODES.has(merged.composerAvatarMode)) {
+    merged.composerAvatarMode = DEFAULT_PREFERENCES.composerAvatarMode;
+  }
   merged.emoteBlacklist = normalizeRules(merged.emoteBlacklist);
   merged.emoteCompleteBlacklist = normalizeRules(merged.emoteCompleteBlacklist);
   merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
@@ -1655,10 +1670,15 @@ export async function subscribeToBackend(): Promise<() => void> {
       }
     }),
 
-    listen<Record<string, Badge>>("chat://seventv-badges", (event) => {
-      useChat.setState((state) => ({
-        seventvBadges: { ...state.seventvBadges, ...event.payload },
-      }));
+    listen<Record<string, Badge | null>>("chat://seventv-badges", (event) => {
+      useChat.setState((state) => {
+        const seventvBadges = { ...state.seventvBadges };
+        for (const [userId, badge] of Object.entries(event.payload)) {
+          if (badge) seventvBadges[userId] = badge;
+          else delete seventvBadges[userId];
+        }
+        return { seventvBadges };
+      });
     }),
 
     listen<{ globalEmotes: number }>("chat://assets", (event) => {

@@ -1,15 +1,14 @@
-//! On-disk cache of emote images, served to the webview over the `emote://`
+//! On-disk cache of chat images, served to the webview over the `emote://`
 //! scheme.
 //!
-//! Files are keyed by provider and emote id, never by name: 7TV emotes are
-//! routinely aliased per channel, so a name is neither stable nor unique, while
-//! the id survives a rename and keeps two same-named emotes apart.
+//! Emotes are keyed by provider and id, never by name: 7TV emotes are routinely
+//! aliased per channel, so a name is neither stable nor unique. Badges add a
+//! fingerprint of the provider URL so revised art gets a fresh file.
 //!
-//! The cache fills lazily -- an emote is downloaded the first time it's
-//! actually displayed, in chat or in the picker -- so joining a channel with a
-//! few thousand emotes doesn't touch the network at all. Emotes that leave
-//! every joined channel's set remain highest priority, while recently used
-//! images from other channels stay until the cache reaches 300 MB.
+//! The cache fills lazily -- an image is downloaded the first time it's
+//! actually displayed -- so joining a channel with a few thousand emotes
+//! doesn't download them all. Images outside the current working set remain
+//! until recency eviction is needed at 300 MB.
 
 use anyhow::{anyhow, Result};
 use filetime::FileTime;
@@ -20,7 +19,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tauri::{AppHandle, Manager};
 use tokio::sync::{watch, Mutex};
 
-/// Anything bigger than this isn't an emote and shouldn't reach the disk.
+/// Anything bigger than this isn't an inline chat image and shouldn't reach the disk.
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 /// A hard ceiling for normal-size cached images. The active working set is
 /// evicted last, but cannot make the directory grow without bound.
@@ -59,7 +58,7 @@ pub fn is_valid_key(key: &str) -> bool {
     let Some((_, id)) = split_key(key) else {
         return false;
     };
-    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    !id.is_empty() && id.len() <= 192 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The providers whose images we serve. FFZ is deliberately absent: it splits
@@ -68,7 +67,7 @@ pub fn is_valid_key(key: &str) -> bool {
 /// aren't (their CDN doesn't answer that path at all, not even a 404). Its
 /// emotes go straight to the CDN url the API gave us, which is already the
 /// right one; the webview's own HTTP cache is what stops the refetching.
-const PROVIDERS: [&str; 3] = ["7tv", "twitch", "bttv"];
+const PROVIDERS: [&str; 5] = ["twitch-badge", "7tv-badge", "7tv", "twitch", "bttv"];
 
 fn split_key(key: &str) -> Option<(&'static str, &str)> {
     PROVIDERS.iter().find_map(|provider| {
@@ -77,8 +76,9 @@ fn split_key(key: &str) -> Option<(&'static str, &str)> {
     })
 }
 
-/// Where to download a key from. All cached providers address images by id, so the
-/// url follows from the key and nothing has to be looked up or stored.
+/// Where to download an emote key from. Badge URLs come from the persisted,
+/// provider-authored metadata instead, because their CDN paths aren't
+/// derivable from an id.
 pub fn source_url(key: &str) -> Option<String> {
     if !is_valid_key(key) {
         return None;
@@ -125,8 +125,7 @@ fn read_cached(path: &Path) -> Option<(Vec<u8>, &'static str)> {
 }
 
 async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &'static str)> {
-    let url = source_url(key).ok_or_else(|| anyhow!("no source for {key}"))?;
-    let (http, active, sets_loaded) = {
+    let (http, active, sets_loaded, badge_url) = {
         let state = app
             .try_state::<crate::Shared>()
             .ok_or_else(|| anyhow!("app state not ready"))?;
@@ -134,8 +133,12 @@ async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &
             state.http.clone(),
             state.active_cache_keys(),
             state.emote_sets_are_loaded(),
+            state.badge_cache.image_url(key),
         )
     };
+    let url = source_url(key)
+        .or(badge_url)
+        .ok_or_else(|| anyhow!("no source for {key}"))?;
 
     let bytes = http
         .get(url)
@@ -185,7 +188,7 @@ async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &
 /// one stable key share the leader's result instead of stampeding its CDN.
 pub async fn serve(app: &AppHandle, key: &str) -> Result<(Vec<u8>, &'static str)> {
     if !is_valid_key(key) {
-        return Err(anyhow!("not an emote key: {key}"));
+        return Err(anyhow!("not a cache key: {key}"));
     }
 
     let path = dir(app)?.join(key);
@@ -340,6 +343,8 @@ mod tests {
             "Twitch's newer id format"
         );
         assert!(is_valid_key("bttv-54fa8f1401e468494b85b537"));
+        assert!(is_valid_key("twitch-badge-6d6f64657261746f722f31"));
+        assert!(is_valid_key("7tv-badge-3774762d30314a4a"));
     }
 
     #[test]
@@ -349,7 +354,7 @@ mod tests {
         assert!(!is_valid_key("../secrets"));
         assert!(!is_valid_key("7tv-"), "a provider with no emote");
         assert!(!is_valid_key("nowhere-abc"), "provider we don't serve");
-        assert!(!is_valid_key(&format!("7tv-{}", "a".repeat(65))));
+        assert!(!is_valid_key(&format!("7tv-{}", "a".repeat(193))));
     }
 
     #[test]
@@ -365,6 +370,7 @@ mod tests {
             source_url("bttv-abc").unwrap(),
             "https://cdn.betterttv.net/emote/abc/2x"
         );
+        assert!(source_url("twitch-badge-6d6f64").is_none());
         assert!(source_url("nonsense").is_none());
     }
 

@@ -1,4 +1,5 @@
 import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
 import { useTooltip } from "../store/tooltip";
@@ -10,9 +11,12 @@ import { providerEnabled } from "../lib/emoteProviders";
 import { imagePreviewUrl, linkHost, linkKind, type LinkKind } from "../lib/links";
 import { messageTime } from "../lib/messageText";
 import { cachedLinkPreview, loadLinkPreview, loadPreviewImage } from "../lib/linkPreviews";
+import { IS_TAURI } from "../lib/tauri";
 import type { Badge, LinkPreview, ReplyInfo, Segment, StoredMessage } from "../types";
 
 function BadgeView({ badge }: { badge: Badge }) {
+  const cached = IS_TAURI && badge.cacheKey ? convertFileSrc(badge.cacheKey, "emote") : badge.url;
+  const [failed, setFailed] = useState<string | null>(null);
   if (!badge.url) {
     // No art available (signed out) -- fall back to a compact text chip.
     return (
@@ -26,10 +30,13 @@ function BadgeView({ badge }: { badge: Badge }) {
   }
   return (
     <img
-      src={badge.url}
+      src={failed === cached ? badge.url : cached}
       alt={badge.title}
       title={badge.title}
       loading="lazy"
+      onError={() => {
+        if (cached !== badge.url) setFailed(cached);
+      }}
       className="mr-1 inline-block h-[18px] w-[18px] rounded-[3px] align-middle"
     />
   );

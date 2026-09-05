@@ -100,7 +100,8 @@ export function Composer({
   const emoteEntries = useChat((state) => state.emoteEntries[id]);
   const emoteUses = useChat((state) => state.emoteUses);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
-  const showAvatar = useChat((state) => state.preferences.showComposerAvatar);
+  const avatarMode = useChat((state) => state.preferences.composerAvatarMode);
+  const showAvatar = avatarMode !== "none";
   const sentHistory = useChat((state) => state.sentHistory[id]);
   const chatters = useChat((state) => state.chatters[id]);
   // Absent until this tab's USERSTATE lands, which is the safe default: the
@@ -692,17 +693,17 @@ export function Composer({
               aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
               className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
             >
-              {avatar ? (
+              {avatarMode === "twitch" && avatar ? (
                 <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
               ) : login ? (
                 <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
-                  {login.slice(0, 1)}
+                  {login.slice(0, avatarMode === "generic" ? 2 : 1)}
                 </span>
               ) : (
-                // Anonymous keeps the circle rather than dropping it: the row
-                // would otherwise shift sideways whenever a tab changed
-                // account, and this is where you go to give it one.
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-surface text-ink-faint">
+                // Anonymous has no username to abbreviate, so both visible
+                // modes fall back to a silhouette that keeps the account
+                // picker reachable.
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-accent">
                   <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
                     <circle cx="8" cy="5.5" r="2.75" />
                     <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />

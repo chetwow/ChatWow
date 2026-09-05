@@ -15,7 +15,7 @@ in a browser.
 - Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
 - Replies, whispers, badges, unread indicators, Twitch chat commands, and link previews
 - An offline What's New summary the first time each new version launches
-- Customizable appearance and notifications
+- Six built-in color themes, plus customizable appearance and notifications
 
 ChatWow is available for Windows, macOS, and Linux.
 

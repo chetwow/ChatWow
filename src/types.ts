@@ -34,6 +34,8 @@ export type Badge = {
   title: string;
   /** Empty when we have no badge art (i.e. not signed in). */
   url: string;
+  /** Stable provider/id key for the shared persistent image cache. */
+  cacheKey: string;
 };
 
 /** The message a reply is quoting, carried on the reply itself. */
@@ -197,6 +199,12 @@ export type NewTabAvatarMode = TabAvatarMode | "otherAccount";
 /** Chat text size presets, smallest first. Mirrors `chat_font_size` in Rust. */
 export type ChatFontSize = "small" | "medium" | "large" | "larger";
 
+/** Built-in color schemes. Mirrors the unvalidated `theme` string in Rust. */
+export type ThemeId = "twitch" | "midnight" | "lagoon" | "evergreen" | "ember" | "sakura";
+
+/** What occupies the account slot beside the composer. */
+export type ComposerAvatarMode = "twitch" | "generic" | "none";
+
 /**
  * One emote blacklist entry, hand-mirrored from `settings::EmoteRule`.
  *
@@ -224,6 +232,8 @@ export type SplitLayout = "none" | "row" | "column";
 
 /** Hand-mirrored from `settings::Preferences`; kept in `settings.json`. */
 export type Preferences = {
+  /** Color scheme applied to the whole window. */
+  theme: ThemeId;
   chatFontSize: ChatFontSize;
   /** Ping when someone writes `@you`. */
   notifyOnTag: boolean;
@@ -258,8 +268,8 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Keep the window above every other one. */
   alwaysOnTop: boolean;
-  /** Show the sending account's picture beside the message box. */
-  showComposerAvatar: boolean;
+  /** What occupies the account slot beside the message box. */
+  composerAvatarMode: ComposerAvatarMode;
   /** What a newly opened tab draws behind its name. Only new ones. */
   newTabAvatarMode: NewTabAvatarMode;
   /** How strongly that picture is drawn, 0 to 1. */

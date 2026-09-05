@@ -3,7 +3,7 @@
 //! Twitch's `color` tag is empty for anyone who never picked a color; the web
 //! client assigns one deterministically from a fixed palette. We reproduce that
 //! so every chatter gets a stable color, then lift very dark colors so they stay
-//! legible on our near-black background (the classic offender is #0000FF).
+//! legible on every built-in theme (the classic offender is #0000FF).
 
 /// The palette Twitch's own client uses for users with no color set.
 const DEFAULT_COLORS: [&str; 15] = [
@@ -11,11 +11,13 @@ const DEFAULT_COLORS: [&str; 15] = [
     "#DAA520", "#D2691E", "#5F9EA0", "#1E90FF", "#FF69B4", "#8A2BE2", "#00FF7F",
 ];
 
-/// The chat background these colors are read against (--color-surface).
-const BACKGROUND: (f32, f32, f32) = (
-    0x0b as f32 / 255.0,
-    0x0b as f32 / 255.0,
-    0x0f as f32 / 255.0,
+/// A conservative ceiling for the relative luminance of every built-in chat
+/// surface. Resolving once against this color keeps immutable messages legible
+/// when the frontend changes themes without making Rust theme-aware.
+const BRIGHTEST_THEME_BACKGROUND: (f32, f32, f32) = (
+    0x11 as f32 / 255.0,
+    0x18 as f32 / 255.0,
+    0x27 as f32 / 255.0,
 );
 /// Target WCAG contrast ratio. 4.5 is the AA threshold for body text.
 const MIN_CONTRAST: f32 = 4.5;
@@ -160,7 +162,11 @@ fn relative_luminance(r: f32, g: f32, b: f32) -> f32 {
 
 fn contrast_with_background(r: f32, g: f32, b: f32) -> f32 {
     let foreground = relative_luminance(r, g, b);
-    let background = relative_luminance(BACKGROUND.0, BACKGROUND.1, BACKGROUND.2);
+    let background = relative_luminance(
+        BRIGHTEST_THEME_BACKGROUND.0,
+        BRIGHTEST_THEME_BACKGROUND.1,
+        BRIGHTEST_THEME_BACKGROUND.2,
+    );
     let (lighter, darker) = if foreground > background {
         (foreground, background)
     } else {

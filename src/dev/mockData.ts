@@ -119,21 +119,25 @@ const MOD: Badge = {
   id: "moderator/1",
   title: "Moderator",
   url: "https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/3",
+  cacheKey: "",
 };
 const SUB: Badge = {
   id: "subscriber/12",
   title: "Subscriber (14 months)",
   url: "https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/3",
+  cacheKey: "",
 };
 const PRIME: Badge = {
   id: "premium/1",
   title: "Prime Gaming",
   url: "https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/3",
+  cacheKey: "",
 };
 const VIP: Badge = {
   id: "vip/1",
   title: "VIP",
   url: "https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/3",
+  cacheKey: "",
 };
 
 const RAIN_TIME_URL = "https://cdn.7tv.app/emote/01FCY771D800007PQ2DF3GDTN6/2x.webp";
@@ -530,11 +534,13 @@ export function mockSevenTvBadges(): Record<string, Badge> {
       id: "7tv-01JJJ74CRHZBRMCM8F4Y2WBN6R",
       title: "Minecraft Event Winner",
       url: "https://cdn.7tv.app/badge/01JJJ74CRHZBRMCM8F4Y2WBN6R/2x_static.webp",
+      cacheKey: "",
     },
     "mock-faiblesse": {
       id: "7tv-01JF2VMDBWMZDXZKF4D33VM2S8",
       title: "NNYS Golden Gondola",
       url: "https://cdn.7tv.app/badge/01JF2VMDBWMZDXZKF4D33VM2S8/2x.webp",
+      cacheKey: "",
     },
   };
 }

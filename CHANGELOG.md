@@ -7,8 +7,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added six built-in color themes, with the original color scheme named Twitch.
+
 ### Changed
 
+- Persisted Twitch and 7TV badge metadata and images in the bounded cache, including expiring
+  positive and no-badge 7TV answers, so familiar badges render without a cold-start refetch.
+- Reorganized Appearance settings and expanded the composer avatar control with Twitch avatar,
+  theme-colored generic initials, and hidden options.
 - Signed and notarized macOS releases with Apple Developer ID and enabled automatic in-app update
   installation on macOS.
 
