@@ -100,6 +100,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   previewPages: true,
   inlineTwitchClips: false,
   inlineYoutube: false,
+  keepVideoPlayersOffscreen: true,
+  keepVideoPlayersInactive: false,
   singleRowTabs: true,
   showLiveStreamThumbnails: false,
   splitLayout: "none",

@@ -1,4 +1,6 @@
-import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "react";
+import { VideoTabContext } from "./VideoTabContext";
+import { useInlineVideo } from "../store/inlineVideo";
+import { Fragment, memo, useContext, useEffect, useRef, useState, type MouseEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { TwitchClipPlayer } from "./TwitchClipPlayer";
 import { twitchClip } from "../lib/twitchClips";
@@ -420,11 +422,28 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   // flipping one has to reach them through the store.
   const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
   const inlineTwitchClips = useChat((state) => state.preferences.inlineTwitchClips);
+  const videoTab = useContext(VideoTabContext);
+  const keepOffscreen = useChat((state) => state.preferences.keepVideoPlayersOffscreen);
+  const playerElement = useRef<HTMLSpanElement>(null);
   const clip = twitchClip(segment.href);
-  const [expanded, setExpanded] = useState(false);
+  const [playerOwner] = useState(() => Symbol("inline video link"));
+  const expanded = useInlineVideo((state) => state.owner === playerOwner);
+  const closePlayer = () => useInlineVideo.getState().close(playerOwner);
+  useEffect(() => () => useInlineVideo.getState().close(playerOwner), [playerOwner]);
+  useEffect(() => {
+    const element = playerElement.current;
+    if (!expanded || keepOffscreen || !videoTab.active || !element) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) useInlineVideo.getState().close(playerOwner);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [expanded, keepOffscreen, videoTab.active, playerOwner]);
   const video = youtubeVideo(segment.href);
   const inline = Boolean((inlineYoutube && video) || (inlineTwitchClips && clip));
-  useEffect(() => { if (!inline) setExpanded(false); }, [inline]);
+  useEffect(() => {
+    if (!inline) useInlineVideo.getState().close(playerOwner);
+  }, [inline, playerOwner]);
   const kind = linkKind(segment.href);
   const enabled = useChat((state) => state.preferences[PREFERENCE[kind]]);
   const image = kind === "image" ? imagePreviewUrl(segment.href) : null;
@@ -500,7 +519,7 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
         onClick={() => {
           cancel();
           hide();
-          if (inline) setExpanded((value) => !value);
+          if (inline) useInlineVideo.getState().toggle(playerOwner, videoTab.tabId);
           else void openLink(segment.href);
         }}
         onMouseEnter={
@@ -544,11 +563,15 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
       >
         {segment.text}
       </button>
-      {inlineTwitchClips && expanded && clip && (
-        <TwitchClipPlayer key={segment.href} clip={clip} href={segment.href} onClose={() => setExpanded(false)} />
-      )}
-      {inlineYoutube && expanded && video && (
-        <YoutubePlayer key={segment.href} video={video} href={segment.href} onClose={() => setExpanded(false)} />
+      {expanded && (
+        <span ref={playerElement} className="block">
+          {inlineTwitchClips && clip && (
+            <TwitchClipPlayer key={segment.href} clip={clip} href={segment.href} onClose={closePlayer} />
+          )}
+          {inlineYoutube && video && (
+            <YoutubePlayer key={segment.href} video={video} href={segment.href} onClose={closePlayer} />
+          )}
+        </span>
       )}
     </>
   );

@@ -1,4 +1,6 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from "react";
+import { useInlineVideo } from "../store/inlineVideo";
+import { VideoTabContext } from "./VideoTabContext";
 import { TabBar } from "./TabBar";
 import { ChatView } from "./ChatView";
 import { PinnedMessagePanel } from "./PinnedMessagePanel";
@@ -59,6 +61,12 @@ function Pane({
   onCloseSearch: () => void;
 }) {
   const active = useChat((state) => state.active[pane]);
+  const playerTab = useInlineVideo((state) => state.tabId);
+  const keepInactive = useChat((state) => state.preferences.keepVideoPlayersInactive);
+  const tabs = useChat((state) => state.tabs);
+  const preferences = useChat((state) => state.preferences);
+  const visibleTabs = paneTabs({ tabs, preferences }, pane)
+    .filter((tab) => tab.id === active || (keepInactive && tab.id === playerTab));
   const focusPane = useChat((state) => state.focusPane);
   const moveTab = useChat((state) => state.moveTab);
   /**
@@ -101,18 +109,20 @@ function Pane({
       }}
     >
       <TabBar pane={pane} onAdd={onAdd} />
-      {active && <PinnedMessagePanel tabId={active} />}
-      {active ? (
-        <ChatView
-          key={active}
-          id={active}
-          capturesTyping={typingPane === pane}
-          searchRequest={search?.tabId === active ? search.request : null}
-          onCloseSearch={onCloseSearch}
-        />
-      ) : (
-        <EmptyPane onAdd={onAdd} onSignIn={onSignIn} />
-      )}
+      {visibleTabs.map((tab) => (
+        <VideoTabContext.Provider key={tab.id} value={{ tabId: tab.id, active: tab.id === active }}>
+          <div className={tab.id === active ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "hidden"}>
+            <PinnedMessagePanel tabId={tab.id} />
+            <ChatView
+              id={tab.id}
+              capturesTyping={tab.id === active && typingPane === pane}
+              searchRequest={tab.id === active && search?.tabId === tab.id ? search.request : null}
+              onCloseSearch={onCloseSearch}
+            />
+          </div>
+        </VideoTabContext.Provider>
+      ))}
+      {!active && <EmptyPane onAdd={onAdd} onSignIn={onSignIn} />}
     </div>
   );
 }

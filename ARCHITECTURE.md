@@ -987,6 +987,16 @@ hangs off is a row inside a scroller and can sit partly, or entirely, outside th
 
 ## Link previews
 
+Only one inline video can be expanded across the app. `store/inlineVideo.ts` tracks a
+unique link-instance owner; opening another closes the previous player and stops playback
+through its unmount cleanup. This happens on opening because Twitch clips expose no playback
+events. Owner-checked cleanup prevents the previous player from closing its successor.
+The owner also records its tab. By default, scrolling keeps players open and changing tabs
+closes them. General settings can change either behavior: an intersection observer closes
+fully off-screen players when requested, while `Panes` retains only the owning inactive
+tab when enabled. Both visible split panes count as active. Hidden retained tabs skip the
+scroll visibility check; closing a tab or opening another video still removes the player.
+
 The opt-in `inlineYoutube` preference is independent of hover previews. Clicking a recognized
 YouTube video link mounts `YoutubePlayer` inside that message; no player API is loaded until
 that click. The official IFrame API reports playback errors, and a bounded loading timeout

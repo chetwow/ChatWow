@@ -234,6 +234,10 @@ pub struct Preferences {
     pub preview_pages: bool,
     /// Expand clicked YouTube links into an inline player. Opt-in.
     pub inline_youtube: bool,
+    /// Keep inline players mounted after scrolling outside the chat viewport.
+    pub keep_video_players_offscreen: bool,
+    /// Retain the player's chat view when switching to another tab.
+    pub keep_video_players_inactive: bool,
     /// Expand clicked Twitch clips into an inline player. Opt-in.
     pub inline_twitch_clips: bool,
     /// Keep the channel tabs on one row and scroll them sideways. On by
@@ -308,6 +312,8 @@ impl Default for Preferences {
             preview_images: true,
             preview_pages: true,
             inline_youtube: false,
+            keep_video_players_offscreen: true,
+            keep_video_players_inactive: false,
             inline_twitch_clips: false,
             single_row_tabs: true,
             show_live_stream_thumbnails: false,
@@ -691,6 +697,18 @@ mod tests {
         let mut settings: Settings = serde_json::from_str(raw).unwrap();
         migrate(&mut settings, raw);
         assert!(!settings.preferences.mute_active_tab);
+    }
+
+    #[test]
+    fn video_lifetime_defaults_and_saved_choices() {
+        let old: Settings = serde_json::from_str(r#"{"preferences":{}}"#).unwrap();
+        assert!(old.preferences.keep_video_players_offscreen);
+        assert!(!old.preferences.keep_video_players_inactive);
+        let saved: Settings = serde_json::from_str(
+            r#"{"preferences":{"keepVideoPlayersOffscreen":false,"keepVideoPlayersInactive":true}}"#,
+        ).unwrap();
+        assert!(!saved.preferences.keep_video_players_offscreen);
+        assert!(saved.preferences.keep_video_players_inactive);
     }
 
     #[test]

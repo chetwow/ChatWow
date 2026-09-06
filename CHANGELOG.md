@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Options to keep video players open off screen (on by default) and in inactive tabs (off by default).
+
 - Optional inline Twitch clip playback, with a browser fallback and link-menu action.
 
 - Optional inline YouTube playback from chat links, with a browser prompt when playback fails.
@@ -18,6 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added “Show live stream thumbnails on hover” in Tabs settings, off by default.
 
 ### Changed
+
+- Opening an inline video closes the previous player and stops its playback across chat panes.
 
 - Default all four permission options on when adding an account.
 

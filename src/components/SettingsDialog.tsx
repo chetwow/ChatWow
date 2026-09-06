@@ -883,6 +883,20 @@ export function SettingsDialog({
                     label="Play YouTube videos inline"
                   />
                 </Row>
+                <Row label="Keep video players open when scrolled off screen">
+                  <Toggle
+                    checked={preferences.keepVideoPlayersOffscreen}
+                    onChange={(keepVideoPlayersOffscreen) => updatePreferences({ keepVideoPlayersOffscreen })}
+                    label="Keep video players open when scrolled off screen"
+                  />
+                </Row>
+                <Row label="Keep video players open when tab inactive">
+                  <Toggle
+                    checked={preferences.keepVideoPlayersInactive}
+                    onChange={(keepVideoPlayersInactive) => updatePreferences({ keepVideoPlayersInactive })}
+                    label="Keep video players open when tab inactive"
+                  />
+                </Row>
               </Section>
               <Section title="Moderation">
                 <Row label="Default timeout duration">

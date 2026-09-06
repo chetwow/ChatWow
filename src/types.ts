@@ -325,6 +325,8 @@ export type Preferences = {
   previewPages: boolean;
   inlineTwitchClips: boolean;
   inlineYoutube: boolean;
+  keepVideoPlayersOffscreen: boolean;
+  keepVideoPlayersInactive: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
   showLiveStreamThumbnails: boolean;
