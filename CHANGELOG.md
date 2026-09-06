@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-06
+
 ### Added
 
 - Optional inline image display with browser and close icons, independent of video auto-close settings.
