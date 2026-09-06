@@ -432,12 +432,20 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   useEffect(() => () => useInlineVideo.getState().close(playerOwner), [playerOwner]);
   useEffect(() => {
     const element = playerElement.current;
-    if (!expanded || keepOffscreen || !videoTab.active || !element) return;
+    if (!expanded || !videoTab.active || !element) return;
+    let disposed = false;
     const observer = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) useInlineVideo.getState().close(playerOwner);
+      if (disposed) return;
+      const offscreen = !entry.isIntersecting;
+      if (offscreen && !keepOffscreen) useInlineVideo.getState().close(playerOwner);
+      else useInlineVideo.getState().setOffscreen(playerOwner, offscreen);
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      useInlineVideo.getState().setOffscreen(playerOwner, false);
+    };
   }, [expanded, keepOffscreen, videoTab.active, playerOwner]);
   const video = youtubeVideo(segment.href);
   const inline = Boolean((inlineYoutube && video) || (inlineTwitchClips && clip));

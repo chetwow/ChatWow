@@ -1,3 +1,4 @@
+import { useInlineVideo } from "../store/inlineVideo";
 import { twitchClip } from "../lib/twitchClips";
 import { openLink, youtubeVideo } from "../lib/youtube";
 import {
@@ -114,6 +115,10 @@ export function ChatView({
   const moderations = useChat((state) => state.moderations);
   const clearModeration = useChat((state) => state.clearModeration);
   const defaultTimeoutSeconds = useChat((state) => state.preferences.defaultTimeoutSeconds);
+  const keepPlayersOffscreen = useChat((state) => state.preferences.keepVideoPlayersOffscreen);
+  const offscreenPlayer = useInlineVideo((state) =>
+    state.tabId === id && state.offscreen ? state.owner : null,
+  );
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const mentionRail = useRef<HTMLDivElement>(null);
@@ -898,6 +903,23 @@ export function ChatView({
               </button>
             ))}
           </div>
+        )}
+
+        {keepPlayersOffscreen && offscreenPlayer && (
+          <button
+            type="button"
+            aria-label="Close off-screen video player"
+            title="Close off-screen video player"
+            onClick={() => useInlineVideo.getState().close(offscreenPlayer)}
+            className="absolute left-1/2 top-2 z-10 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-line bg-surface-raised text-ink shadow-lg shadow-black/40 transition-colors hover:bg-surface-hover hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7">
+              <circle cx="12" cy="12" r="9" />
+              <path d="m10 8 6 4-6 4Z" fill="currentColor" strokeLinejoin="round" />
+              <path d="m5.6 5.6 12.8 12.8" strokeWidth="3.5" className="stroke-surface-raised" />
+              <path d="m5.6 5.6 12.8 12.8" strokeLinecap="round" />
+            </svg>
+          </button>
         )}
 
         {!pinned && (

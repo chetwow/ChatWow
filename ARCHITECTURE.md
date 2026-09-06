@@ -996,6 +996,9 @@ closes them. General settings can change either behavior: an intersection observ
 fully off-screen players when requested, while `Panes` retains only the owning inactive
 tab when enabled. Both visible split panes count as active. Hidden retained tabs skip the
 scroll visibility check; closing a tab or opening another video still removes the player.
+The same observer records off-screen state even when retention is enabled. That state shows
+a floating close-player button at the top center of the owning chat, clearing when the
+player returns into view or closes. Visibility updates are owner-checked to ignore old observers.
 
 The opt-in `inlineYoutube` preference is independent of hover previews. Clicking a recognized
 YouTube video link mounts `YoutubePlayer` inside that message; no player API is loaded until
