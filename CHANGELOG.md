@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-05
+
 ### Added
 
 - Added per-user and per-channel notification muting, which silences sounds while preserving
