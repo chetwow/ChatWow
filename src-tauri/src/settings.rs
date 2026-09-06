@@ -184,6 +184,11 @@ pub struct Preferences {
     /// GIF display size relative to the default. The frontend clamps the
     /// value to the range exposed by its slider.
     pub gif_scale: f64,
+    /// Render Twitch Gigantify power-ups at their enlarged size. Off restores
+    /// the ordinary emote size without hiding the emote.
+    pub enable_gigantify: bool,
+    /// Multiplier of the ordinary emote size; normalized in the frontend.
+    pub gigantify_scale: f64,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -278,6 +283,8 @@ impl Default for Preferences {
             show_seventv_badges: true,
             show_gifs: true,
             gif_scale: 1.0,
+            enable_gigantify: true,
+            gigantify_scale: 4.0,
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
@@ -511,6 +518,18 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gigantify_defaults_and_saved_preferences_round_trip() {
+        let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
+        assert!(defaults.enable_gigantify);
+        assert_eq!(defaults.gigantify_scale, 4.0);
+        let saved: super::Preferences =
+            serde_json::from_str(r#"{"enableGigantify":false,"gigantifyScale":5}"#).unwrap();
+        let json = serde_json::to_value(&saved).unwrap();
+        assert_eq!(json["enableGigantify"], false);
+        assert_eq!(json["gigantifyScale"], 5.0);
+    }
+
     use super::*;
 
     #[test]

@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added Twitch Gigantify emotes, with Power-ups settings to enable or disable enlargement and
+  adjust its size from 100% to 500% (400% by default), plus a message context-menu toggle.
 - Rendered Twitch Cheermotes as animated tier artwork with their Bits amounts, including
   channel-custom Cheermotes, image fallbacks, and simulated chat examples.
 - Added Bits totals on cheers and notices for bans, timeouts, deleted messages, chat clears,

@@ -36,6 +36,9 @@ pub enum Segment {
         provider: String,
         /// Overlay emotes stacked on top of this one.
         overlays: Vec<Overlay>,
+        /// Twitch's Gigantify power-up applies to one emote occurrence.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        gigantified: bool,
     },
     Mention {
         text: String,
@@ -321,6 +324,7 @@ fn to_segments(nodes: Vec<Node>) -> Vec<Segment> {
                 url_large: emote.url_large,
                 provider: emote.provider.to_string(),
                 overlays,
+                gigantified: false,
             }),
             Node::Mention(text) => segments.push(Segment::Mention { text }),
             Node::Link(text) => segments.push(Segment::Link {
@@ -528,6 +532,24 @@ pub fn build_chat_message(
         .and_then(|bits| bits.parse::<u64>().ok())
         .filter(|bits| *bits > 0);
     let system_message = bits.map(|bits| format!("{display_name} cheered {bits} Bits."));
+    let mut segments = build_segments_with_cheers(
+        body,
+        msg.tag("emotes"),
+        msg.tag("gifs"),
+        emotes,
+        cheermotes,
+        bits.unwrap_or(0),
+    );
+    // IRC's counterpart of EventSub power_ups_gigantified_emote. The final
+    // Twitch emote occurrence is the redeemed one, even if text or third-party
+    // emotes follow it. Keep this metadata independent of display preferences.
+    if msg.tag("msg-id") == Some("gigantified-emote-message") {
+        if let Some(Segment::Emote { gigantified, .. }) = segments.iter_mut().rev().find(
+            |segment| matches!(segment, Segment::Emote { provider, .. } if provider == "twitch"),
+        ) {
+            *gigantified = true;
+        }
+    }
 
     // Present only on replies (a native Twitch reply, not our own convention):
     // the parent's login/name/body ride along on the child PRIVMSG's tags.
@@ -556,14 +578,7 @@ pub fn build_chat_message(
         login,
         display_name,
         badges: build_badges(msg, badges),
-        segments: build_segments_with_cheers(
-            body,
-            msg.tag("emotes"),
-            msg.tag("gifs"),
-            emotes,
-            cheermotes,
-            bits.unwrap_or(0),
-        ),
+        segments,
         is_action,
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
@@ -908,6 +923,104 @@ mod tests {
         assert!(!segments
             .iter()
             .any(|segment| matches!(segment, Segment::Cheermote(_))));
+    }
+
+    #[test]
+    fn gigantify_marks_only_the_last_twitch_emote_occurrence() {
+        let mut map = HashMap::new();
+        map.insert("catJAM".to_string(), emote("catJAM", false));
+        map.insert("RainTime".to_string(), emote("RainTime", true));
+        let badges = BadgeMap::new();
+        for (tag, expected) in [
+            ("gigantified-emote-message", 1),
+            ("animated-message", 0),
+            ("", 0),
+        ] {
+            // The emote tag is deliberately out of order. Selection follows
+            // message position, with Unicode and repeated emote IDs intact.
+            let msg = crate::irc::parse::parse(&format!(
+                "@id=giant;msg-id={tag};historical=1;emotes=25:8-12,2-6 :alice!alice@alice PRIVMSG #room :😀 Kappa Kappa RainTime catJAM"
+            )).unwrap();
+            let message = build_chat_message(
+                &msg,
+                "room",
+                &lookup(&map),
+                &BadgeLookup {
+                    channel: None,
+                    global: &badges,
+                },
+                None,
+            );
+            let giants: Vec<_> = message
+                .segments
+                .iter()
+                .filter(|segment| {
+                    matches!(
+                        segment,
+                        Segment::Emote {
+                            gigantified: true,
+                            ..
+                        }
+                    )
+                })
+                .collect();
+            assert_eq!(giants.len(), expected);
+            assert!(matches!(
+                &message.segments[1],
+                Segment::Emote {
+                    gigantified: false,
+                    ..
+                }
+            ));
+            assert_eq!(
+                message.segments.iter().map(text_of).collect::<String>(),
+                "😀 Kappa Kappa catJAM"
+            );
+            assert!(message.historical);
+            if expected > 0 {
+                assert!(
+                    matches!(&message.segments[3], Segment::Emote {name, gigantified: true, overlays, ..} if name == "Kappa" && overlays.len() == 1)
+                );
+                assert_eq!(
+                    serde_json::to_value(giants[0]).unwrap()["gigantified"],
+                    true
+                );
+            } else {
+                assert!(serde_json::to_value(&message.segments[1])
+                    .unwrap()
+                    .get("gigantified")
+                    .is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn gigantify_without_a_valid_twitch_emote_keeps_the_body_ordinary() {
+        let mut map = HashMap::new();
+        map.insert("catJAM".to_string(), emote("catJAM", false));
+        let badges = BadgeMap::new();
+        let msg = crate::irc::parse::parse("@id=giant;msg-id=gigantified-emote-message;emotes=25:100-104 :alice!alice@alice PRIVMSG #room :Kappa catJAM").unwrap();
+        let message = build_chat_message(
+            &msg,
+            "room",
+            &lookup(&map),
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
+            None,
+        );
+        assert_eq!(
+            message.segments.iter().map(text_of).collect::<String>(),
+            "Kappa catJAM"
+        );
+        assert!(!message.segments.iter().any(|segment| matches!(
+            segment,
+            Segment::Emote {
+                gigantified: true,
+                ..
+            }
+        )));
     }
 
     fn usernotice(tags: &str, body: &str) -> ChatMessage {

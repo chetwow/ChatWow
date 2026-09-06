@@ -31,6 +31,7 @@ export default function App() {
   const [whatsNew, setWhatsNew] = useState<ReleaseNotes | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);
   const gifScale = useChat((state) => state.preferences.gifScale);
+  const gigantifyScale = useChat((state) => state.preferences.gigantifyScale);
   const theme = useChat((state) => state.preferences.theme);
   const focusedTab = useChat((state) => state.active[state.focusedPane]);
 
@@ -235,6 +236,7 @@ export default function App() {
           ...themeStyle(theme),
           "--chat-font-size": `${chatFontSize}px`,
           "--gif-scale": gifScale,
+          "--gigantify-scale": gigantifyScale,
         } as CSSProperties
       }
       className="flex h-full flex-col overflow-hidden bg-surface"

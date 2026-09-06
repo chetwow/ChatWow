@@ -3,6 +3,16 @@ import { buildInitialMessages, mockBlockedMessage, mockTabs } from "./mockData";
 import { messageLine, messageText } from "../lib/messageText";
 
 describe("simulated channel events", () => {
+  it("includes a Gigantify message with both normal and enlarged occurrences of the same emote", () => {
+    const message = buildInitialMessages(mockTabs()).find((message) => message.login === "powerupfan")!;
+    const emotes = message.segments.filter((segment) => segment.kind === "emote");
+    expect(emotes).toHaveLength(2);
+    expect(emotes[0].gigantified).toBeUndefined();
+    expect(emotes[1].gigantified).toBe(true);
+    expect(emotes[0].id).toBe(emotes[1].id);
+    expect(messageText(message)).toBe("Gigantify power-up: normal Kappa then gigantic Kappa");
+  });
+
   it("renders cheer tiers while preserving the original body for copies and replies", () => {
     const messages = buildInitialMessages(mockTabs());
     const tiers = messages.find((message) => message.login === "bitsfan")!;

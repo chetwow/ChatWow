@@ -684,6 +684,22 @@ created: the accessible caption uses the same dotted underline as a blacklisted 
 shared hover preview is the only thing that loads the GIF. `gifScale` drives one root CSS custom
 property used by both inline GIFs and their hover previews.
 
+## Twitch Gigantify power-ups
+
+Gigantify stays on the IRC `PRIVMSG` path. The `msg-id=gigantified-emote-message` tag marks the
+power-up; after ordinary resolution Rust marks only the last Twitch emote occurrence as
+`gigantified`. Matching by occurrence, rather than emote ID, preserves ordinary copies of that
+same emote earlier in the message. Text, third-party emotes, and invalid emote ranges cannot
+become a Gigantify target. Live and historical messages share this path and the normal batch sink.
+
+Appearance settings put Power-ups directly below Chat. `enableGigantify` defaults to true and
+`gigantifyScale` defaults to 4, clamped by the store to 1–5 (100–500%). The message context menu
+updates the same global preference, and retains its enable action when enlargement is off.
+`EmoteView` subscribes to the toggle so immutable messages repaint; a root `--gigantify-scale`
+variable resizes existing artwork without rebuilding message data. Enlarged emotes use their own
+line and retain overlays, hover previews, and blacklist behavior. Disabling restores the ordinary
+inline emote; copying and replies keep the original text in either state.
+
 ## Cheermotes
 
 `twitch::cheermotes` fetches Helix Get Cheermotes with the room ID, using any signed-in account's

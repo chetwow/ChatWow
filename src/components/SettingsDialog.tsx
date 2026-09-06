@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
 import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
-import { MAX_GIF_SCALE, MIN_GIF_SCALE, useChat, type BlacklistKind } from "../store/chat";
+import { MAX_GIF_SCALE, MIN_GIF_SCALE, MAX_GIGANTIFY_SCALE, MIN_GIGANTIFY_SCALE, useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
 import { Hinted } from "./Hinted";
@@ -981,6 +981,33 @@ export function SettingsDialog({
                     />
                     <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
                       {Math.round(preferences.gifScale * 100)}%
+                    </span>
+                  </div>
+                </Row>
+              </Section>
+              <Section title="Power-ups">
+                <Row label="Enable Gigantify">
+                  <Toggle
+                    checked={preferences.enableGigantify}
+                    onChange={(enableGigantify) => updatePreferences({ enableGigantify })}
+                    label="Enable Gigantify"
+                  />
+                </Row>
+                <Row label="Gigantify size">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={MIN_GIGANTIFY_SCALE * 100}
+                      max={MAX_GIGANTIFY_SCALE * 100}
+                      step={25}
+                      value={Math.round(preferences.gigantifyScale * 100)}
+                      onChange={(event) => updatePreferences({ gigantifyScale: Number(event.target.value) / 100 })}
+                      aria-label="Gigantify size"
+                      aria-valuetext={`${Math.round(preferences.gigantifyScale * 100)}%`}
+                      className="w-32 accent-accent"
+                    />
+                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.gigantifyScale * 100)}%
                     </span>
                   </div>
                 </Row>

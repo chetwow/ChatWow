@@ -111,6 +111,12 @@ body {
 
 /* Twitch GIFs are message-sized media rather than emotes. The pane remains
    the hard width limit; the preference scales the comfortable default box. */
+.gigantified-emote > img {
+  height: calc(1.75rem * var(--gigantify-scale, 4));
+  max-width: 100%;
+  object-fit: contain;
+}
+
 .chat-gif {
   max-height: calc(180px * var(--gif-scale));
   max-width: min(100%, calc(240px * var(--gif-scale)));

@@ -134,6 +134,8 @@ export function ChatView({
   // Whether a copied line carries the time: what's on the clipboard should be
   // what was on the screen.
   const showTimestamps = useChat((state) => state.preferences.showTimestamps);
+  const enableGigantify = useChat((state) => state.preferences.enableGigantify);
+  const updatePreferences = useChat((state) => state.updatePreferences);
   const blacklist = useChat((state) => state.preferences.emoteBlacklist);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const addEmoteRule = useChat((state) => state.addEmoteRule);
@@ -653,6 +655,12 @@ export function ChatView({
         // to go -- the row's channel chip is the way back to one.
         ...(menu.message.kind === "chat" && !isMentions
           ? [{ label: "Reply", onSelect: () => setReplyTo(menu.message) }]
+          : []),
+        ...(menu.message.segments.some((segment) => segment.kind === "emote" && segment.gigantified)
+          ? [{
+              label: enableGigantify ? "Disable Gigantify" : "Enable Gigantify",
+              onSelect: () => updatePreferences({ enableGigantify: !enableGigantify }),
+            }]
           : []),
         ...moderationOptions(menu.message),
         ...personOptions(menu.message, menu.chatterName),

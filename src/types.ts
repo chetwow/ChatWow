@@ -28,6 +28,8 @@ export type Segment =
       url_large: string;
       provider: EmoteProvider;
       overlays: Overlay[];
+      /** The emote occurrence selected by Twitch's Gigantify power-up. */
+      gigantified?: boolean;
     }
   | { kind: "mention"; text: string }
   | { kind: "link"; text: string; href: string }
@@ -279,6 +281,10 @@ export type Preferences = {
   showGifs: boolean;
   /** GIF size relative to the default, from 0.25 to 2. */
   gifScale: number;
+  /** Show the enlargement; disabling leaves the emote at its ordinary size. */
+  enableGigantify: boolean;
+  /** Gigantify multiplier, 1–5; defaults to 4 (400%). */
+  gigantifyScale: number;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */

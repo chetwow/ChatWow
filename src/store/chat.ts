@@ -79,6 +79,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showSeventvBadges: true,
   showGifs: true,
   gifScale: 1,
+  enableGigantify: true,
+  gigantifyScale: 4,
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
@@ -119,6 +121,8 @@ export type BlacklistKind = "emoteBlacklist" | "emoteCompleteBlacklist";
 const FONT_SIZES = new Set<Preferences["chatFontSize"]>(["small", "medium", "large", "larger"]);
 const COMPOSER_AVATAR_MODES = new Set<ComposerAvatarMode>(["twitch", "generic", "none"]);
 export const MIN_GIF_SCALE = 0.25;
+export const MIN_GIGANTIFY_SCALE = 1;
+export const MAX_GIGANTIFY_SCALE = 5;
 export const MAX_GIF_SCALE = 2;
 const SPLIT_LAYOUTS = new Set<SplitLayout>(["none", "row", "column"]);
 const NEW_TAB_AVATAR_MODE_IDS = new Set<NewTabAvatarMode>([
@@ -171,6 +175,12 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.gifScale = Number.isFinite(merged.gifScale)
     ? Math.min(MAX_GIF_SCALE, Math.max(MIN_GIF_SCALE, merged.gifScale))
     : DEFAULT_PREFERENCES.gifScale;
+  merged.gigantifyScale = Number.isFinite(merged.gigantifyScale)
+    ? Math.min(MAX_GIGANTIFY_SCALE, Math.max(MIN_GIGANTIFY_SCALE, merged.gigantifyScale))
+    : DEFAULT_PREFERENCES.gigantifyScale;
+  if (typeof merged.enableGigantify !== "boolean") {
+    merged.enableGigantify = DEFAULT_PREFERENCES.enableGigantify;
+  }
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);
   if (!Number.isInteger(merged.splitIndex) || merged.splitIndex < 0) {

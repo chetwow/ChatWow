@@ -132,6 +132,8 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
   const seventv = useChat((state) => state.preferences.enableSeventv);
   const bttv = useChat((state) => state.preferences.enableBttv);
   const ffz = useChat((state) => state.preferences.enableFfz);
+  const enableGigantify = useChat((state) => state.preferences.enableGigantify);
+  const gigantified = segment.gigantified && enableGigantify;
 
   // A provider you've switched off isn't a hidden emote, it's an absent one:
   // the word renders as the chatter typed it, with no underline and no
@@ -189,7 +191,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
         data-emote-id={segment.id}
         data-emote-name={segment.name}
         data-emote-provider={segment.provider}
-        className="relative mx-[1px] inline-block align-middle"
+        className={`relative mx-[1px] align-middle ${gigantified ? "gigantified-emote my-1 block w-fit max-w-full" : "inline-block"}`}
         onMouseEnter={(event) =>
           show(
             {
@@ -206,7 +208,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
         <EmoteImage
           id={segment.id}
           provider={segment.provider}
-          url={segment.url}
+          url={gigantified ? segment.url_large : segment.url}
           name={segment.name}
           className="inline-block h-7 max-w-none align-middle"
         />

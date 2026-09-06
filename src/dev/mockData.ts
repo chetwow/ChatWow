@@ -211,7 +211,7 @@ function ffz(name: string): Segment {
   };
 }
 
-function twitch(id: string, name: string): Segment {
+function twitch(id: string, name: string, gigantified = false): Segment {
   return {
     kind: "emote",
     id,
@@ -219,6 +219,7 @@ function twitch(id: string, name: string): Segment {
     url: `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/2.0`,
     url_large: `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/3.0`,
     provider: "twitch",
+    ...(gigantified ? { gigantified: true } : {}),
     overlays: [],
   };
 }
@@ -596,6 +597,17 @@ const DRAFTS: Draft[] = [
   {
     login: "cheertalk", displayName: "CheerTalk", color: "#99aabb", kind: "chat",
     segments: [text("Typing Cheer100 without sending Bits stays ordinary text.")],
+  },
+  {
+    login: "powerupfan", displayName: "PowerUpFan", color: "#b980f4", kind: "chat",
+    segments: [
+      text("Gigantify power-up: normal "), twitch("25", "Kappa"),
+      text(" then gigantic "), twitch("25", "Kappa", true),
+    ],
+  },
+  {
+    login: "giantpog", displayName: "GiantPog", color: "#56a8f3", kind: "chat",
+    segments: [text("Gigantify power-up! "), twitch("305954156", "PogChamp", true)],
   },
   ...EVENT_DRAFTS,
   {
