@@ -987,14 +987,25 @@ hangs off is a row inside a scroller and can sit partly, or entirely, outside th
 
 ## Link previews
 
-Only one inline video can be expanded across the app. `store/inlineVideo.ts` tracks a
+Image, Twitch clip, and YouTube inline display are independent opt-ins in General settings,
+all off by default and separate from the two hover-preview switches.
+
+Only one inline video can be expanded across the app.
+[src/store/inlineVideo.ts](src/store/inlineVideo.ts) tracks a
 unique link-instance owner; opening another closes the previous player and stops playback
 through its unmount cleanup. This happens on opening because Twitch clips expose no playback
 events. Owner-checked cleanup prevents the previous player from closing its successor.
 The owner also records its tab. By default, scrolling keeps players open and changing tabs
-closes them. General settings can change either behavior: an intersection observer closes
-fully off-screen players when requested, while `Panes` retains only the owning inactive
-tab when enabled. Both visible split panes count as active. Hidden retained tabs skip the
+closes them. The UI expresses these as **Close inline player when scrolled off screen**
+(default off) and **Close inline player when tab inactive** (default on). The stored
+`keepVideoPlayersOffscreen` and `keepVideoPlayersInactive` preferences retain their original
+positive meaning; the controls invert both reads and writes so existing choices keep their
+behavior. An intersection observer closes fully off-screen players when requested, while
+`Panes` retains only the owning inactive
+tab when inactive-tab closing is disabled. Its `ChatView` and pinned-message panel remain
+mounted but hidden, with typing capture and search requests disabled.
+`VideoTabContext` supplies the owning tab and whether it is visible to links in those views.
+Both visible split panes count as active. Hidden retained tabs skip the
 scroll visibility check; closing a tab or opening another video still removes the player.
 The same observer records off-screen state even when retention is enabled. That state shows
 a floating close-player button at the top center of the owning chat, clearing when the
@@ -1005,10 +1016,15 @@ YouTube video link mounts `YoutubePlayer` inside that message; no player API is 
 that click. The official IFrame API reports playback errors, and a bounded loading timeout
 catches unavailable scripts or frames. Either failure asks whether to open the original URL
 in a browser. Closing the player, disabling the preference, or removing the row destroys it.
-YouTube controls start playback explicitly. Chat link menus retain message actions and add
-link copying; an app-level menu covers links in other surfaces. YouTube links also offer
-external opening while inline playback is enabled.
+YouTube controls start playback explicitly, and `fs: 0` hides its fullscreen button.
+`InlinePlayerActions` supplies an X and, to its left, an external-link icon with an
+“Open in browser” tooltip. Successful browser opening from the header icon or failure prompt
+closes video players; an opener failure keeps the player open and displays an error. Chat link menus retain message actions and add
+link copying; an app-level menu covers links in other surfaces. Recognized YouTube and Twitch
+clip links also offer “Open in browser” when their respective inline option is enabled.
 
+Inline video frames load directly from the recognized provider, rather than through the
+Rust page/image preview fetch. The YouTube API script is loaded lazily from YouTube.
 The embed uses the page origin and the browser's `strict-origin-when-cross-origin` referrer
 policy. Packaged webviews whose custom origin suppresses HTTP Referer may encounter YouTube
 error 153 and use the browser fallback; desktop playback needs verification on each platform.
@@ -1018,20 +1034,23 @@ recognized; channels and VODs stay external. The iframe uses the current hostnam
 required `parent`, disables autoplay and fullscreen, and preserves Twitch's 400x300 minimum
 internally. A resize observer scales the whole iframe proportionally in narrower panes and
 reserves its scaled height, avoiding horizontal scrolling without reloading playback.
-Clips have no interactive JavaScript API, so
-iframe load is not treated as proof of playback: load failures/timeouts offer a browser
-prompt. Errors displayed inside the cross-origin frame cannot be detected; the link context
-menu offers “Open in browser”.
-Closing, disabling, or removing the row unmounts the frame. Custom desktop origins may be
-rejected by Twitch's parent checks; the browser path remains available.
-
-Hovering a link shows what's behind it. The two halves are split by what the answer costs.
+Twitch may still show its disabled fullscreen control; there is no configured equivalent
+of YouTube's hide-button parameter. Clips have no interactive JavaScript API, so iframe load
+is not treated as proof of playback: load failures/timeouts offer a browser prompt. Errors displayed inside the cross-origin frame cannot be detected; the header icon
+and link context menu offer “Open in browser”. There is no separate “Clip not playing?”
+button. Closing, disabling, or removing the row unmounts the frame. Custom desktop origins
+may be rejected by Twitch's parent checks; the browser path remains available.
 
 The off-by-default `inlineImages` preference opens clicked image links in an `InlineImage`
 card with the same icon controls as videos. It uses the existing protected image fetch and
 keeps expansion local to each link; multiple images can remain open independently of videos.
-Opening the source in a browser leaves the card open. Video visibility and ownership rules
-do not apply to images; ordinary row/tab unmount still removes them.
+The header has no permanent “Image” label, only a loading indicator until the image loads
+and the browser/X icons. Opening the source in a browser leaves the card open. Video
+visibility and ownership rules do not apply to images; ordinary row/tab unmount still removes
+them, as does disabling inline images. Only locally recognized direct image links qualify;
+image-like page previews and 7TV emote pages remain hover previews.
+
+Hovering a link shows what's behind it. The two halves are split by what the answer costs.
 
 **An image link is classified locally and fetched by Rust.** `imagePreviewUrl`
 ([src/lib/links.ts](src/lib/links.ts)) tests the extension on the url's own path, then
@@ -1046,9 +1065,9 @@ copy of it, then the plain `<title>`. Those tags exist for exactly this, which i
 is a scan for `<meta>` and not an HTML parse: two fields don't justify a parser, and titles and
 meta tags are the two things a scan can find without meeting anything that would fool it.
 
-It's the only fetch in the app whose address a stranger chose, so it doesn't share
-`AppState::http`. Each hop resolves its hostname, rejects the entire answer if any address is
-private, loopback, link-local or otherwise non-public, and pins the request to the addresses that
+Page and image preview fetches accept arbitrary chatter-selected web hosts, so they don't
+share `AppState::http`. Each hop resolves its hostname, rejects the entire answer if any
+address is private, loopback, link-local or otherwise non-public, and pins the request to the addresses that
 passed. Redirects repeat that process and proxies are disabled, closing both private-network and
 DNS-rebinding paths. Requests have an eight-second timeout; page bodies are read in chunks and
 stopped the moment they hold what's wanted, with 256KB as the ordinary ceiling. Preview images
@@ -1429,7 +1448,12 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
 | `src/store/chat.ts` | Zustand store, per-tab message arrays trimmed to 500 when exceeding 600, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
-| `src/components/Panes.tsx` | One pane or two, the divider, and the empty-pane screen |
+| `src/components/Panes.tsx` | Pane layout, active chat views, and optional retention of the video-owning inactive tab |
+| `src/store/inlineVideo.ts` | Single inline video owner, owning tab, and off-screen state |
+| `src/components/VideoTabContext.ts` | Tab identity and visibility for inline links |
+| `src/components/YoutubePlayer.tsx`, `src/components/TwitchClipPlayer.tsx` | Provider embeds, lifetime cleanup, and browser fallback |
+| `src/components/InlineImage.tsx`, `src/components/InlinePlayerActions.tsx` | Independent inline image cards and shared browser/close icons |
+| `src/components/LinkContextMenu.tsx` | Link actions outside message context menus |
 | `src/components/AccountMenu.tsx` | The tab's (and composer's) account picker |
 | `src/components/AccountPanel.tsx` | The accounts manager, permissions, and the Client ID |
 | `src/lib/commands.ts` | The command catalog the `/` picker reads |
@@ -1439,7 +1463,8 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src/lib/ignores.ts` | The mention-ignore and blocked-user lists, and what they match |
 | `src/lib/userCard.ts` | User-card session cache and the "14 years ago" phrasing |
 | `src/lib/links.ts` | What kind of link this is, and which preview switch it answers to |
-| `src/lib/linkPreviews.ts` | Link-preview session cache, and the shelf life Rust sets |
+| `src/lib/linkPreviews.ts` | Page-preview and bounded blob-image session caches; shared hover and inline image loading |
+| `src/lib/youtube.ts`, `src/lib/twitchClips.ts` | Video-link recognition, YouTube API loading, browser opening, and Twitch embed URLs |
 | `src/lib/notify.ts` | The synthesized mention ping |
 | `src/lib/themes.ts` | Built-in theme catalog and semantic color-token mapping |
 | `src/lib/emoji.ts` | Lazy-loaded emoji list and name search |
