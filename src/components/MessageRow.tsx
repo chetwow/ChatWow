@@ -329,12 +329,49 @@ export function MessageBody({ message }: { message: StoredMessage }) {
   );
 }
 
+function CheermoteView({ segment }: { segment: Extract<Segment, { kind: "cheermote" }> }) {
+  const show = useTooltip((state) => state.show);
+  const hide = useTooltip((state) => state.hideTransient);
+  const [failure, setFailure] = useState(0);
+  const url = failure === 0 ? segment.url : segment.url_static;
+  if (failure >= 2) return <>{segment.text}</>;
+
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 align-middle font-semibold"
+      style={{ color: segment.color }}
+      role="img"
+      aria-label={segment.text}
+      onMouseEnter={(event) => show({
+        kind: "emote", name: `${segment.text} · ${segment.bits} Bits`,
+        urlLarge: failure === 0 ? segment.url_large : segment.url_static, provider: "Twitch Bits",
+      }, event.currentTarget.getBoundingClientRect())}
+      onMouseLeave={hide}
+    >
+      <img
+        src={url}
+        alt=""
+        className="inline-block h-7 w-7 object-contain"
+        loading="lazy"
+        decoding="async"
+        onError={() => {
+          hide();
+          setFailure(failure === 0 && segment.url_static !== segment.url ? 1 : 2);
+        }}
+      />
+      <span aria-hidden="true">{segment.bits}</span>
+    </span>
+  );
+}
+
 function SegmentView({ segment }: { segment: Segment }) {
   switch (segment.kind) {
     case "text":
       return <>{segment.text}</>;
     case "emote":
       return <EmoteView segment={segment} />;
+    case "cheermote":
+      return <CheermoteView key={segment.url} segment={segment} />;
     case "mention":
       return (
         <span className="rounded bg-accent/15 px-1 font-semibold text-accent">

@@ -192,7 +192,13 @@ fn render_and_queue(
 
         match msg.command.as_str() {
             "USERNOTICE" => render::build_usernotice(msg, channel, &emotes, &badge_lookup),
-            _ => render::build_chat_message(msg, channel, &emotes, &badge_lookup),
+            _ => render::build_chat_message(
+                msg,
+                channel,
+                &emotes,
+                &badge_lookup,
+                channel_data.and_then(|data| data.cheermotes.as_ref()),
+            ),
         }
     };
 
@@ -442,6 +448,21 @@ fn trim_image_cache(app: &AppHandle, state: &Arc<AppState>) {
     tauri::async_runtime::spawn_blocking(move || cache::trim(&app, &active));
 }
 
+async fn fetch_channel_cheermotes(
+    state: &AppState,
+    room_id: &str,
+) -> Option<crate::twitch::cheermotes::Catalog> {
+    let (client_id, token) = state.auth.read().any_credentials()?;
+    let fetch = crate::twitch::cheermotes::fetch(&state.http, &client_id, &token, room_id);
+    match timeout(ASSET_TIMEOUT, fetch).await {
+        Ok(Ok(catalog)) => Some(catalog),
+        _ => {
+            log::warn!("Cheermote catalog unavailable for room {room_id}");
+            None
+        }
+    }
+}
+
 async fn fetch_channel_badges(
     app: &AppHandle,
     state: &Arc<AppState>,
@@ -546,6 +567,19 @@ async fn ensure_channel_assets(
         .get(channel)
         .is_some_and(|data| data.assets_ready && data.room_id.as_deref() == Some(room_id))
     {
+        let missing = state
+            .data
+            .read()
+            .get(channel)
+            .is_some_and(|data| data.cheermotes.is_none());
+        if missing {
+            let catalog = fetch_channel_cheermotes(state, room_id).await;
+            if let Some(entry) = state.data.write().get_mut(channel) {
+                if entry.room_id.as_deref() == Some(room_id) {
+                    entry.cheermotes = catalog;
+                }
+            }
+        }
         return;
     }
 
@@ -582,7 +616,10 @@ async fn ensure_channel_assets(
             ),
         );
 
-        let badge_map = fetch_channel_badges(app, state, room_id).await;
+        let (badge_map, cheermotes) = tokio::join!(
+            fetch_channel_badges(app, state, room_id),
+            fetch_channel_cheermotes(state, room_id),
+        );
         let mut data = state.data.write();
         let Some(entry) = data.get_mut(channel) else {
             return;
@@ -591,14 +628,16 @@ async fn ensure_channel_assets(
             return;
         }
         entry.badges = badge_map;
+        entry.cheermotes = cheermotes;
         entry.assets_ready = true;
         return;
     }
 
     let cached = cached.unwrap_or_default();
-    let (fresh, badge_map) = tokio::join!(
+    let (fresh, badge_map, cheermotes) = tokio::join!(
         fetch_channel_emotes(state, providers, room_id),
         fetch_channel_badges(app, state, room_id),
+        fetch_channel_cheermotes(state, room_id),
     );
     let effective = fresh.clone().with_fallback(cached);
     store_channel_catalog(app, state, room_id.to_string(), fresh);
@@ -622,6 +661,7 @@ async fn ensure_channel_assets(
         return;
     }
     entry.badges = badge_map;
+    entry.cheermotes = cheermotes;
     entry.assets_ready = true;
     drop(data);
     state.seventv_events.notify_one();

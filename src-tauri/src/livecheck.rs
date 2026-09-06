@@ -161,7 +161,7 @@ async fn live_pipeline_resolves_real_messages() {
             channel: None,
             global: &empty_badges,
         };
-        let message = render::build_chat_message(msg, channel, &lookup, &badges);
+        let message = render::build_chat_message(msg, channel, &lookup, &badges, None);
 
         assert!(
             message.color.starts_with('#') && message.color.len() == 7,
@@ -182,6 +182,7 @@ async fn live_pipeline_resolves_real_messages() {
                 Segment::Mention { text } => rendered.push_str(text),
                 Segment::Link { text, .. } => rendered.push_str(text),
                 Segment::Gif { text, .. } => rendered.push_str(text),
+                Segment::Cheermote(cheer) => rendered.push_str(&cheer.text),
                 Segment::Emote {
                     name,
                     provider,

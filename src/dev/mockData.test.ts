@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { buildInitialMessages, mockBlockedMessage, mockTabs } from "./mockData";
+import { messageLine, messageText } from "../lib/messageText";
 
 describe("simulated channel events", () => {
+  it("renders cheer tiers while preserving the original body for copies and replies", () => {
+    const messages = buildInitialMessages(mockTabs());
+    const tiers = messages.find((message) => message.login === "bitsfan")!;
+    expect(tiers.segments.filter((segment) => segment.kind === "cheermote").map((segment) => segment.bits))
+      .toEqual([1, 10, 100, 1000, 5000, 10000]);
+    expect(messageText(tiers)).toBe("A little of every tier: Cheer1 cHeEr10 Cheer100 Cheer1000 Cheer5000 Cheer10000");
+    expect(messageLine(tiers, false)).toBe(`BitsFan: ${messageText(tiers)}`);
+    const ordinary = messages.find((message) => message.login === "cheertalk")!;
+    expect(ordinary.segments.every((segment) => segment.kind === "text")).toBe(true);
+  });
+
   it("keeps blocked messages private to the sending account and out of chat bodies", () => {
     const tabs = mockTabs();
     const tab = tabs.find((tab) => tab.account === "2")!;

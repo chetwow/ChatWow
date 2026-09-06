@@ -15,7 +15,7 @@ Helix badges API  ─┘
 ```
 
 The backend emits **fully resolved** messages — badges already mapped to image URLs, message
-text already split into text/emote/mention/link/GIF segments. Three things make this worth doing in
+text already split into text/emote/Cheermote/mention/link/GIF segments. Three things make this worth doing in
 Rust rather than the webview:
 
 - Twitch's `emotes` tag indexes by Unicode **code point**. Byte or UTF-16 indexing corrupts any
@@ -44,7 +44,8 @@ subscription or duplicating IRC events. Shared-chat wrappers use `source-msg-id`
 description. Unknown types still produce a visible notification. Optional user comments remain
 separate from system text so their emote/GIF ranges and action formatting stay intact.
 
-Cheers stay ordinary IRC chat rows with an added Bits-total description. `CLEARCHAT` and
+Cheers stay ordinary IRC chat rows with an added Bits-total description and resolved Cheermote
+segments (see below). `CLEARCHAT` and
 `CLEARMSG` both keep their existing deletion effects and add readable moderation notices, without
 copying deleted message text. Each `Session` tracks its own ROOMSTATE snapshot: the first snapshot
 is silent, and subsequent partial updates announce only changed chat modes.
@@ -682,6 +683,25 @@ repaints immutable messages already held in a memoized row. When it is off, no i
 created: the accessible caption uses the same dotted underline as a blacklisted emote, and its
 shared hover preview is the only thing that loads the GIF. `gifScale` drives one root CSS custom
 property used by both inline GIFs and their hover previews.
+
+## Cheermotes
+
+`twitch::cheermotes` fetches Helix Get Cheermotes with the room ID, using any signed-in account's
+credentials without extra scopes. The response includes global and channel-custom prefixes and
+stays in `ChannelData`, loaded under the existing room asset lock alongside badges. An unavailable
+catalog leaves text readable and can be retried on a later join, including after signing in.
+
+Only a positive IRC `bits` tag enables resolution. Rust scans complete whitespace-delimited tokens
+case-insensitively, selects the highest tier whose minimum fits, and limits resolved amounts to
+the message's Bits total. Twitch emote/GIF ranges retain priority and Unicode code-point offsets;
+ordinary third-party emote names cannot override confirmed cheers. The original token travels
+with the segment for copying, replies, and fallback text. Purchase/card visibility flags do not
+hide art from previously accepted messages; Twitch's internal `display_only` entries are excluded.
+
+React displays the image and amount with a readable tier color. Animated art falls back to static
+art, then the original token. URLs come directly from Helix, including custom art; the webview's
+HTTP cache owns these images because their URLs cannot be derived from ordinary Twitch emote IDs.
+They do not enter the completion inventory or the provider-ID disk cache.
 
 ## Emote providers
 

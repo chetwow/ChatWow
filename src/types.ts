@@ -9,6 +9,17 @@ export type Overlay = {
 export type Segment =
   | { kind: "text"; text: string }
   | {
+      kind: "cheermote";
+      /** Original token for copying, replies and image failure. */
+      text: string;
+      bits: number;
+      color: string;
+      /** Complete URLs resolved from Twitch's Cheermote catalog. */
+      url: string;
+      url_static: string;
+      url_large: string;
+    }
+  | {
       kind: "emote";
       /** Provider id, for the on-disk image cache. */
       id: string;

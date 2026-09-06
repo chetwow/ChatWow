@@ -23,6 +23,16 @@ import { linkKind } from "../lib/links";
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
 
+function cheer(bits: number, tier: number, color: string, token = `Cheer${bits}`): Segment {
+  const root = "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark";
+  return {
+    kind: "cheermote", text: token, bits, color,
+    url: `${root}/animated/${tier}/2.gif`,
+    url_static: `${root}/static/${tier}/2.png`,
+    url_large: `${root}/animated/${tier}/4.gif`,
+  };
+}
+
 /** One long token, so the wrapping of a link that can't break naturally shows. */
 const UNBREAKABLE_URL =
   "https://example.com/watch?v=" + "aB3xQ7zK9mR2tW5yD8pL4nV6cF1hJ0sG".repeat(4);
@@ -571,7 +581,21 @@ const DRAFTS: Draft[] = [
     color: "#D79AF0",
     kind: "chat",
     systemMessage: "Cheerer cheered 100 Bits.",
-    segments: [text("Cheer100 Great stream! "), twitch("305954156", "PogChamp")],
+    segments: [cheer(100, 100, "#b980f4"), text(" Great stream! "), twitch("305954156", "PogChamp")],
+  },
+  {
+    login: "bitsfan", displayName: "BitsFan", color: "#52d4a2", kind: "chat",
+    systemMessage: "BitsFan cheered 16111 Bits.",
+    segments: [
+      text("A little of every tier: "), cheer(1, 1, "#979797"), text(" "),
+      cheer(10, 1, "#979797", "cHeEr10"), text(" "), cheer(100, 100, "#b980f4"), text(" "),
+      cheer(1000, 1000, "#1db2a5"), text(" "), cheer(5000, 5000, "#56a8f3"),
+      text(" "), cheer(10000, 10000, "#f56d7c"),
+    ],
+  },
+  {
+    login: "cheertalk", displayName: "CheerTalk", color: "#99aabb", kind: "chat",
+    segments: [text("Typing Cheer100 without sending Bits stays ordinary text.")],
   },
   ...EVENT_DRAFTS,
   {

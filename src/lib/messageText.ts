@@ -11,6 +11,7 @@ function segmentText(segment: Segment): string {
     case "link":
       return segment.text;
     case "gif":
+    case "cheermote":
       return segment.text;
   }
 }

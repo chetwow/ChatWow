@@ -212,6 +212,9 @@ pub struct ChannelData {
     /// changes the map. A slower HTTP refresh must not overwrite a newer event.
     pub emote_revision: u64,
     pub badges: BadgeMap,
+    /// Includes global and custom Cheermotes. None allows a later authenticated
+    /// join to retry a lookup that was unavailable while signed out.
+    pub cheermotes: Option<crate::twitch::cheermotes::Catalog>,
 }
 
 /// Cap the pre-ready buffer so a hung fetch can't eat memory on a busy channel.

@@ -11,6 +11,7 @@ use crate::color;
 use crate::emotes::{twitch_emote, Emote};
 use crate::irc::parse::{strip_action, IrcMessage};
 use crate::twitch::badges::{Badge, BadgeMap};
+use crate::twitch::cheermotes::{Catalog as CheermoteCatalog, Cheermote};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Overlay {
@@ -23,6 +24,7 @@ pub struct Overlay {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Segment {
+    Cheermote(Cheermote),
     Text {
         text: String,
     },
@@ -130,6 +132,7 @@ impl<'a> BadgeLookup<'a> {
 /// Intermediate node list, before overlays are folded in.
 #[derive(Debug, Clone)]
 enum Node {
+    Cheermote(Cheermote),
     Text(String),
     Emote(Emote, Vec<Overlay>),
     Mention(String),
@@ -143,6 +146,7 @@ enum Node {
 
 #[derive(Debug)]
 enum TaggedFragment {
+    Cheermote(Cheermote),
     Emote { id: String },
     Gif { id: String, url: String },
 }
@@ -301,6 +305,7 @@ fn to_segments(nodes: Vec<Node>) -> Vec<Segment> {
     let mut segments: Vec<Segment> = Vec::with_capacity(nodes.len());
     for node in nodes {
         match node {
+            Node::Cheermote(cheer) => segments.push(Segment::Cheermote(cheer)),
             Node::Text(text) => {
                 // Coalesce runs of text that overlay-folding may have split.
                 if let Some(Segment::Text { text: previous }) = segments.last_mut() {
@@ -338,6 +343,17 @@ pub fn build_segments(
     gifs_tag: Option<&str>,
     emotes: &EmoteLookup,
 ) -> Vec<Segment> {
+    build_segments_with_cheers(text, emotes_tag, gifs_tag, emotes, None, 0)
+}
+
+fn build_segments_with_cheers(
+    text: &str,
+    emotes_tag: Option<&str>,
+    gifs_tag: Option<&str>,
+    emotes: &EmoteLookup,
+    cheermotes: Option<&CheermoteCatalog>,
+    mut remaining_bits: u64,
+) -> Vec<Segment> {
     let chars: Vec<char> = text.chars().collect();
     let mut nodes: Vec<Node> = Vec::new();
     let mut cursor = 0usize;
@@ -363,10 +379,43 @@ pub fn build_segments(
                 fragment: TaggedFragment::Gif { id, url },
             }),
     );
+    if let Some(catalog) = cheermotes.filter(|_| remaining_bits > 0) {
+        // Scan the original body so a Twitch emote/GIF range cannot turn part
+        // of a word into a cheer token. All offsets stay Unicode code points.
+        let mut start = 0;
+        while start < chars.len() {
+            if chars[start].is_whitespace() {
+                start += 1;
+                continue;
+            }
+            let end = (start..chars.len())
+                .find(|&index| chars[index].is_whitespace())
+                .unwrap_or(chars.len());
+            let overlaps = ranges
+                .iter()
+                .any(|range| range.start < end && range.end >= start && range.end < chars.len());
+            if !overlaps {
+                let token: String = chars[start..end].iter().collect();
+                if let Some(cheer) = catalog
+                    .resolve(&token)
+                    .filter(|cheer| cheer.bits <= remaining_bits)
+                {
+                    remaining_bits -= cheer.bits;
+                    ranges.push(TaggedRange {
+                        start,
+                        end: end - 1,
+                        fragment: TaggedFragment::Cheermote(cheer),
+                    });
+                }
+            }
+            start = end;
+        }
+    }
     ranges.sort_by_key(|range| {
         let priority = match &range.fragment {
             TaggedFragment::Gif { .. } => 0,
             TaggedFragment::Emote { .. } => 1,
+            TaggedFragment::Cheermote(_) => 2,
         };
         (range.start, priority)
     });
@@ -387,6 +436,7 @@ pub fn build_segments(
         }
         let ranged_text: String = chars[start..=end].iter().collect();
         match fragment {
+            TaggedFragment::Cheermote(cheer) => nodes.push(Node::Cheermote(cheer)),
             TaggedFragment::Emote { id } => {
                 nodes.push(Node::Emote(twitch_emote(&id, &ranged_text), Vec::new()));
             }
@@ -464,6 +514,7 @@ pub fn build_chat_message(
     channel: &str,
     emotes: &EmoteLookup,
     badges: &BadgeLookup,
+    cheermotes: Option<&CheermoteCatalog>,
 ) -> ChatMessage {
     let login = msg.nick().unwrap_or("unknown").to_string();
     let display_name = msg
@@ -472,11 +523,11 @@ pub fn build_chat_message(
         .unwrap_or(&login)
         .to_string();
     let (is_action, body) = strip_action(msg.text().unwrap_or(""));
-    let system_message = msg
+    let bits = msg
         .tag("bits")
         .and_then(|bits| bits.parse::<u64>().ok())
-        .filter(|bits| *bits > 0)
-        .map(|bits| format!("{display_name} cheered {bits} Bits."));
+        .filter(|bits| *bits > 0);
+    let system_message = bits.map(|bits| format!("{display_name} cheered {bits} Bits."));
 
     // Present only on replies (a native Twitch reply, not our own convention):
     // the parent's login/name/body ride along on the child PRIVMSG's tags.
@@ -505,7 +556,14 @@ pub fn build_chat_message(
         login,
         display_name,
         badges: build_badges(msg, badges),
-        segments: build_segments(body, msg.tag("emotes"), msg.tag("gifs"), emotes),
+        segments: build_segments_with_cheers(
+            body,
+            msg.tag("emotes"),
+            msg.tag("gifs"),
+            emotes,
+            cheermotes,
+            bits.unwrap_or(0),
+        ),
         is_action,
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
@@ -732,6 +790,7 @@ mod tests {
                 channel: None,
                 global: &badges,
             },
+            None,
         );
         assert_eq!(message.kind, "chat");
         assert_eq!(
@@ -743,6 +802,112 @@ mod tests {
             "Cheer100 hello"
         );
         assert!(message.historical);
+    }
+
+    #[test]
+    fn cheers_require_bits_and_preserve_tokens_for_copying() {
+        let catalog = crate::twitch::cheermotes::fixture();
+        let map = HashMap::new();
+        let badges = BadgeMap::new();
+        for (tag, expected) in [
+            ("", 0),
+            (";bits=0", 0),
+            (";bits=invalid", 0),
+            (";bits=110", 2),
+        ] {
+            let msg = crate::irc::parse::parse(&format!("@id=cheer;historical=1{tag} :alice!alice@alice PRIVMSG #room :cHeEr100 Creator210 Cheer100")).unwrap();
+            let message = build_chat_message(
+                &msg,
+                "room",
+                &lookup(&map),
+                &BadgeLookup {
+                    channel: None,
+                    global: &badges,
+                },
+                Some(&catalog),
+            );
+            assert_eq!(
+                message
+                    .segments
+                    .iter()
+                    .filter(|segment| matches!(segment, Segment::Cheermote(_)))
+                    .count(),
+                expected
+            );
+            assert_eq!(
+                message.segments.iter().map(text_of).collect::<String>(),
+                "cHeEr100 Creator210 Cheer100"
+            );
+            assert!(message.historical);
+            if expected > 0 {
+                let serialized = serde_json::to_value(&message.segments[0]).unwrap();
+                assert_eq!(serialized["kind"], "cheermote");
+                assert_eq!(serialized["bits"], 100);
+                assert_eq!(serialized["text"], "cHeEr100");
+                assert!(serialized["url_static"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with("100.png"));
+                assert!(
+                    matches!(message.segments.last().unwrap(), Segment::Text {text} if text == " Cheer100")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cheers_coexist_with_unicode_emotes_gifs_and_whitespace() {
+        let catalog = crate::twitch::cheermotes::fixture();
+        let map = HashMap::new();
+        let body = "😀 Cheer100 Kappa [GIF]\tCreator210  https://x/Cheer100 @Cheer100";
+        let segments = build_segments_with_cheers(
+            body,
+            Some("25:11-15"),
+            Some("17-21|abc|https://media.giphy.com/media/abc/giphy.gif"),
+            &lookup(&map),
+            Some(&catalog),
+            110,
+        );
+        assert_eq!(segments.iter().map(text_of).collect::<String>(), body);
+        assert_eq!(
+            segments
+                .iter()
+                .filter(|segment| matches!(segment, Segment::Cheermote(_)))
+                .count(),
+            2
+        );
+        assert!(segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Emote {name, ..} if name == "Kappa")));
+        assert!(segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Gif { .. })));
+        assert!(segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Link { .. })));
+        assert!(segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Mention { .. })));
+    }
+
+    #[test]
+    fn cheer_resolution_never_uses_partial_or_tagged_tokens() {
+        let catalog = crate::twitch::cheermotes::fixture();
+        let map = HashMap::new();
+        // Even if an emote tag covers only the leading x, xCheer100 isn't a cheer.
+        let body = "xCheer100 Cheer100";
+        let segments = build_segments_with_cheers(
+            body,
+            Some("25:0-0,10-17"),
+            None,
+            &lookup(&map),
+            Some(&catalog),
+            100,
+        );
+        assert_eq!(segments.iter().map(text_of).collect::<String>(), body);
+        assert!(!segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Cheermote(_))));
     }
 
     fn usernotice(tags: &str, body: &str) -> ChatMessage {
@@ -945,6 +1110,7 @@ mod tests {
             Segment::Link { text, .. } => text,
             Segment::Emote { name, .. } => name,
             Segment::Gif { text, .. } => text,
+            Segment::Cheermote(cheer) => &cheer.text,
         }
     }
 
@@ -1011,6 +1177,7 @@ mod tests {
                 channel: None,
                 global: &badge_map,
             },
+            None,
         );
 
         assert_eq!(message.segments.len(), 1);
@@ -1224,6 +1391,7 @@ mod tests {
                 channel: None,
                 global: &global_badges,
             },
+            None,
         );
 
         assert_eq!(message.display_name, "SomeUser");
@@ -1250,6 +1418,7 @@ mod tests {
                 channel: None,
                 global: &badge_map,
             },
+            None,
         );
 
         let reply_to = message
@@ -1275,6 +1444,7 @@ mod tests {
                 channel: None,
                 global: &badge_map,
             },
+            None,
         );
 
         assert!(message.reply_to.is_none());
@@ -1294,6 +1464,7 @@ mod tests {
                 channel: None,
                 global: &badges,
             },
+            None,
         );
         assert!(message.is_action);
         assert_eq!(text_of(&message.segments[0]), "waves");
@@ -1313,6 +1484,7 @@ mod tests {
                 channel: None,
                 global: &badges,
             },
+            None,
         );
         assert_eq!(message.badges.len(), 1);
         assert_eq!(message.badges[0].title, "mystery");
