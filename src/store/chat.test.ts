@@ -11,6 +11,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Power-up preferences", () => {
+  it("defaults to animated effects and remembers static mode independently of the other switches", () => {
+    expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(false);
+    useChat.getState().updatePreferences({ disableMessageEffectAnimations: true });
+    expect(useChat.getState().preferences.enableMessageEffects).toBe(true);
+    expect(useChat.getState().preferences.enableGigantify).toBe(true);
+    useChat.getState().updatePreferences({ enableMessageEffects: false, enableGigantify: false });
+    useChat.getState().updatePreferences({ enableMessageEffects: true, enableGigantify: true });
+    expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(true);
+    const calls = vi.mocked(localStorage.setItem).mock.calls;
+    expect(JSON.parse(calls[calls.length - 1][1]).disableMessageEffectAnimations).toBe(true);
+  });
+
+  it("defaults malformed animation preferences without changing existing disabled effects", () => {
+    useChat.getState().updatePreferences({ enableMessageEffects: false, enableGigantify: false });
+    useChat.getState().updatePreferences({ disableMessageEffectAnimations: "true" as unknown as boolean });
+    expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(false);
+    expect(useChat.getState().preferences.enableMessageEffects).toBe(false);
+    expect(useChat.getState().preferences.enableGigantify).toBe(false);
+  });
   it("toggles message effects independently of Gigantify and persists the setting", () => {
     expect(useChat.getState().preferences.enableMessageEffects).toBe(true);
     useChat.getState().updatePreferences({ enableMessageEffects: false });

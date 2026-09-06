@@ -83,6 +83,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   enableGigantify: true,
   gigantifyScale: 4,
   enableMessageEffects: true,
+  disableMessageEffectAnimations: false,
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
@@ -187,6 +188,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   }
   if (typeof merged.enableMessageEffects !== "boolean") {
     merged.enableMessageEffects = DEFAULT_PREFERENCES.enableMessageEffects;
+  }
+  if (typeof merged.disableMessageEffectAnimations !== "boolean") {
+    merged.disableMessageEffectAnimations = DEFAULT_PREFERENCES.disableMessageEffectAnimations;
   }
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);

@@ -106,6 +106,12 @@
 .message-effect[data-running="false"] .message-effect__art *::after {
   animation-play-state: paused;
 }
+.message-effect[data-static="true"] .message-effect__art *,
+.message-effect[data-static="true"] .message-effect__art *::before,
+.message-effect[data-static="true"] .message-effect__art *::after { animation: none; }
+.message-effect[data-static="true"] .effect-party__particle {
+  transform: translate(0, var(--rest-y)) rotate(var(--spin));
+}
 @media (prefers-reduced-motion: reduce) {
   .message-effect .message-effect__art *,
   .message-effect .message-effect__art *::before,

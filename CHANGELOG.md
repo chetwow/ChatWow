@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added a "Display message effect animations" option; turning it off keeps static clouds,
+  glow, and party emotes. Power-up switches now read "Display message effects", "Display
+  message effect animations", and "Display Gigantify", all on by default.
 - Show Twitch pinned messages beneath the tabs, with an X to dismiss each pin and a
   "View pinned message" tab-menu option to bring it back. New pins appear automatically.
 

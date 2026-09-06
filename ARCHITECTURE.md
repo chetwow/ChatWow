@@ -745,7 +745,8 @@ power-up; after ordinary resolution Rust marks only the last Twitch emote occurr
 same emote earlier in the message. Text, third-party emotes, and invalid emote ranges cannot
 become a Gigantify target. Live and historical messages share this path and the normal batch sink.
 
-Appearance settings put Power-ups directly below Chat. `enableGigantify` defaults to true and
+Appearance settings put Power-ups directly below Chat. "Display Gigantify" uses the existing
+`enableGigantify` preference, default true, preserving saved choices without migration.
 `gigantifyScale` defaults to 4, clamped by the store to 1–5 (100–500%). The message context menu
 updates the same global preference, and retains its enable action when enlargement is off.
 `EmoteView` subscribes to the toggle so immutable messages repaint; a root `--gigantify-scale`
@@ -769,8 +770,14 @@ Rainbow Eclipse moves a blurred color gradient around an opaque message plate. E
 bounces a bounded twelve sprites at staggered phases behind the same plate. The effects adapt
 to wrapped text while leaving all message links, names, badges, replies, and context menus intact.
 
-`MessageEffectFrame` subscribes to `enableMessageEffects`, default true, so the Power-ups setting
-and context-menu toggle repaint held messages without changing their data. Deleted rows return
+`MessageEffectFrame` subscribes to `enableMessageEffects`, default true, and
+`disableMessageEffectAnimations`, default false. "Display message effects" uses the existing
+enable preference; "Display message effect animations" inverts the animation-disable preference,
+so both switches default to on and saved choices retain their meaning. Turning animations off
+keeps the same cloud and rainbow artwork and arranges party sprites in fixed poses; it removes
+CSS animations entirely and skips visibility observation for those static frames.
+These independent settings and context-menu actions repaint held messages without changing their
+data; turning effects off and back on retains the animation choice. Deleted rows return
 to plain chat. One shared IntersectionObserver pauses effects outside the viewport; document
 visibility pauses them in hidden windows, and the final unmount disconnects the observers.
 Reduced-motion mode keeps a still decoration with no animated assets or CSS movement.

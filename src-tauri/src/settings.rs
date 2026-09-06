@@ -191,6 +191,8 @@ pub struct Preferences {
     pub gigantify_scale: f64,
     /// Cosmic Abyss, Rainbow Eclipse and Emote Party backgrounds.
     pub enable_message_effects: bool,
+    /// Keep message-effect artwork without decorative motion.
+    pub disable_message_effect_animations: bool,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -290,6 +292,7 @@ impl Default for Preferences {
             enable_gigantify: true,
             gigantify_scale: 4.0,
             enable_message_effects: true,
+            disable_message_effect_animations: false,
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
@@ -546,6 +549,7 @@ mod tests {
         assert!(defaults.enable_gigantify);
         assert_eq!(defaults.gigantify_scale, 4.0);
         assert!(defaults.enable_message_effects);
+        assert!(!defaults.disable_message_effect_animations);
         let saved: super::Preferences = serde_json::from_str(
             r#"{"enableGigantify":false,"gigantifyScale":5,"enableMessageEffects":false}"#,
         )
@@ -554,6 +558,15 @@ mod tests {
         assert_eq!(json["enableGigantify"], false);
         assert_eq!(json["gigantifyScale"], 5.0);
         assert_eq!(json["enableMessageEffects"], false);
+        assert_eq!(json["disableMessageEffectAnimations"], false);
+        let static_effects: super::Preferences =
+            serde_json::from_str(r#"{"disableMessageEffectAnimations":true}"#).unwrap();
+        assert!(static_effects.enable_message_effects);
+        assert!(static_effects.enable_gigantify);
+        assert_eq!(
+            serde_json::to_value(static_effects).unwrap()["disableMessageEffectAnimations"],
+            true
+        );
     }
 
     use super::*;

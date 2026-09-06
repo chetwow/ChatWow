@@ -987,18 +987,25 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Power-ups">
-                <Row label="Animated message effects">
+                <Row label="Display message effects">
                   <Toggle
                     checked={preferences.enableMessageEffects}
                     onChange={(enableMessageEffects) => updatePreferences({ enableMessageEffects })}
-                    label="Animated message effects"
+                    label="Display message effects"
                   />
                 </Row>
-                <Row label="Enable Gigantify">
+                <Row label="Display message effect animations" hint="Animate message effects. Turn off to keep the clouds, colorful glow, and party emotes without movement.">
+                  <Toggle
+                    checked={!preferences.disableMessageEffectAnimations}
+                    onChange={(display) => updatePreferences({ disableMessageEffectAnimations: !display })}
+                    label="Display message effect animations"
+                  />
+                </Row>
+                <Row label="Display Gigantify">
                   <Toggle
                     checked={preferences.enableGigantify}
                     onChange={(enableGigantify) => updatePreferences({ enableGigantify })}
-                    label="Enable Gigantify"
+                    label="Display Gigantify"
                   />
                 </Row>
                 <Row label="Gigantify size">

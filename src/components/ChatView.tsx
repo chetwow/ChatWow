@@ -136,6 +136,7 @@ export function ChatView({
   const showTimestamps = useChat((state) => state.preferences.showTimestamps);
   const enableGigantify = useChat((state) => state.preferences.enableGigantify);
   const enableMessageEffects = useChat((state) => state.preferences.enableMessageEffects);
+  const disableMessageEffectAnimations = useChat((state) => state.preferences.disableMessageEffectAnimations);
   const updatePreferences = useChat((state) => state.updatePreferences);
   const blacklist = useChat((state) => state.preferences.emoteBlacklist);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
@@ -683,6 +684,9 @@ export function ChatView({
           ? [{
               label: enableMessageEffects ? "Disable message effects" : "Enable message effects",
               onSelect: () => updatePreferences({ enableMessageEffects: !enableMessageEffects }),
+            }, {
+              label: disableMessageEffectAnimations ? "Enable message effect animations" : "Disable message effect animations",
+              onSelect: () => updatePreferences({ disableMessageEffectAnimations: !disableMessageEffectAnimations }),
             }]
           : []),
         ...moderationOptions(menu.message),

@@ -302,6 +302,8 @@ export type Preferences = {
   gigantifyScale: number;
   /** Decorative Twitch message effects, independently of Gigantify. */
   enableMessageEffects: boolean;
+  /** Keep the effect's decorative artwork, without motion. */
+  disableMessageEffectAnimations: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */

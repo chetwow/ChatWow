@@ -53,16 +53,16 @@ const PARTICLES = [
   [65, 28, 1.75, -0.85, 86, -19, 40], [81, 30, 1.5, -0.45, 100, 16, -35],
 ];
 
-function AnimatedFrame({ effect, children }: { effect: MessageEffect; children: ReactNode }) {
+function EffectFrame({ effect, still, children }: { effect: MessageEffect; still: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [running, setRunning] = useState(false);
   useEffect(() => {
-    if (ref.current) return observeEffect(ref.current, setRunning);
-  }, []);
+    if (!still && ref.current) return observeEffect(ref.current, setRunning);
+  }, [still]);
 
   return (
     <div ref={ref} className={`message-effect message-effect--${effect.kind}`}
-      data-message-effect={effect.kind} data-running={running}>
+      data-message-effect={effect.kind} data-running={running} data-static={still}>
       <div className="message-effect__art" aria-hidden="true">
         {effect.kind === "cosmic-abyss" && <div className="effect-clouds" />}
         {effect.kind === "rainbow-eclipse" && <div className="effect-rainbow" />}
@@ -99,5 +99,6 @@ export function MessageEffectFrame({ effect, disabled, children }: {
   // Rows are immutable and memoized; this subscription repaints held messages
   // when settings or a message's context menu changes the global toggle.
   const enabled = useChat((state) => state.preferences.enableMessageEffects);
-  return enabled && !disabled ? <AnimatedFrame effect={effect}>{children}</AnimatedFrame> : <>{children}</>;
+  const still = useChat((state) => state.preferences.disableMessageEffectAnimations);
+  return enabled && !disabled ? <EffectFrame effect={effect} still={still}>{children}</EffectFrame> : <>{children}</>;
 }
