@@ -2,67 +2,37 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
 import { useChat } from "../store/chat";
+import { hasPermissionChanges, permissionSelection, permissionSelectionKey } from "../lib/permissions";
 import { Hinted } from "./Hinted";
 import type { AccountInfo, AuthStatus, DeviceCode, PermissionGroup } from "../types";
 
 const CONSOLE_URL = "https://dev.twitch.tv/console/apps";
 const NEW_ACCOUNT_ID = "__new_account__";
 
-/**
- * What the next sign-in asks Twitch for, and which accounts already hold it.
- *
- * Twitch grants scopes once, on the consent screen, and there's no way to
- * escalate later without going through the whole flow again -- so this is a
- * choice made *before* signing in, and changing it while signed in only takes
- * effect the next time you do. It's shared by every account (it's what to
- * *request*), while what was actually granted is per token: an account signed
- * in before you ticked a group simply doesn't have it. The selected account
- * makes that per-token state explicit.
- */
 function Permissions({
   auth,
   account,
   newAccount,
+  groups,
   onChanged,
-  onError,
   onGrant,
 }: {
   auth: AuthStatus;
   account: AccountInfo | null;
   newAccount: boolean;
-  onChanged: (status: AuthStatus) => void;
-  onError: (message: string | null) => void;
+  groups: string[];
+  onChanged: (groups: string[]) => void;
   onGrant: (account: AccountInfo) => void;
 }) {
-  const [busy, setBusy] = useState(false);
-
   const isGranted = (group: PermissionGroup) =>
     account !== null && group.scopes.every((scope) => account.scopes.includes(scope));
-  const isChecked = (group: PermissionGroup) =>
-    group.required || auth.permissionGroups.includes(group.id);
+  const isChecked = (group: PermissionGroup) => groups.includes(group.id);
 
-  const toggle = async (group: PermissionGroup, on: boolean) => {
-    const next = on
-      ? [...auth.permissionGroups, group.id]
-      : auth.permissionGroups.filter((id) => id !== group.id);
-
-    setBusy(true);
-    onError(null);
-    try {
-      onChanged(await api.setPermissionGroups(next));
-    } catch (cause) {
-      onError(String(cause));
-    } finally {
-      setBusy(false);
-    }
+  const toggle = (group: PermissionGroup, on: boolean) => {
+    onChanged(on ? [...groups, group.id] : groups.filter((id) => id !== group.id));
   };
 
-  // This is deliberately about the selected account. The checked groups are
-  // the template for the next sign-in, but the gap belongs to one token and
-  // disappears as soon as that token comes back with every requested scope.
-  const pending = auth.permissionCatalog.filter(
-    (group) => account !== null && !group.required && isChecked(group) && !isGranted(group),
-  );
+  const pending = hasPermissionChanges(auth.permissionCatalog, account, groups);
 
   return (
     <Section
@@ -83,7 +53,7 @@ function Permissions({
                 id={`permission-${group.id}`}
                 type="checkbox"
                 checked={isChecked(group)}
-                disabled={(account === null && !newAccount) || group.required || busy}
+                disabled={(account === null && !newAccount) || group.required}
                 onChange={(event) => void toggle(group, event.target.checked)}
                 className="h-3.5 w-3.5 shrink-0 accent-accent disabled:opacity-60"
               />
@@ -115,11 +85,11 @@ function Permissions({
         })}
       </div>
 
-      {pending.length > 0 && account !== null && (
+      {pending && account !== null && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-amber-400/10 px-2 py-1.5">
           <span className="min-w-0 flex-1 text-[11px] text-amber-200/90">
-            Re-add {account.login} to grant the newly enabled permissions. This reminder will
-            disappear once the account has them.
+            Re-add {account.login} to apply permission changes. Enabling or disabling an option
+            takes effect only after signing in again.
           </span>
           <button
             onClick={() => onGrant(account)}
@@ -421,6 +391,7 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
   const tabs = useChat((state) => state.tabs);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [permissionDrafts, setPermissionDrafts] = useState<Record<string, string[]>>({});
   const [device, setDevice] = useState<DeviceCode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -461,10 +432,18 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
     auth.accounts.find((account) => account.id === selectedAccountId) ?? null;
   const newAccountSelected = selectedAccountId === NEW_ACCOUNT_ID;
 
+  const selectionKey = permissionSelectionKey(selectedAccount);
+  const selectedGroups = permissionSelection(auth.permissionCatalog, selectedAccount, permissionDrafts);
+
   const startLogin = async (expectedAccount?: AccountInfo) => {
     setBusy(true);
     setError(null);
     try {
+      // Save exactly this sign-in's selection; inspecting another account must
+      // never change its checkboxes or create a reauthorization reminder.
+      setAuth(await api.setPermissionGroups(
+        permissionSelection(auth.permissionCatalog, expectedAccount ?? null, permissionDrafts),
+      ));
       const code = await api.startDeviceAuth();
       setDevice(code);
       void openUrl(code.verification_uri);
@@ -612,14 +591,13 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
             </div>
           </Section>
 
-          {/* The request template is app-wide, while the granted state shown
-              here belongs to the selected account's token. */}
+          {/* Drafts belong to an account and its current granted scopes. */}
           <Permissions
             auth={auth}
             account={selectedAccount}
             newAccount={newAccountSelected}
-            onChanged={setAuth}
-            onError={setError}
+            groups={selectedGroups}
+            onChanged={(groups) => setPermissionDrafts((drafts) => ({ ...drafts, [selectionKey]: groups }))}
             onGrant={(account) => void startLogin(account)}
           />
 

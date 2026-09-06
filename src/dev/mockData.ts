@@ -1126,7 +1126,7 @@ export function mockAuthStatus(): AuthStatus {
       MOCK_ACCOUNTS[2],
     ],
     defaultAccount: MOCK_ACCOUNTS[0].id,
-    permissionGroups: ["moderation"],
+    permissionGroups: ["moderation", "channel"],
     permissionCatalog: MOCK_PERMISSION_GROUPS,
   };
 }

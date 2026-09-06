@@ -12,7 +12,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Hover a live channel tab for 1.5 seconds to see its stream title and category.
 - Added “Show live stream thumbnails on hover” in Tabs settings, off by default.
 
+### Changed
+
+- Default all four permission options on when adding an account.
+
 ### Fixed
+
+- Account permission checkboxes now follow the selected account, keeping edits separate and
+  avoiding incorrect re-login reminders when switching accounts. Both enabling and disabling
+  permissions now explain that signing in again is required.
 
 - Show readable days, hours, minutes, and seconds in timeout and chat-mode notices and
   command confirmations instead of large raw durations.
