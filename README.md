@@ -10,6 +10,7 @@ in a browser.
 - Multiple Twitch accounts, with per-tab account selection and permission controls
 - Chat history search
 - Six built-in color themes, plus customizable appearance and notifications
+- Support for inline playing of Youtube videos and Twitch clips as well as inline image viewing
 - Custom listener tabs for account mentions, selected users, and arbitrary phrases across open channels
 - Optional sound and tab notifications for listener matches
 - Mute notification sounds or ignore notifications from specific users and channels through settings and context menus
