@@ -17,6 +17,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Tab unread counts now include only chat messages and whispers, excluding connection status
+  lines and Twitch event notifications.
 - Restored signed-in chat after sleep when Twitch credentials expire, checking and renewing them
   before reconnecting and retrying promptly while the network returns.
 - Recovered stalled chat connections with connection, login, write, and heartbeat timeouts.

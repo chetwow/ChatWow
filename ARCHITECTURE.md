@@ -374,6 +374,11 @@ between passes to bound retries while Twitch or the network remains unavailable.
 
 ## Mentions
 
+Tab unread totals count only live `chat` and `whisper` messages in channel and listener tabs.
+Connection/status `notice` rows and Twitch `system` events stay in their timelines but do not
+increase the numeric badge. Historical messages and messages arriving in either active pane
+remain excluded. Listener collection and mention-notification rules are independent of this tally.
+
 A message that names you -- `@yourname` or just `yourname`, case-insensitively and only as a
 whole word, so `youtube` doesn't count -- gets the same rose highlight as a reply to you, and
 plays a short two-tone ping ([src/lib/notify.ts](src/lib/notify.ts) synthesizes it with the Web

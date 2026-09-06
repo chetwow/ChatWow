@@ -53,6 +53,11 @@ import type {
 
 export { ANONYMOUS };
 
+/** Status lines and Twitch event notifications are not missed conversation. */
+function countsAsUnread(message: ChatMessage): boolean {
+  return message.kind === "chat" || message.kind === "whisper";
+}
+
 /** Per-tab backlog cap. Beyond this the oldest messages are dropped. */
 const MAX_MESSAGES = 500;
 /** Trim in chunks so we're not reallocating the array on every single message. */
@@ -1626,7 +1631,8 @@ export const useChat = create<ChatState>((set) => ({
         // Counted like unread is, and for the same reason: it's a tally of
         // what you haven't looked at, so the tab you're reading has none.
         if (!watching && fresh.length > 0) {
-          unread[id] = (unread[id] ?? 0) + fresh.length;
+          const count = fresh.filter(countsAsUnread).length;
+          if (count > 0) unread[id] = (unread[id] ?? 0) + count;
           if (naming.length > 0) {
             mentions[id] = (mentions[id] ?? 0) + naming.length;
           }
@@ -1649,11 +1655,12 @@ export const useChat = create<ChatState>((set) => ({
 
         mentionLog[tab.id] = appendMentionMessages(existing, addressed);
 
-        // Unread counts every unseen match. The rose mention counter is the
+        // Unread counts conversation among the unseen matches. The rose mention counter is the
         // listener's optional notification indication, so it moves only when
         // that listener has notifications enabled.
         if (!state.active.includes(tab.id)) {
-          unread[tab.id] = (unread[tab.id] ?? 0) + addressed.length;
+          const count = addressed.filter(countsAsUnread).length;
+          if (count > 0) unread[tab.id] = (unread[tab.id] ?? 0) + count;
           if (listenerNotifies(tab)) {
             mentions[tab.id] = (mentions[tab.id] ?? 0) + addressed.length;
           }
