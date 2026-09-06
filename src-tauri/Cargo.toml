@@ -40,3 +40,6 @@ filetime = "0.2"
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2.4.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util", "io-util"] }

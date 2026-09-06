@@ -280,6 +280,10 @@ pub struct AppState {
     pub last_seen_version: RwLock<String>,
     pub settings_write: parking_lot::Mutex<()>,
     pub auth: RwLock<Auth>,
+    /// One worker owns startup, periodic, wake, and rejected-token checks.
+    pub token_check: tokio::sync::Notify,
+    /// Remains set until credentials have been checked after a system pause.
+    pub wake_recovery: AtomicBool,
     /// Logins currently broadcasting, refreshed by the live poller. Empty when
     /// signed out, where we simply don't know rather than knowing they're off.
     pub live: RwLock<HashSet<String>>,
@@ -336,6 +340,8 @@ impl AppState {
             last_seen_version: RwLock::new(String::new()),
             settings_write: parking_lot::Mutex::new(()),
             auth: RwLock::new(Auth::default()),
+            token_check: tokio::sync::Notify::new(),
+            wake_recovery: AtomicBool::new(false),
             live: RwLock::new(HashSet::new()),
             sink: RwLock::new(None),
             live_poll: tokio::sync::Notify::new(),

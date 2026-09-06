@@ -40,6 +40,11 @@ const HISTORY_TIMEOUT: Duration = Duration::from_secs(4);
 /// after the machine wakes.
 const SLEEP_CHECK_INTERVAL: Duration = Duration::from_secs(15);
 const SLEEP_RECONNECT_GAP: Duration = Duration::from_secs(45);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const PONG_TIMEOUT: Duration = Duration::from_secs(10);
+const HEARTBEAT: &[u8] = b"chatwow-heartbeat";
 
 pub type MessageSink = mpsc::UnboundedSender<ChatMessage>;
 
@@ -1232,8 +1237,9 @@ async fn connect_once(
     }
     emit_status(app, account, "connecting", None);
 
-    let (stream, _) = connect_async(GATEWAY).await?;
-    let (mut write, mut read) = stream.split();
+    let (stream, _) = timeout(CONNECT_TIMEOUT, connect_async(GATEWAY))
+        .await
+        .map_err(|_| anyhow::anyhow!("IRC connection timed out"))??;
 
     // Anonymous read-only login unless this connection belongs to an account.
     // An account whose token has gone (signed out from under it) falls back to
@@ -1254,17 +1260,11 @@ async fn connect_once(
 
     // Skip twitch.tv/membership: it floods JOIN/PART on large channels and we
     // don't render a user list.
-    write
-        .send(Message::Text(
-            "CAP REQ :twitch.tv/tags twitch.tv/commands".into(),
-        ))
-        .await?;
-    write
-        .send(Message::Text(format!("PASS {pass}").into()))
-        .await?;
-    write
-        .send(Message::Text(format!("NICK {nick}").into()))
-        .await?;
+    let mut login = vec![
+        "CAP REQ :twitch.tv/tags twitch.tv/commands".to_string(),
+        format!("PASS {pass}"),
+        format!("NICK {nick}"),
+    ];
 
     // What this account's tabs ask for, as of now. Clone first: the guard must
     // not be held across an await.
@@ -1276,20 +1276,82 @@ async fn connect_once(
         .map(|connection| connection.joined.iter().cloned().collect())
         .unwrap_or_default();
     for channel in joined {
-        write
-            .send(Message::Text(format!("JOIN #{channel}").into()))
-            .await?;
+        login.push(format!("JOIN #{channel}"));
     }
 
+    chat_socket(stream, login, rx, |line| {
+        handle_line(app, state, sink, account, connection_generation, line)
+    })
+    .await
+}
+
+async fn send_frame<W>(write: &mut W, frame: Message) -> anyhow::Result<()>
+where
+    W: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    timeout(WRITE_TIMEOUT, write.send(frame))
+        .await
+        .map_err(|_| anyhow::anyhow!("IRC write timed out"))??;
+    Ok(())
+}
+
+fn authentication_failed(line: &str) -> bool {
+    let Some(msg) = parse::parse(line) else {
+        return false;
+    };
+    msg.command == "NOTICE"
+        && msg.params.first().map(String::as_str) == Some("*")
+        && matches!(
+            msg.text(),
+            Some("Login authentication failed" | "Improperly formatted auth")
+        )
+}
+
+/// Socket I/O is isolated from application state so stalled transports and
+/// Twitch authentication/heartbeat responses can be exercised without a UI.
+async fn chat_socket<S, F>(
+    stream: tokio_tungstenite::WebSocketStream<S>,
+    login: Vec<String>,
+    rx: &mut mpsc::UnboundedReceiver<IrcCommand>,
+    mut on_line: F,
+) -> anyhow::Result<Outcome>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    F: FnMut(&str) -> Option<String>,
+{
+    let (mut write, mut read) = stream.split();
+    timeout(CONNECT_TIMEOUT, async {
+        for line in login {
+            send_frame(&mut write, Message::Text(line.into())).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("IRC login write timed out"))??;
+    let welcome_deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+    let mut welcomed = false;
+    let mut awaiting_pong = false;
+    let mut heartbeat_deadline = tokio::time::Instant::now() + HEARTBEAT_INTERVAL;
     loop {
         tokio::select! {
+            _ = tokio::time::sleep_until(welcome_deadline), if !welcomed => {
+                return Err(anyhow::anyhow!("IRC welcome timed out"));
+            }
+            _ = tokio::time::sleep_until(heartbeat_deadline) => {
+                if awaiting_pong {
+                    return Err(anyhow::anyhow!("IRC heartbeat timed out"));
+                }
+                send_frame(&mut write, Message::Ping(HEARTBEAT.into())).await?;
+                awaiting_pong = true;
+                heartbeat_deadline = tokio::time::Instant::now() + PONG_TIMEOUT;
+            }
             command = rx.recv() => {
                 match command {
                     Some(IrcCommand::Join(channel)) => {
-                        write.send(Message::Text(format!("JOIN #{channel}").into())).await?;
+                        send_frame(&mut write, Message::Text(format!("JOIN #{channel}").into())).await?;
                     }
                     Some(IrcCommand::Part(channel)) => {
-                        write.send(Message::Text(format!("PART #{channel}").into())).await?;
+                        send_frame(&mut write, Message::Text(format!("PART #{channel}").into())).await?;
                     }
                     Some(IrcCommand::Reconnect) => return Ok(Outcome::Reconnect),
                     // Nobody left to talk to: the last tab on this account
@@ -1303,22 +1365,25 @@ async fn connect_once(
                     Message::Text(text) => {
                         // Twitch packs multiple IRC lines into one frame.
                         for line in text.split("\r\n").filter(|l| !l.is_empty()) {
+                            if line.contains(" NOTICE ") && authentication_failed(line) {
+                                return Ok(Outcome::AuthenticationFailed);
+                            }
+                            if !welcomed {
+                                welcomed = parse::parse(line).is_some_and(|msg| msg.command == "001");
+                            }
                             if line.starts_with(':') && line.contains(" RECONNECT") {
                                 return Ok(Outcome::Reconnect);
                             }
-                            if let Some(reply) = handle_line(
-                                app,
-                                state,
-                                sink,
-                                account,
-                                connection_generation,
-                                line,
-                            ) {
-                                write.send(Message::Text(reply.into())).await?;
+                            if let Some(reply) = on_line(line) {
+                                send_frame(&mut write, Message::Text(reply.into())).await?;
                             }
                         }
                     }
-                    Message::Ping(payload) => write.send(Message::Pong(payload)).await?,
+                    Message::Ping(payload) => send_frame(&mut write, Message::Pong(payload)).await?,
+                    Message::Pong(payload) if payload.as_ref() == HEARTBEAT => {
+                        awaiting_pong = false;
+                        heartbeat_deadline = tokio::time::Instant::now() + HEARTBEAT_INTERVAL;
+                    }
                     Message::Close(_) => return Ok(Outcome::Reconnect),
                     _ => {}
                 }
@@ -1328,9 +1393,11 @@ async fn connect_once(
 }
 
 /// Why a connection attempt ended: come back, or stay down.
+#[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Reconnect,
     Done,
+    AuthenticationFailed,
 }
 
 /// Supervises one account's connection, reconnecting with backoff and jitter.
@@ -1357,6 +1424,15 @@ pub async fn run(
         {
             Ok(Outcome::Done) => break,
             Ok(Outcome::Reconnect) => backoff_secs = 1,
+            Ok(Outcome::AuthenticationFailed) => {
+                state.token_check.notify_one();
+                emit_status(
+                    &app,
+                    &account,
+                    "disconnected",
+                    Some("Twitch authentication rejected; checking credentials".into()),
+                );
+            }
             Err(error) => {
                 if connection_is_current(&state, &account, connection_generation) {
                     emit_status(&app, &account, "disconnected", Some(error.to_string()));
@@ -1475,8 +1551,11 @@ fn recover_after_pause(state: &Arc<AppState>, elapsed: Duration) -> bool {
     if elapsed < SLEEP_RECONNECT_GAP {
         return false;
     }
-    reconnect_all(state);
-    state.eventsub_restart.notify_one();
+    // Anonymous chat needs no credentials. Authenticated sockets are rebuilt
+    // by the token worker after validation/refresh, including network retries.
+    state.send(crate::settings::ANONYMOUS, IrcCommand::Reconnect);
+    state.wake_recovery.store(true, Ordering::Release);
+    state.token_check.notify_one();
     // The same pause makes the live-channel answer stale even when a socket
     // happened to survive it.
     state.live_poll.notify_one();
@@ -1487,7 +1566,7 @@ fn recover_after_pause(state: &Arc<AppState>, elapsed: Duration) -> bool {
 /// machine. Tokio's monotonic timers are not guaranteed to include system
 /// sleep on every desktop platform, so compare wall-clock samples instead.
 /// Even where the interval itself resumes late, the next fifteen-second tick
-/// observes the full gap and wakes each socket's command branch.
+/// observes the full gap and requests coordinated credential/socket recovery.
 pub async fn watch_for_system_sleep(state: Arc<AppState>) {
     let mut ticker = tokio::time::interval(SLEEP_CHECK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1500,7 +1579,7 @@ pub async fn watch_for_system_sleep(state: Arc<AppState>) {
         let elapsed = now.duration_since(checked_at).unwrap_or_default();
         checked_at = now;
         if recover_after_pause(&state, elapsed) {
-            log::info!("system sleep detected; rebuilding Twitch chat connections");
+            log::info!("system sleep detected; checking Twitch credentials before reconnecting");
         }
     }
 }
@@ -1508,6 +1587,7 @@ pub async fn watch_for_system_sleep(state: Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::FutureExt;
 
     #[test]
     fn a_new_connection_replaces_a_stale_session() {
@@ -1612,7 +1692,7 @@ mod tests {
     }
 
     #[test]
-    fn a_long_runtime_pause_reconnects_live_sockets() {
+    fn a_long_runtime_pause_checks_credentials_before_reconnecting() {
         let state = Arc::new(AppState::new());
         let (commands, mut received) = mpsc::unbounded_channel();
         state.connections.write().insert(
@@ -1627,7 +1707,127 @@ mod tests {
         assert!(!recover_after_pause(&state, Duration::from_secs(44)));
         assert!(received.try_recv().is_err());
         assert!(recover_after_pause(&state, Duration::from_secs(45)));
-        assert!(matches!(received.try_recv(), Ok(IrcCommand::Reconnect)));
+        assert!(received.try_recv().is_err());
+        assert!(state.wake_recovery.load(Ordering::Acquire));
+        assert!(state.token_check.notified().now_or_never().is_some());
+    }
+
+    async fn socket_pair() -> (
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+    ) {
+        use tokio_tungstenite::tungstenite::protocol::Role;
+        let (client, server) = tokio::io::duplex(1024);
+        tokio::join!(
+            tokio_tungstenite::WebSocketStream::from_raw_socket(client, Role::Client, None),
+            tokio_tungstenite::WebSocketStream::from_raw_socket(server, Role::Server, None),
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_socket_that_never_welcomes_us_times_out() {
+        let (client, _server) = socket_pair().await;
+        let (_tx, mut rx) = mpsc::unbounded_channel();
+        let result = chat_socket(client, Vec::new(), &mut rx, |_| None).await;
+        assert_eq!(result.unwrap_err().to_string(), "IRC welcome timed out");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_backpressured_socket_cannot_stall_login_forever() {
+        let (client, _server) = socket_pair().await;
+        let (_tx, mut rx) = mpsc::unbounded_channel();
+        let result = chat_socket(client, vec!["x".repeat(8192)], &mut rx, |_| None).await;
+        assert!(result.unwrap_err().to_string().contains("timed out"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_half_open_socket_times_out_even_after_a_successful_login() {
+        let (client, mut server) = socket_pair().await;
+        let (_tx, mut rx) = mpsc::unbounded_channel();
+        server
+            .send(Message::Text(":tmi.twitch.tv 001 tester :Welcome".into()))
+            .await
+            .unwrap();
+        let result = chat_socket(client, Vec::new(), &mut rx, |_| None).await;
+        assert_eq!(result.unwrap_err().to_string(), "IRC heartbeat timed out");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_quiet_socket_with_pongs_stays_up_and_accepts_reconnect() {
+        let (client, mut server) = socket_pair().await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        server
+            .send(Message::Text(":tmi.twitch.tv 001 tester :Welcome".into()))
+            .await
+            .unwrap();
+        let task =
+            tokio::spawn(async move { chat_socket(client, Vec::new(), &mut rx, |_| None).await });
+        for _ in 0..3 {
+            assert!(matches!(
+                server.next().await.unwrap().unwrap(),
+                Message::Ping(_)
+            ));
+            // tungstenite queues the matching pong while reading the ping.
+            server.flush().await.unwrap();
+        }
+        tx.send(IrcCommand::Reconnect).unwrap();
+        assert_eq!(task.await.unwrap().unwrap(), Outcome::Reconnect);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rejected_login_is_distinguished_from_a_network_disconnect() {
+        let (client, mut server) = socket_pair().await;
+        let (_tx, mut rx) = mpsc::unbounded_channel();
+        server
+            .send(Message::Text(
+                ":tmi.twitch.tv NOTICE * :Login authentication failed".into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            chat_socket(client, Vec::new(), &mut rx, |_| None)
+                .await
+                .unwrap(),
+            Outcome::AuthenticationFailed
+        );
+        assert!(!authentication_failed(
+            ":user!user@host PRIVMSG #room :Login authentication failed"
+        ));
+        assert!(!authentication_failed(
+            ":tmi.twitch.tv NOTICE #room :Login authentication failed"
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "checks Twitch's anonymous WebSocket ping/pong support"]
+    async fn twitch_answers_websocket_heartbeats() {
+        let (mut socket, _) = timeout(CONNECT_TIMEOUT, connect_async(GATEWAY))
+            .await
+            .unwrap()
+            .unwrap();
+        for line in ["PASS SCHMOOPIIE", "NICK justinfan54321"] {
+            send_frame(&mut socket, Message::Text(line.into()))
+                .await
+                .unwrap();
+        }
+        send_frame(&mut socket, Message::Ping(HEARTBEAT.into()))
+            .await
+            .unwrap();
+        timeout(PONG_TIMEOUT, async {
+            while let Some(frame) = socket.next().await {
+                match frame.unwrap() {
+                    Message::Pong(payload) if payload.as_ref() == HEARTBEAT => return,
+                    Message::Ping(payload) => send_frame(&mut socket, Message::Pong(payload))
+                        .await
+                        .unwrap(),
+                    Message::Close(_) => panic!("Twitch closed before answering heartbeat"),
+                    _ => {}
+                }
+            }
+            panic!("Twitch disconnected before answering heartbeat");
+        })
+        .await
+        .expect("Twitch must answer the heartbeat within its deadline");
     }
 
     #[test]

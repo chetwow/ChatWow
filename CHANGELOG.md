@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored signed-in chat after sleep when Twitch credentials expire, checking and renewing them
+  before reconnecting and retrying promptly while the network returns.
+- Recovered stalled chat connections with connection, login, write, and heartbeat timeouts.
+- Retried rejected Twitch credentials automatically and kept renewed credentials if the network
+  drops during the follow-up check.
+
 ## [1.3.0] - 2026-09-05
 
 ### Added

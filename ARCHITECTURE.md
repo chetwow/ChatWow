@@ -159,11 +159,21 @@ history loads into the same view.
 Desktop Tauri does not expose a portable resume event, and an operating system can leave a TCP
 socket looking open after the machine wakes even though its route disappeared during sleep.
 `watch_for_system_sleep` samples wall time every fifteen seconds; a gap of at least forty-five
-seconds means the runtime was suspended, so every IRC task receives its ordinary reconnect
-command, whisper EventSub sockets are rebuilt, and the live-channel poll is refreshed. Wall time
+seconds means the runtime was suspended. Anonymous IRC reconnects immediately; authenticated
+recovery first wakes the sole token worker to validate or refresh credentials. Once that succeeds,
+IRC tasks receive their ordinary reconnect command, EventSub sockets are rebuilt, and the
+live-channel poll is refreshed. An unavailable network retains the recovery request and retries
+after five seconds rather than waiting for the hourly check. Wall time
 is deliberate: monotonic timers do not include system sleep on every desktop platform. Reusing
 the normal reconnect path also preserves the disconnect notices, session generations, and
 missed-message recovery above.
+
+IRC bounds connection establishment, login writes, the welcome response, and individual writes
+to ten seconds each. A WebSocket ping every thirty seconds requires a matching pong within ten
+seconds, so a half-open connection cannot masquerade indefinitely as a quiet channel, including
+after a short sleep below the watchdog threshold. These failures enter ordinary reconnect/backlog
+recovery. Twitch's server-level authentication rejection instead also wakes the token worker;
+neither IRC nor EventSub performs its own refresh exchange.
 
 ## Sending messages
 
@@ -245,8 +255,10 @@ token change drops every socket and brings back the ones still wanted. What must
 restarting them when nothing changed -- re-validating a good token, at startup or at an hourly
 check, rewrites its scopes and login, which is worth persisting but leaves the old subscription
 behind on Twitch's side, and three of those is the limit for one type and condition. Past that
-Twitch refuses and whispers stop arriving, silently. `restore_session` keeps `changed` and
-`credentials_changed` apart for exactly this reason; it was a real bug.
+Twitch refuses and whispers stop arriving, silently. The token worker distinguishes metadata
+changes from credential changes and keeps healthy sockets alive during routine renewal. EventSub
+subscription requests read current credentials each time. A subscription HTTP 401 wakes the token
+worker and ends that failed socket attempt, instead of caching the failure for five minutes.
 
 A whisper always pings unless you're muted, since unlike a mention in the channel you're already
 reading, it arrived from outside the room.
@@ -309,9 +321,10 @@ file atomically, so an interrupted save cannot leave credentials in a partial JS
 They don't last, and the app outlives them. A Twitch user token is good for a few hours where a
 chat client is left open for days, so `poll_tokens` walks every account once an hour and renews
 anything with less than ninety minutes left on it -- a margin deliberately wider than the gap
-between checks, or a token could die in between. `restore_session` makes the same pass at launch,
-against the same margin and through the same `check_token`, so an app opened shortly before an
-expiry doesn't start on a token that dies before the first check. Both read the remaining life
+between checks, or a token could die in between. The same worker makes its first pass immediately
+at launch and accepts notifications from the sleep watchdog and rejected IRC/EventSub credentials.
+All checks use `check_token`, and there is only one worker, preventing simultaneous exchanges of
+the same refresh token. It reads the remaining life
 from `/oauth2/validate` rather than storing a deadline, which would be wrong on a machine whose
 clock has drifted or that slept through the interval.
 
@@ -319,13 +332,19 @@ Nothing enforced this before, and the symptom was misleading: IRC authenticates 
 and Twitch leaves the connection alone afterwards, so chat kept arriving perfectly while every
 Helix call -- sending a message included -- answered 401, with only a re-login to fix it.
 
-A renewal deliberately touches nothing else. The live IRC socket stays authenticated, and
+A routine renewal deliberately leaves healthy sockets running. The live IRC socket stays authenticated, and
 `connect_once` reads the current token whenever it next reconnects for its own reasons; the
-whisper socket is left alone for the reason above. Only losing an account reconnects anything,
-because its tabs have just become anonymous. And losing one takes a refusal, not a failure:
+EventSub socket uses new credentials on its next HTTP request. Startup credential replacement,
+completed wake recovery, and losing an account rebuild sockets; ordinary validation does not.
+Losing an account takes a refusal, not a failure:
 `auth::RefreshOutcome` separates Twitch rejecting a refresh -- the grant is gone, the account with
-it -- from being unable to ask at all, which changes nothing and is retried at the next check.
+it -- from being unable to ask at all, which keeps the account and retries after five seconds.
 Collapsing the two would sign everybody out the first time a laptop woke before its network did.
+Validation transport failures do not trigger a refresh. If a successful refresh is followed by a
+failed validation, the rotated token pair is still persisted and checked again on that short retry.
+Results may update/remove only the exact credential snapshot checked, so an in-flight request
+cannot overwrite a newer sign-in. Rejection notifications are coalesced with a five-second minimum
+between passes to bound retries while Twitch or the network remains unavailable.
 
 ## Mentions
 

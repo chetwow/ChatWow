@@ -155,6 +155,7 @@ async fn subscribe(
         .send()
         .await?;
 
+    let response = check_subscription_auth(state, response)?;
     let status = response.status();
     if !status.is_success() {
         return Err(anyhow!(
@@ -170,6 +171,19 @@ async fn subscribe(
         .ok_or_else(|| anyhow!("Twitch returned no subscription ID"))
 }
 
+fn check_subscription_auth(
+    state: &AppState,
+    response: reqwest::Response,
+) -> Result<reqwest::Response> {
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        state.token_check.notify_one();
+        // Preserve the status for the socket loop: authentication failures
+        // need fresh credentials, not a five-minute subscription retry.
+        response.error_for_status_ref()?;
+    }
+    Ok(response)
+}
+
 #[derive(Default)]
 struct Subscriptions {
     active: Vec<(Subscription, String)>,
@@ -177,14 +191,14 @@ struct Subscriptions {
 }
 
 impl Subscriptions {
-    async fn sync(
-        &mut self,
-        state: &AppState,
-        account: &str,
-        client: &str,
-        token: &str,
-        session: &str,
-    ) -> Result<()> {
+    async fn sync(&mut self, state: &AppState, account: &str, session: &str) -> Result<()> {
+        // A healthy socket survives token renewal, but each new HTTP request
+        // must use the current token rather than the one captured at connect.
+        let (client, token) = state
+            .auth
+            .read()
+            .credentials(account)
+            .ok_or_else(|| anyhow!("EventSub account signed out"))?;
         let wanted = chat_events::wanted(state, account);
         self.failed
             .retain(|(spec, retry)| wanted.contains(spec) && *retry > tokio::time::Instant::now());
@@ -199,12 +213,13 @@ impl Subscriptions {
             let response = state
                 .http
                 .delete(SUBSCRIPTIONS_URL)
-                .header("Client-Id", client)
-                .bearer_auth(token)
+                .header("Client-Id", &client)
+                .bearer_auth(&token)
                 .query(&[("id", &id)])
                 .timeout(Duration::from_secs(8))
                 .send()
                 .await?;
+            let response = check_subscription_auth(state, response)?;
             if !response.status().is_success()
                 && response.status() != reqwest::StatusCode::NOT_FOUND
             {
@@ -225,9 +240,16 @@ impl Subscriptions {
             if self.active.len() >= 300 {
                 break;
             }
-            match subscribe(state, client, token, &spec, session).await {
+            match subscribe(state, &client, &token, &spec, session).await {
                 Ok(id) => self.active.push((spec, id)),
                 Err(error) => {
+                    if error
+                        .downcast_ref::<reqwest::Error>()
+                        .and_then(reqwest::Error::status)
+                        == Some(reqwest::StatusCode::UNAUTHORIZED)
+                    {
+                        return Err(error);
+                    }
                     log::warn!("EventSub ({account}): {error}");
                     self.failed
                         .push((spec, tokio::time::Instant::now() + Duration::from_secs(300)));
@@ -279,8 +301,6 @@ struct AccountConnection<'a> {
     account: &'a str,
     url: &'a str,
     resuming: bool,
-    client_id: &'a str,
-    token: &'a str,
 }
 
 async fn connect_once(
@@ -295,8 +315,6 @@ async fn connect_once(
         account,
         url,
         resuming,
-        client_id,
-        token,
     } = connection;
     let (stream, _) = tokio::time::timeout(Duration::from_secs(10), connect_async(url)).await??;
     let (mut write, mut read) = stream.split();
@@ -315,7 +333,7 @@ async fn connect_once(
             _ = tokio::time::sleep_until(deadline) => return Err(anyhow!("EventSub keepalive timed out")),
             _ = poll.tick() => {
                 if let Some(session) = session_id.as_deref() {
-                    subscriptions.sync(state, account, client_id, token, session).await?;
+                    subscriptions.sync(state, account, session).await?;
                 }
                 continue;
             }
@@ -353,9 +371,7 @@ async fn connect_once(
                             + 5,
                     );
                     deadline = tokio::time::Instant::now() + keepalive;
-                    subscriptions
-                        .sync(state, account, client_id, token, &session)
-                        .await?;
+                    subscriptions.sync(state, account, &session).await?;
                     session_id = Some(session);
                 }
                 Incoming::Reconnect(next) => {
@@ -438,7 +454,7 @@ async fn run_account(state: Arc<AppState>, sink: MessageSink, account: String) {
     loop {
         // Re-read every time round: a refresh mid-session replaces the token
         // under us, and the next connection should use the new one.
-        let Some((client_id, token)) = ({ state.auth.read().credentials(&account) }) else {
+        let Some(_) = ({ state.auth.read().credentials(&account) }) else {
             return;
         };
 
@@ -454,8 +470,6 @@ async fn run_account(state: Arc<AppState>, sink: MessageSink, account: String) {
                 account: &account,
                 url: &url,
                 resuming: previous.is_some(),
-                client_id: &client_id,
-                token: &token,
             },
             &mut subscriptions,
             &mut seen,
@@ -518,6 +532,26 @@ pub async fn run(state: Arc<AppState>, sink: MessageSink) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn only_authentication_rejections_wake_the_token_worker() {
+        use futures_util::FutureExt;
+        for status in [401, 403, 429, 500] {
+            let state = AppState::new();
+            let response = reqwest::Response::from(
+                tauri::http::Response::builder()
+                    .status(status)
+                    .body("")
+                    .unwrap(),
+            );
+            let result = check_subscription_auth(&state, response);
+            assert_eq!(result.is_err(), status == 401);
+            assert_eq!(
+                state.token_check.notified().now_or_never().is_some(),
+                status == 401
+            );
+        }
+    }
 
     #[test]
     fn channel_events_are_routed_by_room_and_account_not_payload_login() {

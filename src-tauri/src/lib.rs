@@ -10,6 +10,8 @@ mod livecheck;
 mod render;
 mod settings;
 mod state;
+#[cfg(test)]
+mod token_tests;
 mod twitch;
 mod updater;
 mod usercard;
@@ -138,8 +140,7 @@ const REFRESH_MARGIN_SECS: u64 = 90 * 60;
 
 /// What looking at one account's token came to.
 enum TokenCheck {
-    /// Nothing to write down -- either nothing had changed, or Twitch couldn't
-    /// be reached and we know no more than we did.
+    /// Nothing to write down; the account is unchanged or has been replaced.
     Unchanged,
     /// The same token still, but Twitch named a login or a scope set we
     /// weren't storing.
@@ -148,6 +149,10 @@ enum TokenCheck {
     Renewed,
     /// The grant is gone, and the account with it.
     Lost,
+    /// Network failure: keep credentials and retry promptly.
+    Retry,
+    /// Save rotated credentials even if their follow-up validation failed.
+    RenewedRetry,
 }
 
 /// The profile picture Twitch has for one account, for the accounts list.
@@ -169,31 +174,83 @@ async fn fetch_avatar(state: &Shared, token: &str, login: &str) -> Option<String
         .map(|profile| profile.avatar_url)
 }
 
-/// Validate one account's token, renewing it if Twitch says it has expired or
-/// is close to it, and write whatever we learn back into `state`.
-///
-/// The one place a stored token is ever refreshed: startup and the hourly
-/// poller both come here, so an account can't end up recovered one way at
-/// launch and another way an hour later.
-///
-/// An account Twitch has *refused* is removed rather than kept as a dead
-/// entry: its tabs fall back to anonymous, which is a state the app can
-/// actually be in, where a signed-in account that can do nothing isn't. An
-/// account we merely couldn't ask about is left exactly as it was.
+/// The network boundary allows deterministic expiry and network-loss tests
+/// to exercise the same credential mutation path as production.
+trait TokenAccess {
+    fn validate(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = anyhow::Result<auth::Validation>> + Send;
+    fn refresh(
+        &self,
+        client: &str,
+        token: &str,
+    ) -> impl std::future::Future<Output = auth::RefreshOutcome> + Send;
+    fn avatar(
+        &self,
+        token: &str,
+        login: &str,
+    ) -> impl std::future::Future<Output = Option<String>> + Send;
+}
+
+struct TwitchTokenAccess<'a>(&'a Shared);
+
+impl TokenAccess for TwitchTokenAccess<'_> {
+    async fn validate(&self, token: &str) -> anyhow::Result<auth::Validation> {
+        auth::validate(&self.0.http, token).await
+    }
+    async fn refresh(&self, client: &str, token: &str) -> auth::RefreshOutcome {
+        auth::refresh(&self.0.http, client, token).await
+    }
+    async fn avatar(&self, token: &str, login: &str) -> Option<String> {
+        fetch_avatar(self.0, token, login).await
+    }
+}
+
+/// Validate or refresh one account. Called only by the token worker, for
+/// startup, periodic, wake, and authentication-rejection checks alike.
+/// Network failures retain the account; rejected grants remove it.
 async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck {
+    check_token_with(state, account, &TwitchTokenAccess(state)).await
+}
+
+async fn check_token_with(
+    state: &Shared,
+    account: &settings::Account,
+    api: &(impl TokenAccess + Sync),
+) -> TokenCheck {
     let client_id = { state.auth.read().client_id().map(str::to_string) };
 
     // A token with life left in it needs nothing beyond what validating it
     // just told us. Twitch is the authority on the login and the scopes, and
     // both can have changed since we last looked -- ids are what we key on for
     // exactly that reason.
-    if let Ok(validation) = auth::validate(&state.http, &account.access_token).await {
+    let validation = match api.validate(&account.access_token).await {
+        Ok(validation) => Some(validation),
+        Err(error)
+            if error
+                .downcast_ref::<reqwest::Error>()
+                .and_then(reqwest::Error::status)
+                == Some(reqwest::StatusCode::UNAUTHORIZED) =>
+        {
+            None
+        }
+        Err(_) => {
+            log::warn!("token validation unavailable; retrying shortly");
+            return TokenCheck::Retry;
+        }
+    };
+    if let Some(validation) = validation {
         if validation.expires_in > REFRESH_MARGIN_SECS {
             // Asked for on the same pass as the login, and for the same reason:
             // either can have changed on Twitch's side since we last looked.
-            let avatar = fetch_avatar(state, &account.access_token, &validation.login).await;
+            let avatar = api.avatar(&account.access_token, &validation.login).await;
             let mut auth_state = state.auth.write();
-            let Some(stored) = auth_state.accounts.iter_mut().find(|a| a.id == account.id) else {
+            let Some(stored) = auth_state
+                .accounts
+                .iter_mut()
+                .find(|a| a.id == account.id && a.access_token == account.access_token)
+            else {
                 return TokenCheck::Unchanged;
             };
             // A call that didn't answer must not blank the avatar we hold.
@@ -221,7 +278,7 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
         return TokenCheck::Unchanged;
     };
 
-    let tokens = match auth::refresh(&state.http, &client_id, &account.refresh_token).await {
+    let tokens = match api.refresh(&client_id, &account.refresh_token).await {
         auth::RefreshOutcome::Renewed(tokens) => tokens,
         auth::RefreshOutcome::Unreachable(reason) => {
             // Worth saying out loud even though nothing changes: a token that
@@ -231,14 +288,21 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
                 "couldn't renew {}'s token, will retry: {reason}",
                 account.login
             );
-            return TokenCheck::Unchanged;
+            return TokenCheck::Retry;
         }
         auth::RefreshOutcome::Rejected(reason) => {
+            let mut auth_state = state.auth.write();
+            if !auth_state
+                .accounts
+                .iter()
+                .any(|a| a.id == account.id && a.access_token == account.access_token)
+            {
+                return TokenCheck::Unchanged;
+            }
             log::warn!(
                 "signing {} out -- Twitch rejected the refresh: {reason}",
                 account.login
             );
-            let mut auth_state = state.auth.write();
             auth_state.accounts.retain(|a| a.id != account.id);
             if auth_state.default_account == account.id {
                 auth_state.default_account = ANONYMOUS.to_string();
@@ -247,17 +311,20 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
         }
     };
 
-    // The new token is only worth storing once Twitch has said what it
-    // carries: the scopes decide which commands the picker offers, and a
-    // refresh that produced an unusable token is a refresh that failed.
-    let Ok(validation) = auth::validate(&state.http, &tokens.access_token).await else {
-        return TokenCheck::Unchanged;
+    // A successful exchange may rotate the refresh token. Never discard it
+    // just because Wi-Fi disappears during the next request.
+    let validation = api.validate(&tokens.access_token).await.ok();
+    let avatar = match &validation {
+        Some(validation) => api.avatar(&tokens.access_token, &validation.login).await,
+        None => None,
     };
 
-    let avatar = fetch_avatar(state, &tokens.access_token, &validation.login).await;
-
     let mut auth_state = state.auth.write();
-    let Some(stored) = auth_state.accounts.iter_mut().find(|a| a.id == account.id) else {
+    let Some(stored) = auth_state
+        .accounts
+        .iter_mut()
+        .find(|a| a.id == account.id && a.access_token == account.access_token)
+    else {
         return TokenCheck::Unchanged;
     };
     if let Some(avatar) = avatar {
@@ -269,107 +336,96 @@ async fn check_token(state: &Shared, account: &settings::Account) -> TokenCheck 
     if !tokens.refresh_token.is_empty() {
         stored.refresh_token = tokens.refresh_token;
     }
-    stored.login = validation.login;
-    stored.scopes = validation.scopes;
-    TokenCheck::Renewed
+    log::info!("renewed token for account {}", account.id);
+    if let Some(validation) = validation {
+        stored.login = validation.login;
+        stored.scopes = validation.scopes;
+        TokenCheck::Renewed
+    } else {
+        TokenCheck::RenewedRetry
+    }
 }
 
-/// Check every stored token on startup, refreshing the ones that have expired
-/// or are about to, then load global assets.
-///
-/// The margin matters here as much as in the poller: an app opened half an
-/// hour before its token dies would otherwise start with a token that expires
-/// long before the first hourly check.
-async fn restore_session(app: AppHandle, state: Shared) {
-    let accounts = { state.auth.read().accounts.clone() };
-    // Something worth writing down and telling the UI about.
-    let mut changed = false;
-    // A token that is *not* the one the sockets are being built with. Kept
-    // apart from `changed` deliberately: re-validating a good token rewrites
-    // its scopes and its login, which is worth persisting but is no reason to
-    // drop the connections. Reconnecting the whisper socket on every launch
-    // leaves the old subscription behind on Twitch's side, and three of those
-    // is the limit for one type and condition -- after which it refuses, and
-    // whispers silently stop arriving.
-    let mut credentials_changed = false;
+/// A pass reports network failure separately from unchanged credentials so a
+/// sleeping laptop never has to wait another hour for its next attempt.
+#[derive(Default)]
+struct TokenPass {
+    changed: bool,
+    renewed: bool,
+    lost: bool,
+    retry: bool,
+}
 
-    for account in accounts {
-        match check_token(&state, &account).await {
+impl TokenPass {
+    fn record(&mut self, result: TokenCheck) {
+        match result {
             TokenCheck::Unchanged => {}
-            TokenCheck::Validated => changed = true,
-            TokenCheck::Renewed | TokenCheck::Lost => {
-                changed = true;
-                credentials_changed = true;
+            TokenCheck::Validated => self.changed = true,
+            TokenCheck::Renewed | TokenCheck::RenewedRetry => {
+                self.changed = true;
+                self.renewed = true;
+                self.retry |= matches!(result, TokenCheck::RenewedRetry);
             }
+            TokenCheck::Lost => {
+                self.changed = true;
+                self.lost = true;
+            }
+            TokenCheck::Retry => self.retry = true,
         }
     }
 
-    if changed {
-        persist(&app, &state);
-        let _ = app.emit("chat://auth", state.auth_status());
+    fn restart(&self, startup: bool, recovering: bool) -> bool {
+        self.lost || (!self.retry && ((startup && self.renewed) || recovering))
     }
-    if credentials_changed {
-        // Tabs whose account has just gone read anonymously from here on, and
-        // the ones whose token was refreshed need the socket to use the new one.
-        client::reconnect_all(&state);
-        state.eventsub_restart.notify_one();
-        // The live poll started with the app and asked with whatever token was
-        // stored -- which, if it needed renewing, was refused. Nothing else
-        // would ask again for a poll period.
-        state.live_poll.notify_one();
-    }
-
-    client::load_global_assets(app, state).await;
 }
 
-/// Keep every stored token alive for as long as the app is open.
-///
-/// Twitch's user tokens last hours and a chat client is left running for
-/// longer, so without this a session eventually reaches the point where every
-/// Helix call -- sending a message included -- answers 401, with nothing short
-/// of signing in again to fix it. IRC hides how broken that is: a connection
-/// authenticates once, at connect, so chat keeps arriving while everything
-/// that needs a token has quietly stopped working.
+/// The sole token-check worker. Startup, hourly checks, system wake, and
+/// rejected credentials all use this loop, so refresh exchanges cannot race.
 async fn poll_tokens(app: AppHandle, state: Shared) {
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(TOKEN_CHECK_SECS));
-    // `interval` fires its first tick immediately, and `restore_session` is
-    // making this very pass right now. Two refreshes racing on one account
-    // would be worse than neither: the second would present a refresh token
-    // the first had already spent, and Twitch refusing that reads exactly like
-    // a dead grant -- so the account would be signed out for succeeding.
-    ticker.tick().await;
-
+    use std::sync::atomic::Ordering;
+    let mut startup = true;
+    let mut recovering = false;
     loop {
-        ticker.tick().await;
-
+        recovering |= state.wake_recovery.swap(false, Ordering::AcqRel);
         let accounts = { state.auth.read().accounts.clone() };
-        let mut changed = false;
-        let mut lost = false;
+        let mut pass = TokenPass::default();
         for account in accounts {
-            match check_token(&state, &account).await {
-                TokenCheck::Unchanged => {}
-                TokenCheck::Validated | TokenCheck::Renewed => changed = true,
-                TokenCheck::Lost => {
-                    changed = true;
-                    lost = true;
-                }
-            }
+            pass.record(check_token(&state, &account).await);
         }
-
-        if changed {
+        if pass.changed {
             persist(&app, &state);
             let _ = app.emit("chat://auth", state.auth_status());
         }
-        if lost {
-            // Only a *lost* account touches the sockets, unlike at startup. A
-            // renewed token doesn't need to: an IRC connection authenticates
-            // once and Twitch leaves it alone afterwards, and whenever it does
-            // next reconnect `connect_once` reads the new token from here.
-            // Reconnecting the whisper socket, meanwhile, orphans its EventSub
-            // subscription, and three of those is Twitch's limit.
+        if pass.restart(startup, recovering) {
             client::reconnect_all(&state);
             state.eventsub_restart.notify_one();
+            state.live_poll.notify_one();
         }
+        if recovering && !pass.retry {
+            recovering = false;
+            log::info!("wake credentials checked; rebuilding Twitch connections");
+        }
+        if startup {
+            diagnostics::supervise(
+                "global assets",
+                client::load_global_assets(app.clone(), Arc::clone(&state)),
+            );
+            startup = false;
+        }
+        // Coalesce rejection bursts and rate-limit unreachable-network retries.
+        // Notify retains a permit when a wake arrives during this short delay.
+        wait_for_token_check(&state, pass.retry).await;
+    }
+}
+
+async fn wait_for_token_check(state: &AppState, retry: bool) {
+    use std::time::Duration;
+    let next =
+        tokio::time::Instant::now() + Duration::from_secs(if retry { 5 } else { TOKEN_CHECK_SECS });
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    tokio::select! {
+        _ = state.token_check.notified() => {}
+        _ = tokio::time::sleep_until(next) => {}
     }
 }
 
@@ -1644,10 +1700,6 @@ pub fn run() {
             let sink = client::spawn_emitter(handle.clone());
             *shared.sink.write() = Some(sink.clone());
 
-            diagnostics::supervise(
-                "session restore",
-                restore_session(handle.clone(), Arc::clone(&shared)),
-            );
             diagnostics::supervise(
                 "system sleep watchdog",
                 client::watch_for_system_sleep(Arc::clone(&shared)),
