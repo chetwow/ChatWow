@@ -323,6 +323,7 @@ export type Preferences = {
   previewImages: boolean;
   /** Show what the page says about itself on hover, for every other link. */
   previewPages: boolean;
+  inlineImages: boolean;
   inlineTwitchClips: boolean;
   inlineYoutube: boolean;
   keepVideoPlayersOffscreen: boolean;

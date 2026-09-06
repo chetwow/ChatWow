@@ -1,3 +1,4 @@
+import { InlineImage } from "./InlineImage";
 import { VideoTabContext } from "./VideoTabContext";
 import { useInlineVideo } from "../store/inlineVideo";
 import { Fragment, memo, useContext, useEffect, useRef, useState, type MouseEvent } from "react";
@@ -420,6 +421,9 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   // than passed down, for the reason `EmoteView` gives: rows are memoized on
   // message identity and the messages already on screen are immutable, so
   // flipping one has to reach them through the store.
+  const inlineImages = useChat((state) => state.preferences.inlineImages);
+  const [imageExpanded, setImageExpanded] = useState(false);
+  useEffect(() => { if (!inlineImages) setImageExpanded(false); }, [inlineImages]);
   const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
   const inlineTwitchClips = useChat((state) => state.preferences.inlineTwitchClips);
   const videoTab = useContext(VideoTabContext);
@@ -527,7 +531,8 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
         onClick={() => {
           cancel();
           hide();
-          if (inline) useInlineVideo.getState().toggle(playerOwner, videoTab.tabId);
+          if (inlineImages && image) setImageExpanded((value) => !value);
+          else if (inline) useInlineVideo.getState().toggle(playerOwner, videoTab.tabId);
           else void openLink(segment.href);
         }}
         onMouseEnter={
@@ -571,6 +576,9 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
       >
         {segment.text}
       </button>
+      {inlineImages && imageExpanded && image && (
+        <InlineImage key={image} href={image} onClose={() => setImageExpanded(false)} />
+      )}
       {expanded && (
         <span ref={playerElement} className="block">
           {inlineTwitchClips && clip && (

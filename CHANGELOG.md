@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional inline image display with browser and close icons, independent of video auto-close settings.
+
 - A floating close-player button appears at the top of chat when a retained video is off screen.
 
 - Options to keep video players open off screen (on by default) and in inactive tabs (off by default).

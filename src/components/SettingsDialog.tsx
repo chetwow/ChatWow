@@ -869,6 +869,13 @@ export function SettingsDialog({
                     label="Preview other links"
                   />
                 </Row>
+                <Row label="Open images inline">
+                  <Toggle
+                    checked={preferences.inlineImages}
+                    onChange={(inlineImages) => updatePreferences({ inlineImages })}
+                    label="Open images inline"
+                  />
+                </Row>
                 <Row label="Play Twitch clips inline">
                   <Toggle
                     checked={preferences.inlineTwitchClips}

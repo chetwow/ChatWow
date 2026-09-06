@@ -232,6 +232,8 @@ pub struct Preferences {
     /// whatever the resolver behind it turns out to be, Helix for a Twitch
     /// link and the page itself for the rest.
     pub preview_pages: bool,
+    /// Expand clicked image links in chat. Opt-in, independent of hover previews.
+    pub inline_images: bool,
     /// Expand clicked YouTube links into an inline player. Opt-in.
     pub inline_youtube: bool,
     /// Keep inline players mounted after scrolling outside the chat viewport.
@@ -311,6 +313,7 @@ impl Default for Preferences {
             tab_avatar_opacity: 0.4,
             preview_images: true,
             preview_pages: true,
+            inline_images: false,
             inline_youtube: false,
             keep_video_players_offscreen: true,
             keep_video_players_inactive: false,

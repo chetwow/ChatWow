@@ -1027,6 +1027,12 @@ rejected by Twitch's parent checks; the browser path remains available.
 
 Hovering a link shows what's behind it. The two halves are split by what the answer costs.
 
+The off-by-default `inlineImages` preference opens clicked image links in an `InlineImage`
+card with the same icon controls as videos. It uses the existing protected image fetch and
+keeps expansion local to each link; multiple images can remain open independently of videos.
+Opening the source in a browser leaves the card open. Video visibility and ownership rules
+do not apply to images; ordinary row/tab unmount still removes them.
+
 **An image link is classified locally and fetched by Rust.** `imagePreviewUrl`
 ([src/lib/links.ts](src/lib/links.ts)) tests the extension on the url's own path, then
 `link_preview_image` applies the same network checks and size limits as page previews. The
