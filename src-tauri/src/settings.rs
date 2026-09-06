@@ -189,6 +189,8 @@ pub struct Preferences {
     pub enable_gigantify: bool,
     /// Multiplier of the ordinary emote size; normalized in the frontend.
     pub gigantify_scale: f64,
+    /// Cosmic Abyss, Rainbow Eclipse and Emote Party backgrounds.
+    pub enable_message_effects: bool,
     /// Draw `/me` actions in italics, the way Twitch does. Off leaves them in
     /// the sender's color but upright.
     pub italic_actions: bool,
@@ -249,6 +251,8 @@ pub struct Preferences {
     /// ("don't tell me about this") and the prefix is what it applies to.
     /// Not validated here -- see the note on `chat_font_size`.
     pub mention_ignores: Vec<String>,
+    /// Sound-only `@login`/`#channel` rules; visual notifications remain.
+    pub notification_mutes: Vec<String>,
     /// Logins whose messages aren't drawn at all. Matched at render time in
     /// the frontend, so unblocking brings the backlog back.
     pub blocked_users: Vec<String>,
@@ -285,6 +289,7 @@ impl Default for Preferences {
             gif_scale: 1.0,
             enable_gigantify: true,
             gigantify_scale: 4.0,
+            enable_message_effects: true,
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
@@ -298,6 +303,7 @@ impl Default for Preferences {
             split_ratio: 0.5,
             split_index: 0,
             mention_ignores: Vec::new(),
+            notification_mutes: Vec::new(),
             blocked_users: Vec::new(),
             muted: false,
             emote_blacklist: Vec::new(),
@@ -519,15 +525,35 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn notification_mutes_default_empty_and_round_trip() {
+        let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
+        assert!(defaults.notification_mutes.is_empty());
+        let saved: super::Preferences = serde_json::from_str(
+            r##"{"notificationMutes":["@alice","#room"],"mentionIgnores":["@bob"]}"##,
+        )
+        .unwrap();
+        let json = serde_json::to_value(&saved).unwrap();
+        assert_eq!(
+            json["notificationMutes"],
+            serde_json::json!(["@alice", "#room"])
+        );
+        assert_eq!(json["mentionIgnores"], serde_json::json!(["@bob"]));
+    }
+
+    #[test]
     fn gigantify_defaults_and_saved_preferences_round_trip() {
         let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
         assert!(defaults.enable_gigantify);
         assert_eq!(defaults.gigantify_scale, 4.0);
-        let saved: super::Preferences =
-            serde_json::from_str(r#"{"enableGigantify":false,"gigantifyScale":5}"#).unwrap();
+        assert!(defaults.enable_message_effects);
+        let saved: super::Preferences = serde_json::from_str(
+            r#"{"enableGigantify":false,"gigantifyScale":5,"enableMessageEffects":false}"#,
+        )
+        .unwrap();
         let json = serde_json::to_value(&saved).unwrap();
         assert_eq!(json["enableGigantify"], false);
         assert_eq!(json["gigantifyScale"], 5.0);
+        assert_eq!(json["enableMessageEffects"], false);
     }
 
     use super::*;

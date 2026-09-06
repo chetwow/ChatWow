@@ -2,6 +2,7 @@ import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "re
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EmoteImage } from "./EmoteImage";
+import { MessageEffectFrame } from "./MessageEffectFrame";
 import { useTooltip } from "../store/tooltip";
 import { loginOf, useChat } from "../store/chat";
 import { isAboutYou, repliesToYou } from "../lib/mentions";
@@ -623,6 +624,78 @@ function MessageRowInner({
   const dimmed = message.deleted ? "opacity-40" : message.historical ? "opacity-60" : "";
 
   const body = <MessageBody message={message} />;
+  const content = (
+    <div className="selectable min-w-0 flex-1 break-words">
+      {message.replyTo && <ReplyQuote replyTo={message.replyTo} highlighted={isReplyToYou} />}
+
+      {message.systemMessage && (
+        <div className="mb-[2px] text-[12px] text-accent">{message.systemMessage}</div>
+      )}
+
+      {message.segments.length > 0 || message.kind === "chat" ? (
+        <>
+          {message.kind === "whisper" && (
+            // Whispers land in whichever channel you're reading, so the row
+            // has to say what it is -- otherwise it reads as someone in this
+            // channel talking.
+            <span className="mr-1 rounded bg-fuchsia-400/20 px-1 align-[1px] text-[10px] font-semibold uppercase tracking-wide text-fuchsia-200">
+              whisper
+            </span>
+          )}
+          {/* A whisper's channel is only wherever you happened to be reading
+              when it arrived, so labelling it would be inventing a room it
+              was said in. The WHISPER chip already says what it is. */}
+          {onChannelClick && message.kind !== "whisper" && message.channel && (
+            <button
+              type="button"
+              onClick={() => onChannelClick(message.channel)}
+              title={`Go to #${message.channel}`}
+              className="mr-1 cursor-pointer rounded bg-line/70 px-1 align-[1px] text-[10px] font-semibold text-ink-faint transition-colors hover:text-ink"
+            >
+              #{message.channel}
+            </button>
+          )}
+          {message.badges.map((badge) => (
+            <BadgeView key={badge.id} badge={badge} />
+          ))}
+          {message.userId && <SevenTvBadge userId={message.userId} />}
+          {onNameClick ? (
+            // A button rather than the span it replaces, matching the link
+            // segment: both are things inside selectable text that you click.
+            <button
+              type="button"
+              data-chatter-login={message.login}
+              onClick={(event) => onNameClick(event, message)}
+              className="cursor-pointer font-semibold hover:underline"
+              style={{ color: message.color }}
+            >
+              {message.displayName}
+            </button>
+          ) : (
+            <span className="font-semibold" style={{ color: message.color }}>
+              {message.displayName}
+            </span>
+          )}
+          {message.isAction ? (
+            // Still the sender's color and still without the colon -- that's
+            // what makes it an action. Only the slant is optional.
+            <span
+              className={italicActions ? "italic" : undefined}
+              style={{ color: message.color }}
+            >
+              {" "}
+              {body}
+            </span>
+          ) : (
+            <>
+              <span className="text-ink-faint">: </span>
+              {body}
+            </>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
 
   return (
     <div
@@ -645,76 +718,11 @@ function MessageRowInner({
         </span>
       )}
 
-      <div className="selectable min-w-0 flex-1 break-words">
-        {message.replyTo && <ReplyQuote replyTo={message.replyTo} highlighted={isReplyToYou} />}
-
-        {message.systemMessage && (
-          <div className="mb-[2px] text-[12px] text-accent">{message.systemMessage}</div>
-        )}
-
-        {message.segments.length > 0 || message.kind === "chat" ? (
-          <>
-            {message.kind === "whisper" && (
-              // Whispers land in whichever channel you're reading, so the row
-              // has to say what it is -- otherwise it reads as someone in this
-              // channel talking.
-              <span className="mr-1 rounded bg-fuchsia-400/20 px-1 align-[1px] text-[10px] font-semibold uppercase tracking-wide text-fuchsia-200">
-                whisper
-              </span>
-            )}
-            {/* A whisper's channel is only wherever you happened to be reading
-                when it arrived, so labelling it would be inventing a room it
-                was said in. The WHISPER chip already says what it is. */}
-            {onChannelClick && message.kind !== "whisper" && message.channel && (
-              <button
-                type="button"
-                onClick={() => onChannelClick(message.channel)}
-                title={`Go to #${message.channel}`}
-                className="mr-1 cursor-pointer rounded bg-line/70 px-1 align-[1px] text-[10px] font-semibold text-ink-faint transition-colors hover:text-ink"
-              >
-                #{message.channel}
-              </button>
-            )}
-            {message.badges.map((badge) => (
-              <BadgeView key={badge.id} badge={badge} />
-            ))}
-            {message.userId && <SevenTvBadge userId={message.userId} />}
-            {onNameClick ? (
-              // A button rather than the span it replaces, matching the link
-              // segment: both are things inside selectable text that you click.
-              <button
-                type="button"
-                data-chatter-login={message.login}
-                onClick={(event) => onNameClick(event, message)}
-                className="cursor-pointer font-semibold hover:underline"
-                style={{ color: message.color }}
-              >
-                {message.displayName}
-              </button>
-            ) : (
-              <span className="font-semibold" style={{ color: message.color }}>
-                {message.displayName}
-              </span>
-            )}
-            {message.isAction ? (
-              // Still the sender's color and still without the colon -- that's
-              // what makes it an action. Only the slant is optional.
-              <span
-                className={italicActions ? "italic" : undefined}
-                style={{ color: message.color }}
-              >
-                {" "}
-                {body}
-              </span>
-            ) : (
-              <>
-                <span className="text-ink-faint">: </span>
-                {body}
-              </>
-            )}
-          </>
-        ) : null}
-      </div>
+      {message.messageEffect ? (
+        <MessageEffectFrame effect={message.messageEffect} disabled={message.deleted}>
+          {content}
+        </MessageEffectFrame>
+      ) : content}
     </div>
   );
 }

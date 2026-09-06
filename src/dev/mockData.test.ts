@@ -3,6 +3,20 @@ import { buildInitialMessages, mockBlockedMessage, mockTabs } from "./mockData";
 import { messageLine, messageText } from "../lib/messageText";
 
 describe("simulated channel events", () => {
+  it("includes all three message effects and keeps decorative emotes out of copied text", () => {
+    const messages = buildInitialMessages(mockTabs());
+    const effects = messages.filter((message) => message.messageEffect);
+    expect(new Set(effects.map((message) => message.messageEffect?.kind)))
+      .toEqual(new Set(["cosmic-abyss", "rainbow-eclipse", "emote-party"]));
+    const party = effects.find((message) => message.login === "partyfan")!;
+    expect(party.messageEffect?.kind === "emote-party" && party.messageEffect.emotes.map((emote) => emote.name))
+      .toEqual(["PogChamp", "bleedPurple", "Cheer5000", "Cheer10000"]);
+    expect(messageText(party)).toBe("Emote Party — PogChamp, bleedPurple, and Bits in the air! PogChamp");
+    const wrapped = effects.find((message) => message.login === "wrappedparty")!;
+    expect(wrapped.replyTo?.displayName).toBe("You");
+    expect(messageText(wrapped)).not.toContain("Cheer5000");
+  });
+
   it("includes a Gigantify message with both normal and enlarged occurrences of the same emote", () => {
     const message = buildInitialMessages(mockTabs()).find((message) => message.login === "powerupfan")!;
     const emotes = message.segments.filter((segment) => segment.kind === "emote");

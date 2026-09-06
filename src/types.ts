@@ -58,6 +58,11 @@ export type ReplyInfo = {
   body: string;
 };
 
+export type MessageEffect =
+  | { kind: "cosmic-abyss" }
+  | { kind: "rainbow-eclipse" }
+  | { kind: "emote-party"; emotes: { name: string; url: string }[] };
+
 export type ChatMessage = {
   id: string;
   channel: string;
@@ -93,6 +98,8 @@ export type ChatMessage = {
   replyTo: ReplyInfo | null;
   /** Confirmed unban/untimeout; clears the session-only moderation record. */
   unbannedLogin?: string;
+  /** Rust-resolved Twitch power-up; independent of its message body. */
+  messageEffect?: MessageEffect;
 };
 
 /** A message after the store adds its local identity. */
@@ -285,6 +292,8 @@ export type Preferences = {
   enableGigantify: boolean;
   /** Gigantify multiplier, 1–5; defaults to 4 (400%). */
   gigantifyScale: number;
+  /** Decorative Twitch message effects, independently of Gigantify. */
+  enableMessageEffects: boolean;
   /** Draw `/me` actions in italics. */
   italicActions: boolean;
   /** Show the time beside each message. */
@@ -314,6 +323,8 @@ export type Preferences = {
   splitIndex: number;
   /** Mentions to stay quiet about: `@login` or `#channel`, in one list. */
   mentionIgnores: string[];
+  /** Sound-only rules: `@login` or `#channel`; visual notifications remain. */
+  notificationMutes: string[];
   /** Logins whose messages aren't drawn at all. */
   blockedUsers: string[];
   /** The title bar's quick mute, which leaves the saved sound choices alone. */

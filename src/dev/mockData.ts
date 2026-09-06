@@ -7,6 +7,7 @@ import type {
   EmoteEntry,
   EmoteIndex,
   LinkPreview,
+  MessageEffect,
   Overlay,
   ReplyInfo,
   Segment,
@@ -22,6 +23,16 @@ import { linkKind } from "../lib/links";
  */
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
+
+const PARTY_EFFECT: MessageEffect = {
+  kind: "emote-party",
+  emotes: [
+    { name: "PogChamp", url: "https://static-cdn.jtvnw.net/emoticons/v2/305954156/static/dark/2.0" },
+    { name: "bleedPurple", url: "https://static-cdn.jtvnw.net/emoticons/v2/62835/static/dark/2.0" },
+    { name: "Cheer5000", url: "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/static/5000/2.png" },
+    { name: "Cheer10000", url: "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/static/10000/2.png" },
+  ],
+};
 
 function cheer(bits: number, tier: number, color: string, token = `Cheer${bits}`): Segment {
   const root = "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark";
@@ -608,6 +619,27 @@ const DRAFTS: Draft[] = [
   {
     login: "giantpog", displayName: "GiantPog", color: "#56a8f3", kind: "chat",
     segments: [text("Gigantify power-up! "), twitch("305954156", "PogChamp", true)],
+  },
+  {
+    login: "cosmicfan", displayName: "CosmicFan", color: "#31c6ba", kind: "chat",
+    segments: [text("Cosmic Abyss — drifting through the purple clouds. "), twitch("25", "Kappa")],
+    messageEffect: { kind: "cosmic-abyss" },
+  },
+  {
+    login: "rainbowfan", displayName: "RainbowFan", color: "#31c6ba", kind: "chat",
+    segments: [text("Rainbow Eclipse — let the colors glow around chat.")],
+    messageEffect: { kind: "rainbow-eclipse" },
+  },
+  {
+    login: "partyfan", displayName: "PartyFan", color: "#31c6ba", kind: "chat",
+    segments: [text("Emote Party — PogChamp, bleedPurple, and Bits in the air! "), twitch("305954156", "PogChamp")],
+    messageEffect: PARTY_EFFECT,
+  },
+  {
+    login: "wrappedparty", displayName: "WrappedParty", color: "#31c6ba", kind: "chat",
+    segments: [text("Emote Party with a longer message: the background should stay behind this text when it wraps in a narrow chat pane. "), text("See "), { kind: "link", text: "https://twitch.tv", href: "https://twitch.tv" }],
+    messageEffect: PARTY_EFFECT,
+    replyTo: { login: "you", displayName: "You", body: "Does it work with replies too?" },
   },
   ...EVENT_DRAFTS,
   {

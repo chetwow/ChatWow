@@ -81,6 +81,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   gifScale: 1,
   enableGigantify: true,
   gigantifyScale: 4,
+  enableMessageEffects: true,
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
@@ -94,6 +95,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   splitRatio: 0.5,
   splitIndex: 0,
   mentionIgnores: [],
+  notificationMutes: [],
   blockedUsers: [],
   muted: false,
   emoteBlacklist: [],
@@ -161,6 +163,7 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   merged.emoteBlacklist = normalizeRules(merged.emoteBlacklist);
   merged.emoteCompleteBlacklist = normalizeRules(merged.emoteCompleteBlacklist);
   merged.mentionIgnores = normalizeIgnores(merged.mentionIgnores);
+  merged.notificationMutes = normalizeIgnores(merged.notificationMutes);
   merged.blockedUsers = normalizeLogins(merged.blockedUsers);
   if (!validTimeout(merged.defaultTimeoutSeconds)) {
     merged.defaultTimeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
@@ -180,6 +183,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
     : DEFAULT_PREFERENCES.gigantifyScale;
   if (typeof merged.enableGigantify !== "boolean") {
     merged.enableGigantify = DEFAULT_PREFERENCES.enableGigantify;
+  }
+  if (typeof merged.enableMessageEffects !== "boolean") {
+    merged.enableMessageEffects = DEFAULT_PREFERENCES.enableMessageEffects;
   }
   if (!Number.isFinite(merged.splitRatio)) merged.splitRatio = DEFAULT_PREFERENCES.splitRatio;
   merged.splitRatio = clampRatio(merged.splitRatio);
@@ -629,6 +635,8 @@ type ChatState = {
   removeEmoteRule: (list: BlacklistKind, rule: EmoteRule) => void;
   /** Add or drop a `@login`/`#channel` entry on the mention-ignore list. */
   setMentionIgnored: (entry: string, ignored: boolean) => void;
+  /** Add or drop a sound-only `@login`/`#channel` rule. */
+  setNotificationMuted: (entry: string, muted: boolean) => void;
   /** Add or drop a login on the blocked list. */
   setUserBlocked: (login: string, blocked: boolean) => void;
   toggleMuted: () => void;
@@ -1401,6 +1409,13 @@ export const useChat = create<ChatState>((set) => ({
     });
   },
 
+  setNotificationMuted: (entry, muted) => {
+    const list = useChat.getState().preferences.notificationMutes;
+    useChat.getState().updatePreferences({
+      notificationMutes: muted ? withEntry(list, entry) : withoutEntry(list, entry),
+    });
+  },
+
   setUserBlocked: (login, blocked) => {
     const name = login.toLowerCase();
     const list = useChat.getState().preferences.blockedUsers;
@@ -1489,6 +1504,10 @@ export const useChat = create<ChatState>((set) => ({
        */
       const heard = (message: StoredMessage) =>
         !mentionIgnored(message, mentionIgnores) && !userBlocked(message, blockedUsers);
+      // Sound-only rules share ignore matching, including the whisper exception
+      // for channel rules, but never affect badges, highlights or listener logs.
+      const soundEnabledFor = (message: StoredMessage) =>
+        !mentionIgnored(message, state.preferences.notificationMutes);
 
       const messages = { ...state.messages };
       const unread = { ...state.unread };
@@ -1537,7 +1556,7 @@ export const useChat = create<ChatState>((set) => ({
         // reason to assume you were watching for it. Muting still silences it.
         if (
           notificationSoundAllowed(state.preferences, windowActive, watching, true) &&
-          fresh.some((message) => message.kind === "whisper" && heard(message))
+          fresh.some((message) => message.kind === "whisper" && heard(message) && soundEnabledFor(message))
         ) {
           mentioned = true;
         }
@@ -1550,7 +1569,7 @@ export const useChat = create<ChatState>((set) => ({
           if (!kind) return false;
           // The badge and the highlight count every mention; only the sound
           // asks whether you wanted to hear about this kind of one.
-          if (audible && (kind === "tag" ? notifyOnTag : notifyOnName)) mentioned = true;
+          if (audible && soundEnabledFor(message) && (kind === "tag" ? notifyOnTag : notifyOnName)) mentioned = true;
           return true;
         });
 
@@ -1600,7 +1619,7 @@ export const useChat = create<ChatState>((set) => ({
         if (
           listenerNotifies(tab) &&
           notificationSoundAllowed(state.preferences, windowActive, watching) &&
-          addressed.some((message) => listenerWouldSound(state, tab, message))
+          addressed.some((message) => soundEnabledFor(message) && listenerWouldSound(state, tab, message))
         ) {
           mentioned = true;
         }

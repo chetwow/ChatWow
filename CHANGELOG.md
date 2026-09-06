@@ -9,6 +9,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added per-user and per-channel notification muting, which silences sounds while preserving
+  highlights, badges, and listener messages. Manage muted and ignored notifications in settings,
+  message/chatter menus, and channel-tab menus.
+- Added Cosmic Abyss, Rainbow Eclipse, and Emote Party animated message effects, with Power-ups
+  settings and a message context-menu toggle. Background animations pause off screen and respect
+  reduced-motion preferences while keeping messages readable and selectable.
 - Added Twitch Gigantify emotes, with Power-ups settings to enable or disable enlargement and
   adjust its size from 100% to 500% (400% by default), plus a message context-menu toggle.
 - Rendered Twitch Cheermotes as animated tier artwork with their Bits amounts, including

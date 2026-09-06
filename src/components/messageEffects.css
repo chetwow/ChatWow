@@ -1,0 +1,116 @@
+/* The animation owns only the decoration. The real message remains ordinary
+   selectable chat above an opaque plate, preserving colors and hit targets. */
+.message-effect {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-width: 0;
+  margin: 3px 0;
+  padding: 18px 10px 10px;
+}
+.message-effect__art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.message-effect__content {
+  position: relative;
+  padding: 9px 10px;
+  border-radius: 5px;
+  background: #0e0c13;
+  color: var(--color-ink);
+  min-width: 0;
+}
+
+.message-effect--cosmic-abyss .message-effect__art { background: #6313b8; }
+.effect-clouds,
+.effect-clouds::before,
+.effect-clouds::after {
+  position: absolute;
+  inset: -35% -12%;
+  background: url("../assets/cosmic-clouds.svg") center / cover;
+  animation: effect-cloud-drift 7s ease-in-out infinite alternate;
+}
+.effect-clouds::before {
+  content: "";
+  inset: -10%;
+  opacity: .45;
+  mix-blend-mode: screen;
+  transform: rotate(180deg);
+  animation: effect-cloud-roll 9s ease-in-out infinite alternate;
+}
+.effect-clouds::after {
+  content: "";
+  background: radial-gradient(ellipse at 15% 25%, #f1a2ff99, transparent 38%),
+    radial-gradient(ellipse at 85% 70%, #ae3dffbb, transparent 40%);
+  filter: blur(8px);
+  animation-duration: 5s;
+  animation-direction: alternate-reverse;
+}
+@keyframes effect-cloud-drift {
+  from { transform: translate(-3%, 7%) scale(1.05) rotate(-3deg); }
+  to { transform: translate(5%, -6%) scale(1.19) rotate(4deg); }
+}
+@keyframes effect-cloud-roll {
+  from { transform: rotate(180deg) translate(5%, 9%) scale(1.1); }
+  to { transform: rotate(165deg) translate(-6%, -10%) scale(1.28); }
+}
+
+.message-effect--rainbow-eclipse { padding: 10px; }
+.effect-rainbow {
+  position: absolute;
+  inset: 6px;
+  border-radius: 9px;
+  background: linear-gradient(110deg, #20d5bb, #4077e7, #b343eb, #29d4bd, #5e60ed, #a13ee8);
+  background-size: 300% 200%;
+  filter: blur(5px);
+  animation: effect-rainbow-orbit 6s linear infinite;
+}
+.message-effect--rainbow-eclipse .message-effect__content {
+  box-shadow: 0 0 1px 1px #b6a8ff55;
+}
+@keyframes effect-rainbow-orbit {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.message-effect--emote-party { padding-top: 48px; }
+.message-effect--emote-party .message-effect__art {
+  background: linear-gradient(100deg, #3056d4 0%, #785399 48%, #ff354e 100%);
+}
+.effect-party { position: absolute; inset: 0 0 auto; height: 74px; }
+.effect-party__particle {
+  position: absolute;
+  bottom: -30px;
+  margin-left: -16px;
+  animation: effect-party-bounce var(--duration) infinite;
+  animation-delay: var(--phase);
+}
+.effect-party__particle img { width: 100%; height: 100%; object-fit: contain; }
+@keyframes effect-party-bounce {
+  0%, 100% {
+    transform: translate(0, 0) rotate(calc(-1 * var(--spin)));
+    animation-timing-function: cubic-bezier(.16, .65, .38, 1);
+  }
+  50% {
+    transform: translate(var(--drift), var(--lift)) rotate(var(--spin));
+    animation-timing-function: cubic-bezier(.62, 0, .84, .35);
+  }
+}
+
+.message-effect[data-running="false"] .message-effect__art *,
+.message-effect[data-running="false"] .message-effect__art *::before,
+.message-effect[data-running="false"] .message-effect__art *::after {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-effect .message-effect__art *,
+  .message-effect .message-effect__art *::before,
+  .message-effect .message-effect__art *::after { animation: none; }
+  .message-effect .effect-party__particle {
+    transform: translate(0, var(--rest-y)) rotate(var(--spin));
+  }
+}

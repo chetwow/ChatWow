@@ -2,6 +2,7 @@ import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { useChat } from "../store/chat";
 import { TAB_AVATAR_MODES } from "../lib/tabAvatar";
 import { ANONYMOUS, type TabAvatarMode } from "../types";
+import { ignoreForChannel } from "../lib/ignores";
 
 /**
  * Which account a tab reads and sends as, picked from every account signed in.
@@ -37,7 +38,14 @@ export function AccountMenu({
   const reopenLastClosedTab = useChat((state) => state.reopenLastClosedTab);
   const setMentionsTabNotify = useChat((state) => state.setMentionsTabNotify);
   const setTabAvatarMode = useChat((state) => state.setTabAvatarMode);
+  const mentionIgnores = useChat((state) => state.preferences.mentionIgnores);
+  const notificationMutes = useChat((state) => state.preferences.notificationMutes);
+  const setMentionIgnored = useChat((state) => state.setMentionIgnored);
+  const setNotificationMuted = useChat((state) => state.setNotificationMuted);
   if (!tab) return null;
+  const channelRule = ignoreForChannel(tab.channel);
+  const ignoring = mentionIgnores.includes(channelRule);
+  const muted = notificationMutes.includes(channelRule);
 
   const choose = (account: string): ContextMenuOption => {
     const name =
@@ -89,6 +97,15 @@ export function AccountMenu({
   ] : [
     ...accounts.map((account) => choose(account.id)),
     choose(ANONYMOUS),
+    { separator: true },
+    {
+      label: ignoring ? "Stop ignoring notifications" : "Ignore notifications",
+      onSelect: () => setMentionIgnored(channelRule, !ignoring),
+    },
+    {
+      label: muted ? "Unmute notifications" : "Mute notifications",
+      onSelect: () => setNotificationMuted(channelRule, !muted),
+    },
     { separator: true },
     // What this one tab draws behind its name. The setting only stamps a new
     // tab, so this is the only thing that ever changes an open one -- and

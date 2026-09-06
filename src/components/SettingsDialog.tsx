@@ -779,6 +779,7 @@ export function SettingsDialog({
   const preferences = useChat((state) => state.preferences);
   const updatePreferences = useChat((state) => state.updatePreferences);
   const setMentionIgnored = useChat((state) => state.setMentionIgnored);
+  const setNotificationMuted = useChat((state) => state.setNotificationMuted);
   const setUserBlocked = useChat((state) => state.setUserBlocked);
 
   // Escape closes, matching every other dialog in the app.
@@ -986,6 +987,13 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Power-ups">
+                <Row label="Animated message effects">
+                  <Toggle
+                    checked={preferences.enableMessageEffects}
+                    onChange={(enableMessageEffects) => updatePreferences({ enableMessageEffects })}
+                    label="Animated message effects"
+                  />
+                </Row>
                 <Row label="Enable Gigantify">
                   <Toggle
                     checked={preferences.enableGigantify}
@@ -1194,7 +1202,19 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section title="Ignored">
+              <Section title="Muted notifications">
+                <p className="text-xs text-ink-dim">Silence sounds from these users or channels. Highlights, badges, and listener messages remain.</p>
+                <NameListEditor
+                  entries={preferences.notificationMutes}
+                  placeholder="@user or #channel"
+                  empty="No muted users or channels."
+                  parse={normalizeIgnore}
+                  onAdd={(entry) => setNotificationMuted(entry, true)}
+                  onRemove={(entry) => setNotificationMuted(entry, false)}
+                />
+              </Section>
+              <Section title="Ignored notifications">
+                <p className="text-xs text-ink-dim">Disable sounds, mention highlights, badges, and listener matches. Messages stay visible in channel chat.</p>
                 <NameListEditor
                   entries={preferences.mentionIgnores}
                   placeholder="@user or #channel"

@@ -10,7 +10,17 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe("Gigantify preferences", () => {
+describe("Power-up preferences", () => {
+  it("toggles message effects independently of Gigantify and persists the setting", () => {
+    expect(useChat.getState().preferences.enableMessageEffects).toBe(true);
+    useChat.getState().updatePreferences({ enableMessageEffects: false });
+    expect(useChat.getState().preferences.enableMessageEffects).toBe(false);
+    expect(useChat.getState().preferences.enableGigantify).toBe(true);
+    const calls = vi.mocked(localStorage.setItem).mock.calls;
+    const saved = JSON.parse(calls[calls.length - 1][1]);
+    expect(saved.enableMessageEffects).toBe(false);
+  });
+
   it("defaults to enabled at 400% and preserves the scale when toggled", () => {
     expect(useChat.getState().preferences.enableGigantify).toBe(true);
     expect(useChat.getState().preferences.gigantifyScale).toBe(4);

@@ -428,9 +428,9 @@ information.
 The user card takes its channel from the clicked *message* rather than the view, which keeps its
 follow and subscription lines about the channel where the message was actually said.
 
-## Ignoring and blocking
+## Muting, ignoring and blocking
 
-Two lists, in [src/lib/ignores.ts](src/lib/ignores.ts), both matched in the frontend for the
+Three preference lists use [src/lib/ignores.ts](src/lib/ignores.ts), matched in the frontend for the
 reason the emote blacklists are: adding a rule has to change what's already on screen, and those
 messages were resolved before the rule existed and are immutable.
 
@@ -439,19 +439,27 @@ different scope -- `@login` is "don't tell me when this person names me", `#chan
 tell me about mentions in this room". The prefix is both the scope and what you type to add one;
 a bare word is read as a person, which is the case worth defaulting to. A channel rule
 deliberately doesn't silence whispers: a whisper's channel is only wherever you happened to be
-reading when it arrived. Both lists are shared by every account, like every other preference --
+reading when it arrived. These lists are shared by every account, like every other preference --
 someone you don't want to hear from isn't someone you want to hear from as your other login.
 
 An ignored mention loses everything a mention has -- the ping, the count, the rose highlight, and
 its place in the mentions tab. It stays an ordinary message in its channel, because the person
 isn't being silenced, only the alarm.
 
+`notificationMutes` uses the same normalized `@login`/`#channel` matching, including the channel
+exception for whispers, but gates only sound. `ingest` checks each message before sounding for
+channel mentions, whispers, or listener matches; badges, highlights, and listener collection stay
+unchanged. An unmuted match in the same batch can still sound. The Notifications settings lists,
+message/chatter menus, and channel-tab menu all update these same persisted preferences. Channel
+rules apply across duplicate tabs and accounts. UI labels distinguish "Mute notifications" from
+"Ignore notifications"; removing either rule leaves the other rule in effect.
+
 `blockedUsers` is stronger and simpler, and holds bare logins: `MessageRow` returns null for
 them, so nothing is drawn at all rather than a "message hidden" placeholder -- the point of
 blocking someone is not to be reminded of them. Blocking implies ignoring, since a message that
 isn't drawn shouldn't still be ringing a bell somewhere; `ingest` checks both together.
 
-Neither list touches Twitch. Twitch's own block is an account-level thing that follows you to
+None of these lists touches Twitch. Twitch's own block is an account-level thing that follows you to
 every client, needs a scope this app doesn't ask for, and still delivers the blocked person's
 messages over IRC -- so it would need this local half anyway to visibly do anything.
 
@@ -699,6 +707,28 @@ updates the same global preference, and retains its enable action when enlargeme
 variable resizes existing artwork without rebuilding message data. Enlarged emotes use their own
 line and retain overlays, hover previews, and blacklist behavior. Disabling restores the ordinary
 inline emote; copying and replies keep the original text in either state.
+
+## Animated message power-ups
+
+`twitch::message_effects` reads IRC `msg-id=animated-message` with `animation-id` and emits an
+optional, typed `messageEffect` alongside the unchanged message body: `cosmic-abyss`,
+`rainbow-eclipse`, or `emote-party` (Twitch's `simmer` ID). Unknown or incomplete markers remain
+ordinary chat. This shares the existing live/history parser, account routing, and batch sink;
+it adds no subscription and never duplicates the message as an event notice.
+
+Rust supplies Emote Party's decorative PogChamp, bleedPurple, Cheer5000, and Cheer10000 URLs.
+These fixed static variants use the webview HTTP cache rather than the animated emote-ID disk
+cache; decoration never enters text resolution, completion, copy/reply text, or accessibility
+output. Cosmic Abyss uses an original static SVG cloud texture with composited CSS motion;
+Rainbow Eclipse moves a blurred color gradient around an opaque message plate. Emote Party
+bounces a bounded twelve sprites at staggered phases behind the same plate. The effects adapt
+to wrapped text while leaving all message links, names, badges, replies, and context menus intact.
+
+`MessageEffectFrame` subscribes to `enableMessageEffects`, default true, so the Power-ups setting
+and context-menu toggle repaint held messages without changing their data. Deleted rows return
+to plain chat. One shared IntersectionObserver pauses effects outside the viewport; document
+visibility pauses them in hidden windows, and the final unmount disconnects the observers.
+Reduced-motion mode keeps a still decoration with no animated assets or CSS movement.
 
 ## Cheermotes
 

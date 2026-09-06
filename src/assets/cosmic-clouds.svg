@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="192" viewBox="0 0 640 192">
+  <filter id="clouds" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".025 .042" numOctaves="3" seed="19"/>
+    <feColorMatrix type="saturate" values="0"/>
+    <feComponentTransfer>
+      <feFuncR type="linear" slope="3.3" intercept="-1.15"/>
+      <feFuncG type="linear" slope="3.3" intercept="-1.15"/>
+      <feFuncB type="linear" slope="3.3" intercept="-1.15"/>
+    </feComponentTransfer>
+    <feComponentTransfer>
+      <feFuncR type="table" tableValues=".05 .13 .55 .95 1"/>
+      <feFuncG type="table" tableValues="0 .01 .025 .19 .45"/>
+      <feFuncB type="table" tableValues=".22 .5 .8 .98 1"/>
+      <feFuncA type="linear" slope="0" intercept="1"/>
+    </feComponentTransfer>
+    <feGaussianBlur stdDeviation="1.5"/>
+  </filter>
+  <rect width="640" height="192" filter="url(#clouds)"/>
+</svg>

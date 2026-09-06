@@ -7,6 +7,7 @@ pub mod emotes;
 pub mod eventsub;
 pub mod helix;
 pub mod links;
+pub mod message_effects;
 pub mod search;
 pub mod streams;
 pub mod users;

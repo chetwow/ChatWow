@@ -101,6 +101,8 @@ pub struct ChatMessage {
     /// A confirmed unban/untimeout clears the frontend's session-only record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unbanned_login: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_effect: Option<crate::twitch::message_effects::MessageEffect>,
 }
 
 /// Emote lookup for one channel: channel set shadows the global set.
@@ -579,6 +581,7 @@ pub fn build_chat_message(
         display_name,
         badges: build_badges(msg, badges),
         segments,
+        message_effect: crate::twitch::message_effects::resolve(msg),
         is_action,
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
@@ -717,6 +720,7 @@ pub fn build_usernotice(
         display_name,
         badges: build_badges(msg, badges),
         segments: build_segments(body, msg.tag("emotes"), msg.tag("gifs"), emotes),
+        message_effect: None,
         is_action,
         is_first_message: false,
         kind: "system".to_string(),
@@ -755,6 +759,7 @@ pub fn whisper(
         display_name: display_name.to_string(),
         badges: Vec::new(),
         segments: build_segments(text, None, None, emotes),
+        message_effect: None,
         is_action: false,
         is_first_message: false,
         kind: "whisper".to_string(),
@@ -778,6 +783,7 @@ pub fn notice(channel: &str, text: impl Into<String>) -> ChatMessage {
         color: "#8b8b93".to_string(),
         badges: Vec::new(),
         segments: Vec::new(),
+        message_effect: None,
         is_action: false,
         is_first_message: false,
         kind: "notice".to_string(),
@@ -1021,6 +1027,37 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn message_effects_preserve_history_replies_and_unicode_emote_ranges() {
+        let map = HashMap::new();
+        let badges = BadgeMap::new();
+        let msg = crate::irc::parse::parse("@id=effect;msg-id=animated-message;animation-id=simmer;historical=1;emotes=25:2-6;reply-parent-msg-id=parent;reply-parent-display-name=Bob;reply-parent-user-login=bob;reply-parent-msg-body=hello :alice!a@a PRIVMSG #room :😀 Kappa hello").unwrap();
+        let message = build_chat_message(
+            &msg,
+            "room",
+            &lookup(&map),
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
+            None,
+        );
+        assert_eq!(message.kind, "chat");
+        assert!(message.historical);
+        assert_eq!(message.reply_to.as_ref().unwrap().body, "hello");
+        assert_eq!(
+            message.segments.iter().map(text_of).collect::<String>(),
+            "😀 Kappa hello"
+        );
+        assert!(matches!(&message.segments[1], Segment::Emote {name, ..} if name == "Kappa"));
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["messageEffect"]["kind"], "emote-party");
+        assert!(serde_json::to_value(notice("room", "hello"))
+            .unwrap()
+            .get("messageEffect")
+            .is_none());
     }
 
     fn usernotice(tags: &str, body: &str) -> ChatMessage {

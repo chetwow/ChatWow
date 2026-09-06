@@ -135,12 +135,14 @@ export function ChatView({
   // what was on the screen.
   const showTimestamps = useChat((state) => state.preferences.showTimestamps);
   const enableGigantify = useChat((state) => state.preferences.enableGigantify);
+  const enableMessageEffects = useChat((state) => state.preferences.enableMessageEffects);
   const updatePreferences = useChat((state) => state.updatePreferences);
   const blacklist = useChat((state) => state.preferences.emoteBlacklist);
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const addEmoteRule = useChat((state) => state.addEmoteRule);
   const removeEmoteRule = useChat((state) => state.removeEmoteRule);
   const mentionIgnores = useChat((state) => state.preferences.mentionIgnores);
+  const notificationMutes = useChat((state) => state.preferences.notificationMutes);
   const blockedUsers = useChat((state) => state.preferences.blockedUsers);
   const showMentionMarkers = useChat((state) => state.preferences.showMentionMarkers);
 
@@ -153,6 +155,7 @@ export function ChatView({
   );
   const messages = isMentions ? shown : channelMessages;
   const setMentionIgnored = useChat((state) => state.setMentionIgnored);
+  const setNotificationMuted = useChat((state) => state.setNotificationMuted);
   const setUserBlocked = useChat((state) => state.setUserBlocked);
   // Who "you" are here, which is this tab's account rather than the app's:
   // the same message can name you in one tab and nobody in the one beside it.
@@ -501,7 +504,7 @@ export function ChatView({
   };
 
   /**
-   * The two ways to hear less from someone, offered on their message rather
+   * Ways to hear less from someone, offered on their message rather
    * than buried in settings -- which is where you are when you decide. Not on
    * your own messages, and not on notices, which have no author.
    */
@@ -512,6 +515,7 @@ export function ChatView({
 
     const name = message.displayName || login;
     const ignoring = mentionIgnores.includes(ignoreForUser(login));
+    const muted = notificationMutes.includes(ignoreForUser(login));
     const blocked = blockedUsers.includes(login);
 
     return [
@@ -525,8 +529,12 @@ export function ChatView({
           ]
         : []),
       {
-        label: ignoring ? `Hear mentions from ${name} again` : `Ignore mentions from ${name}`,
+        label: ignoring ? `Stop ignoring notifications from ${name}` : `Ignore notifications from ${name}`,
         onSelect: () => setMentionIgnored(ignoreForUser(login), !ignoring),
+      },
+      {
+        label: muted ? `Unmute notifications from ${name}` : `Mute notifications from ${name}`,
+        onSelect: () => setNotificationMuted(ignoreForUser(login), !muted),
       },
       {
         label: blocked ? `Unblock ${name}` : `Block ${name}`,
@@ -538,13 +546,22 @@ export function ChatView({
         ? [
             {
               label: mentionIgnores.includes(ignoreForChannel(message.channel))
-                ? `Hear mentions in #${message.channel} again`
-                : `Ignore mentions in #${message.channel}`,
+                ? `Stop ignoring notifications in #${message.channel}`
+                : `Ignore notifications in #${message.channel}`,
               onSelect: () =>
                 setMentionIgnored(
                   ignoreForChannel(message.channel),
                   !mentionIgnores.includes(ignoreForChannel(message.channel)),
                 ),
+            },
+            {
+              label: notificationMutes.includes(ignoreForChannel(message.channel))
+                ? `Unmute notifications in #${message.channel}`
+                : `Mute notifications in #${message.channel}`,
+              onSelect: () => setNotificationMuted(
+                ignoreForChannel(message.channel),
+                !notificationMutes.includes(ignoreForChannel(message.channel)),
+              ),
             },
           ]
         : []),
@@ -660,6 +677,12 @@ export function ChatView({
           ? [{
               label: enableGigantify ? "Disable Gigantify" : "Enable Gigantify",
               onSelect: () => updatePreferences({ enableGigantify: !enableGigantify }),
+            }]
+          : []),
+        ...(menu.message.messageEffect
+          ? [{
+              label: enableMessageEffects ? "Disable message effects" : "Enable message effects",
+              onSelect: () => updatePreferences({ enableMessageEffects: !enableMessageEffects }),
             }]
           : []),
         ...moderationOptions(menu.message),
