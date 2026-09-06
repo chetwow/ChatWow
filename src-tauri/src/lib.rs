@@ -1658,11 +1658,10 @@ pub fn run() {
                 "token poll",
                 poll_tokens(handle.clone(), Arc::clone(&shared)),
             );
-            // Whispers arrive on their own socket -- Twitch doesn't send them
-            // over IRC -- but through the same sink, so they batch with chat.
-            // One per signed-in account, since a whisper is addressed to one.
+            // Whispers and supplemental channel events share one EventSub
+            // socket per account with channel tabs and batch with IRC chat.
             diagnostics::supervise(
-                "whisper sockets",
+                "EventSub sockets",
                 twitch::eventsub::run(Arc::clone(&shared), sink.clone()),
             );
             // 7TV pushes a channel's emote set changing, on one socket for the

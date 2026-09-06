@@ -1,5 +1,6 @@
 pub mod badges;
 pub mod chat;
+pub mod chat_events;
 pub mod commands;
 pub mod emotes;
 pub mod eventsub;

@@ -93,6 +93,9 @@ pub struct ChatMessage {
     pub historical: bool,
     pub system_message: Option<String>,
     pub reply_to: Option<ReplyInfo>,
+    /// A confirmed unban/untimeout clears the frontend's session-only record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unbanned_login: Option<String>,
 }
 
 /// Emote lookup for one channel: channel set shadows the global set.
@@ -469,6 +472,11 @@ pub fn build_chat_message(
         .unwrap_or(&login)
         .to_string();
     let (is_action, body) = strip_action(msg.text().unwrap_or(""));
+    let system_message = msg
+        .tag("bits")
+        .and_then(|bits| bits.parse::<u64>().ok())
+        .filter(|bits| *bits > 0)
+        .map(|bits| format!("{display_name} cheered {bits} Bits."));
 
     // Present only on replies (a native Twitch reply, not our own convention):
     // the parent's login/name/body ride along on the child PRIVMSG's tags.
@@ -502,12 +510,113 @@ pub fn build_chat_message(
         is_first_message: msg.tag("first-msg") == Some("1"),
         kind: "chat".to_string(),
         historical: msg.tag("historical") == Some("1"),
-        system_message: None,
+        system_message,
         reply_to,
+        unbanned_login: None,
     }
 }
 
-/// Build the highlighted line for a USERNOTICE (sub, resub, raid, gift...).
+/// Supply a readable description when a USERNOTICE omits Twitch's system text.
+fn usernotice_text(msg: &IrcMessage, name: &str) -> String {
+    // Keep Twitch's wording, including new notice types we don't know yet.
+    if let Some(text) = msg.tag("system-msg").filter(|text| !text.trim().is_empty()) {
+        return text.to_string();
+    }
+
+    // Shared chat wraps the original notice type in source-msg-id.
+    let kind = match msg.tag("msg-id") {
+        Some("sharedchatnotice") => msg.tag("source-msg-id").unwrap_or("sharedchatnotice"),
+        kind => kind.unwrap_or("unknown"),
+    };
+    let count = |key| msg.tag(key).and_then(|value| value.parse::<u64>().ok());
+    let tier = match msg.tag("msg-param-sub-plan") {
+        Some("Prime") => "Prime ",
+        Some("1000") => "Tier 1 ",
+        Some("2000") => "Tier 2 ",
+        Some("3000") => "Tier 3 ",
+        _ => "",
+    };
+    match kind {
+        "sub" => format!("{name} subscribed with a {tier}subscription."),
+        "resub" => match count("msg-param-cumulative-months") {
+            Some(months) => {
+                format!("{name} resubscribed with a {tier}subscription ({months} months total).")
+            }
+            None => format!("{name} resubscribed with a {tier}subscription."),
+        },
+        "subgift" | "anonsubgift" => {
+            let giver = if kind == "anonsubgift" {
+                "An anonymous gifter"
+            } else {
+                name
+            };
+            let recipient = msg
+                .tag("msg-param-recipient-display-name")
+                .or_else(|| msg.tag("msg-param-recipient-user-name"))
+                .or_else(|| msg.tag("msg-param-recipient-name"))
+                .unwrap_or("a viewer");
+            format!("{giver} gifted a {tier}subscription to {recipient}.")
+        }
+        "submysterygift" | "anonsubmysterygift" => {
+            let giver = if kind == "anonsubmysterygift" {
+                "An anonymous gifter"
+            } else {
+                name
+            };
+            match count("msg-param-mass-gift-count") {
+                Some(total) => {
+                    format!("{giver} gifted {total} {tier}subscriptions to the community.")
+                }
+                None => format!("{giver} gifted {tier}subscriptions to the community."),
+            }
+        }
+        "giftpaidupgrade" | "anongiftpaidupgrade" => {
+            format!("{name} continued their gifted subscription with a paid subscription.")
+        }
+        "primepaidupgrade" => {
+            format!("{name} upgraded their Prime subscription to a {tier}paid subscription.")
+        }
+        "standardpayforward" | "communitypayforward" => {
+            format!("{name} paid a subscription gift forward.")
+        }
+        "rewardgift" => format!("{name} shared subscription rewards with the community."),
+        "raid" => {
+            let raider = msg
+                .tag("msg-param-displayName")
+                .or_else(|| msg.tag("msg-param-login"))
+                .unwrap_or(name);
+            match count("msg-param-viewerCount") {
+                Some(viewers) => format!("{raider} raided with {viewers} viewers."),
+                None => format!("{raider} raided the channel."),
+            }
+        }
+        "unraid" => "The raid was canceled.".to_string(),
+        "announcement" => "Announcement".to_string(),
+        "bitsbadgetier" => match count("msg-param-threshold") {
+            Some(bits) => format!("{name} earned the {bits} Bits badge."),
+            None => format!("{name} earned a new Bits badge."),
+        },
+        "charitydonation" | "charity-donation" => format!("{name} donated to charity."),
+        "viewermilestone" if msg.tag("msg-param-category") == Some("watch-streak") => {
+            match count("msg-param-value") {
+                Some(streams) => {
+                    format!("{name} reached a watch streak of {streams} consecutive streams.")
+                }
+                None => format!("{name} reached a watch streak milestone."),
+            }
+        }
+        "viewermilestone" => format!("{name} reached a viewer milestone."),
+        "modiversary" => match count("msg-param-months") {
+            Some(months) => format!("{name} celebrated {months} months as a moderator."),
+            None => format!("{name} celebrated their moderator anniversary."),
+        },
+        "sharedchatnotice" => "Shared chat notification".to_string(),
+        "unknown" => "Chat notification".to_string(),
+        other => format!("Chat notification ({other})"),
+    }
+}
+
+/// Build the highlighted line and optional user comment for every USERNOTICE.
 pub fn build_usernotice(
     msg: &IrcMessage,
     channel: &str,
@@ -516,12 +625,13 @@ pub fn build_usernotice(
 ) -> ChatMessage {
     let login = msg
         .tag("login")
-        .or_else(|| msg.nick())
+        .or_else(|| msg.nick().filter(|nick| *nick != "tmi.twitch.tv"))
         .unwrap_or("twitch")
         .to_string();
     let display_name = msg.tag("display-name").unwrap_or(&login).to_string();
     // USERNOTICE has an optional user comment in the trailing param.
-    let body = msg.text().unwrap_or("");
+    let (is_action, body) = strip_action(msg.text().unwrap_or(""));
+    let system_message = Some(usernotice_text(msg, &display_name));
 
     ChatMessage {
         id: msg.tag("id").unwrap_or_default().to_string(),
@@ -533,13 +643,14 @@ pub fn build_usernotice(
         login,
         display_name,
         badges: build_badges(msg, badges),
-        segments: build_segments(body, msg.tag("emotes"), None, emotes),
-        is_action: false,
+        segments: build_segments(body, msg.tag("emotes"), msg.tag("gifs"), emotes),
+        is_action,
         is_first_message: false,
         kind: "system".to_string(),
         historical: msg.tag("historical") == Some("1"),
-        system_message: msg.tag("system-msg").map(|s| s.to_string()),
+        system_message,
         reply_to: None,
+        unbanned_login: None,
     }
 }
 
@@ -577,6 +688,7 @@ pub fn whisper(
         historical: false,
         system_message: None,
         reply_to: None,
+        unbanned_login: None,
     }
 }
 
@@ -599,12 +711,212 @@ pub fn notice(channel: &str, text: impl Into<String>) -> ChatMessage {
         historical: false,
         system_message: Some(text.into()),
         reply_to: None,
+        unbanned_login: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cheers_keep_the_original_message_and_get_a_bits_description() {
+        let map = HashMap::new();
+        let badges = BadgeMap::new();
+        let msg = crate::irc::parse::parse("@id=cheer-1;display-name=Alice;bits=100;historical=1 :alice!alice@alice PRIVMSG #room :Cheer100 hello").unwrap();
+        let message = build_chat_message(
+            &msg,
+            "room",
+            &lookup(&map),
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
+        );
+        assert_eq!(message.kind, "chat");
+        assert_eq!(
+            message.system_message.as_deref(),
+            Some("Alice cheered 100 Bits.")
+        );
+        assert_eq!(
+            message.segments.iter().map(text_of).collect::<String>(),
+            "Cheer100 hello"
+        );
+        assert!(message.historical);
+    }
+
+    fn usernotice(tags: &str, body: &str) -> ChatMessage {
+        let msg = crate::irc::parse::parse(&format!(
+            "@id=notice-1;login=alice;display-name=Alice;tmi-sent-ts=123;{tags} :tmi.twitch.tv USERNOTICE #channel :{body}"
+        )).unwrap();
+        let emotes = HashMap::new();
+        let badges = BadgeMap::new();
+        build_usernotice(
+            &msg,
+            "channel",
+            &lookup(&emotes),
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
+        )
+    }
+
+    #[test]
+    fn notices_without_system_text_have_readable_event_descriptions() {
+        for (tags, expected) in [
+            (
+                "msg-id=sub;msg-param-sub-plan=Prime",
+                "Alice subscribed with a Prime subscription.",
+            ),
+            (
+                "msg-id=resub;msg-param-cumulative-months=12",
+                "Alice resubscribed with a subscription (12 months total).",
+            ),
+            (
+                "msg-id=subgift;msg-param-recipient-display-name=Bob",
+                "Alice gifted a subscription to Bob.",
+            ),
+            (
+                "msg-id=anonsubgift;msg-param-recipient-name=bob",
+                "An anonymous gifter gifted a subscription to bob.",
+            ),
+            (
+                "msg-id=submysterygift;msg-param-mass-gift-count=5",
+                "Alice gifted 5 subscriptions to the community.",
+            ),
+            (
+                "msg-id=anonsubmysterygift",
+                "An anonymous gifter gifted subscriptions to the community.",
+            ),
+            (
+                "msg-id=giftpaidupgrade",
+                "Alice continued their gifted subscription with a paid subscription.",
+            ),
+            (
+                "msg-id=anongiftpaidupgrade",
+                "Alice continued their gifted subscription with a paid subscription.",
+            ),
+            (
+                "msg-id=primepaidupgrade;msg-param-sub-plan=2000",
+                "Alice upgraded their Prime subscription to a Tier 2 paid subscription.",
+            ),
+            (
+                "msg-id=standardpayforward",
+                "Alice paid a subscription gift forward.",
+            ),
+            (
+                "msg-id=communitypayforward",
+                "Alice paid a subscription gift forward.",
+            ),
+            (
+                "msg-id=rewardgift",
+                "Alice shared subscription rewards with the community.",
+            ),
+            (
+                "msg-id=raid;msg-param-displayName=Raider;msg-param-viewerCount=42",
+                "Raider raided with 42 viewers.",
+            ),
+            ("msg-id=unraid", "The raid was canceled."),
+            ("msg-id=announcement", "Announcement"),
+            (
+                "msg-id=bitsbadgetier;msg-param-threshold=1000",
+                "Alice earned the 1000 Bits badge.",
+            ),
+            ("msg-id=charitydonation", "Alice donated to charity."),
+            (
+                "msg-id=viewermilestone;msg-param-category=watch-streak;msg-param-value=10",
+                "Alice reached a watch streak of 10 consecutive streams.",
+            ),
+            (
+                "msg-id=modiversary;msg-param-months=24",
+                "Alice celebrated 24 months as a moderator.",
+            ),
+        ] {
+            let message = usernotice(tags, "");
+            assert_eq!(message.system_message.as_deref(), Some(expected), "{tags}");
+            assert_eq!(message.kind, "system");
+        }
+    }
+
+    #[test]
+    fn shared_chat_notices_use_the_original_event_type() {
+        for kind in [
+            "sub",
+            "resub",
+            "subgift",
+            "submysterygift",
+            "giftpaidupgrade",
+            "primepaidupgrade",
+            "raid",
+            "standardpayforward",
+            "announcement",
+            "modiversary",
+        ] {
+            assert_eq!(
+                usernotice(&format!("msg-id=sharedchatnotice;source-msg-id={kind}"), "")
+                    .system_message,
+                usernotice(&format!("msg-id={kind}"), "").system_message,
+            );
+        }
+    }
+
+    #[test]
+    fn missing_or_unfamiliar_notice_metadata_never_produces_an_empty_row() {
+        for tags in [
+            "",
+            "msg-id=future-event",
+            "msg-id=sharedchatnotice",
+            "msg-id=modiversary;msg-param-months=-1",
+            "msg-id=viewermilestone;msg-param-category=watch-streak;msg-param-value=oops",
+            "msg-id=raid;msg-param-viewerCount=18446744073709551616",
+            "msg-id=announcement;system-msg=\\s",
+        ] {
+            let message = usernotice(tags, "");
+            let text = message.system_message.unwrap();
+            assert!(!text.trim().is_empty(), "{tags}");
+            assert!(!text.contains("-1") && !text.contains("oops"));
+        }
+    }
+
+    #[test]
+    fn twitch_notice_text_and_user_comment_are_preserved_separately() {
+        let message = usernotice(
+            "msg-id=future-event;system-msg=Twitch\\ssupplied\\stext;historical=1;emotes=25:2-6",
+            "\u{1}ACTION 😀 Kappa\u{1}",
+        );
+        assert_eq!(
+            message.system_message.as_deref(),
+            Some("Twitch supplied text")
+        );
+        assert!(message.historical);
+        assert!(message.is_action);
+        assert_eq!(message.id, "notice-1");
+        assert_eq!(message.ts, 123);
+        assert!(matches!(&message.segments[1], Segment::Emote { id, .. } if id == "25"));
+        assert_eq!(
+            message.segments.iter().map(text_of).collect::<String>(),
+            "😀 Kappa"
+        );
+    }
+
+    #[test]
+    fn a_server_prefix_is_not_used_as_a_chatter_name() {
+        let msg =
+            crate::irc::parse::parse("@msg-id=unraid :tmi.twitch.tv USERNOTICE #channel").unwrap();
+        let emotes = HashMap::new();
+        let badges = BadgeMap::new();
+        let message = build_usernotice(
+            &msg,
+            "channel",
+            &lookup(&emotes),
+            &BadgeLookup {
+                channel: None,
+                global: &badges,
+            },
+        );
+        assert_eq!(message.login, "twitch");
+    }
 
     fn emote(name: &str, zero_width: bool) -> Emote {
         Emote {

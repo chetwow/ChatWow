@@ -78,6 +78,8 @@ export type ChatMessage = {
   historical: boolean;
   systemMessage: string | null;
   replyTo: ReplyInfo | null;
+  /** Confirmed unban/untimeout; clears the session-only moderation record. */
+  unbannedLogin?: string;
 };
 
 /** A message after the store adds its local identity. */

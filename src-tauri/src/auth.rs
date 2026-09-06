@@ -39,8 +39,8 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
     PermissionGroup {
         id: "chat",
         label: "Read and send chat",
-        detail: "Reading chat and sending messages. Always requested.",
-        scopes: &["chat:read", "chat:edit", "user:write:chat"],
+        detail: "Reading chat, sending messages, and seeing AutoMod feedback on your messages. Always requested.",
+        scopes: &["chat:read", "chat:edit", "user:write:chat", "user:read:chat"],
         required: true,
     },
     PermissionGroup {
@@ -61,8 +61,7 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
     PermissionGroup {
         id: "moderation",
         label: "Moderator commands",
-        detail: "For moderator commands: /ban, /timeout, /clear, /slow, /announce and \
-                 the rest.",
+        detail: "Moderator commands, moderation activity, and shoutout notifications in channels you moderate.",
         scopes: &[
             "moderator:manage:banned_users",
             "moderator:manage:chat_messages",
@@ -70,19 +69,25 @@ pub const PERMISSION_GROUPS: &[PermissionGroup] = &[
             "moderator:manage:announcements",
             "moderator:manage:shoutouts",
             "moderator:manage:warnings",
+            "moderator:read:blocked_terms",
+            "moderator:read:unban_requests",
+            "moderator:read:moderators",
+            "moderator:read:vips",
         ],
         required: false,
     },
     PermissionGroup {
         id: "channel",
         label: "Broadcaster commands",
-        detail: "For broadcaster commands: /mod, /vip, /raid, /commercial and /marker.",
+        detail: "Broadcaster commands, VIP/moderator changes, and Hype Train notifications in your channel.",
         scopes: &[
             "channel:manage:moderators",
             "channel:manage:vips",
             "channel:manage:raids",
             "channel:edit:commercial",
             "channel:manage:broadcast",
+            "moderation:read",
+            "channel:read:hype_train",
         ],
         required: false,
     },

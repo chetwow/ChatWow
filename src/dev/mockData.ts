@@ -219,6 +219,48 @@ function text(t: string): Segment {
 
 type Draft = Partial<ChatMessage> & { login: string; displayName: string; color: string; segments: Segment[] };
 
+// Event notices use the same resolved shape as the IRC/EventSub batching sink.
+const EVENT_DRAFTS: Draft[] = [
+  "troublemaker was banned.",
+  "chattyviewer was timed out for 60 seconds.",
+  "LongtimeMod unbanned troublemaker.",
+  "LongtimeMod removed the timeout for chattyviewer.",
+  "A message from troublemaker was deleted by a moderator.",
+  "Chat was cleared by a moderator.",
+  "LongtimeMod warned chattyviewer. Please stop posting spoilers.",
+  "Shared chat started: Sodapoppin, xQc, Forsen.",
+  "Shared chat updated: Sodapoppin, Forsen.",
+  "Shared chat ended for this channel.",
+  "RegularViewer was added as a VIP.",
+  "RegularViewer was removed as a VIP.",
+  "HelpfulViewer was added as a moderator.",
+  "HelpfulViewer was removed as a moderator.",
+  "Hype Train started: level 1, 250 / 1000 points.",
+  "Hype Train progress: level 2, 750 / 1500 points.",
+  "Hype Train ended at level 2 with 1750 total points.",
+  "Shoutout sent to Forsen (42 viewers).",
+  "Shoutout received from xQc (1200 viewers).",
+  "AutoMod: your message was held for review: testing banphrase",
+  "AutoMod: your message was denied: testing banphrase",
+  "AutoMod: your message was approved: thanks for reviewing my message",
+  "AutoMod: your message was no longer pending review: an expired review",
+  "LongtimeMod updated AutoMod terms (add blocked term).",
+  "LongtimeMod approved the unban request for troublemaker.",
+  "LongtimeMod denied the unban request for troublemaker.",
+  "Subscribers-only mode enabled.",
+  "Subscribers-only mode disabled.",
+  "Slow mode enabled (10 seconds).",
+  "Slow mode disabled.",
+  "Followers-only mode enabled (30 minutes).",
+  "Followers-only mode disabled.",
+  "Emote-only mode enabled.",
+  "Emote-only mode disabled.",
+  "Unique-chat mode enabled.",
+  "Unique-chat mode disabled.",
+].map((systemMessage) => ({
+  login: "", displayName: "", color: "#8b8b93", segments: [], kind: "notice", systemMessage,
+}));
+
 const DRAFTS: Draft[] = [
   {
     login: "nightbot",
@@ -375,6 +417,163 @@ const DRAFTS: Draft[] = [
     kind: "system",
     systemMessage: "GiftGiver gifted 5 Tier 1 Subs to the community!",
   },
+  // Pre-resolved USERNOTICE examples, matching the Rust fallback descriptions.
+  // DRAFTS feeds both the initial history and the continuing simulated traffic.
+  {
+    login: "nightbot",
+    displayName: "Nightbot",
+    color: "#5F9EA0",
+    badges: [MOD],
+    kind: "system",
+    systemMessage: "Announcement",
+    segments: [text("Community games start in ten minutes! "), twitch("305954156", "PogChamp")],
+  },
+  {
+    login: "regularviewer",
+    displayName: "RegularViewer",
+    color: "#9ACD32",
+    kind: "system",
+    systemMessage: "RegularViewer reached a watch streak of 10 consecutive streams.",
+    segments: [],
+  },
+  {
+    login: "longtimemod",
+    displayName: "LongtimeMod",
+    color: "#7FE3A0",
+    badges: [MOD],
+    kind: "system",
+    systemMessage: "LongtimeMod celebrated 24 months as a moderator.",
+    segments: [text("celebrates with chat "), twitch("25", "Kappa")],
+    isAction: true,
+  },
+  {
+    login: "newsub",
+    displayName: "NewSub",
+    color: "#D79AF0",
+    badges: [SUB, PRIME],
+    kind: "system",
+    systemMessage: "NewSub subscribed with a Prime subscription.",
+    segments: [],
+  },
+  {
+    login: "returningsub",
+    displayName: "ReturningSub",
+    color: "#FF69B4",
+    badges: [SUB],
+    kind: "system",
+    systemMessage: "ReturningSub resubscribed with a Tier 1 subscription (12 months total).",
+    segments: [text("A whole year already! "), twitch("305954156", "PogChamp")],
+  },
+  {
+    login: "giftgiver",
+    displayName: "GiftGiver",
+    color: "#DAA520",
+    badges: [SUB],
+    kind: "system",
+    systemMessage: "GiftGiver gifted a Tier 1 subscription to NewPerson.",
+    segments: [],
+  },
+  {
+    login: "ananonymousgifter",
+    displayName: "AnAnonymousGifter",
+    color: "#AED3E5",
+    kind: "system",
+    systemMessage: "An anonymous gifter gifted 5 Tier 1 subscriptions to the community.",
+    segments: [],
+  },
+  {
+    login: "giftrecipient",
+    displayName: "GiftRecipient",
+    color: "#7FB3D5",
+    badges: [SUB],
+    kind: "system",
+    systemMessage: "GiftRecipient continued their gifted subscription with a paid subscription.",
+    segments: [],
+  },
+  {
+    login: "primeupgrader",
+    displayName: "PrimeUpgrader",
+    color: "#F2C14E",
+    badges: [SUB],
+    kind: "system",
+    systemMessage: "PrimeUpgrader upgraded their Prime subscription to a Tier 2 paid subscription.",
+    segments: [],
+  },
+  {
+    login: "giftrecipient",
+    displayName: "GiftRecipient",
+    color: "#7FB3D5",
+    badges: [SUB],
+    kind: "system",
+    systemMessage: "GiftRecipient paid a subscription gift forward.",
+    segments: [],
+  },
+  {
+    login: "giftgiver",
+    displayName: "GiftGiver",
+    color: "#DAA520",
+    kind: "system",
+    systemMessage: "GiftGiver shared subscription rewards with the community.",
+    segments: [],
+  },
+  {
+    login: "raider",
+    displayName: "Raider",
+    color: "#9AD3E5",
+    kind: "system",
+    systemMessage: "Raider raided with 42 viewers.",
+    segments: [],
+  },
+  {
+    login: "twitch",
+    displayName: "twitch",
+    color: "#AED3E5",
+    kind: "system",
+    systemMessage: "The raid was canceled.",
+    segments: [],
+  },
+  {
+    login: "cheerer",
+    displayName: "Cheerer",
+    color: "#D79AF0",
+    kind: "system",
+    systemMessage: "Cheerer earned the 1000 Bits badge.",
+    segments: [text("Here's to the next thousand!")],
+  },
+  {
+    login: "charitysupporter",
+    displayName: "CharitySupporter",
+    color: "#7FE3A0",
+    kind: "system",
+    systemMessage: "CharitySupporter donated to charity.",
+    segments: [],
+  },
+  {
+    // A sharedchatnotice with source-msg-id=resub has the same resolved shape.
+    login: "sharedchatguest",
+    displayName: "SharedChatGuest",
+    color: "#E39A7F",
+    kind: "system",
+    systemMessage: "SharedChatGuest resubscribed with a Tier 1 subscription (6 months total).",
+    segments: [text("Happy to celebrate with both chats!")],
+  },
+  {
+    login: "twitch",
+    displayName: "twitch",
+    color: "#AED3E5",
+    kind: "system",
+    systemMessage: "Chat notification (future-event)",
+    segments: [],
+  },
+  {
+    login: "cheerer",
+    displayName: "Cheerer",
+    color: "#D79AF0",
+    kind: "chat",
+    systemMessage: "Cheerer cheered 100 Bits.",
+    segments: [text("Cheer100 Great stream! "), twitch("305954156", "PogChamp")],
+  },
+  ...EVENT_DRAFTS,
   {
     login: "chetwow",
     displayName: "chetwow",
@@ -700,6 +899,15 @@ export function mockEmoteIndex(): EmoteIndex {
 }
 
 const YOU_COLOR = "#7C5CFC";
+
+/** Test-only blocked phrase; never sent to Twitch or installed in a real channel. */
+export function mockBlockedMessage(tab: Tab, raw: string): ChatMessage | null {
+  if (!raw.toLocaleLowerCase().includes("banphrase")) return null;
+  return toMessage({
+    login: "", displayName: "", color: "#8b8b93", segments: [], kind: "notice",
+    systemMessage: `AutoMod: your message was denied: ${raw}`,
+  }, tab, Date.now());
+}
 
 /** Local echo of a message typed into the composer, for design iteration. */
 export function buildOwnMockMessage(

@@ -33,6 +33,45 @@ blacklisted, and what the `/` picker offers are all decided in the frontend, bec
 depends on state that changes without the already-resolved backlog being rebuilt — the
 signed-in login, an edited rule list, the scopes a token carries.
 
+## Chat notifications
+
+All IRC `USERNOTICE` types pass through the same Rust renderer, session buffering, and batching
+as ordinary chat, including history. Twitch's `system-msg` is used when present; when it is
+missing or blank, `render::usernotice_text` supplies a description from the notice type and
+available tags. This covers announcements, subscription events, raids, Bits badges, charity
+donations, watch streaks, and moderator anniversaries without requiring another EventSub
+subscription or duplicating IRC events. Shared-chat wrappers use `source-msg-id` for the fallback
+description. Unknown types still produce a visible notification. Optional user comments remain
+separate from system text so their emote/GIF ranges and action formatting stay intact.
+
+Cheers stay ordinary IRC chat rows with an added Bits-total description. `CLEARCHAT` and
+`CLEARMSG` both keep their existing deletion effects and add readable moderation notices, without
+copying deleted message text. Each `Session` tracks its own ROOMSTATE snapshot: the first snapshot
+is silent, and subsequent partial updates announce only changed chat modes.
+
+The account's existing EventSub socket also carries shared-chat session changes and personal
+AutoMod hold/update events. Moderator accounts with the granted scopes receive `channel.moderate`
+v2 and shoutouts; broadcaster accounts can receive Hype Train v2 and standalone role/unban events.
+The standalone subscriptions are omitted when `channel.moderate` already covers them. Its actions
+already supplied by IRC are suppressed. Events Twitch restricts to moderators or broadcasters
+are not fetched using another signed-in account's credentials to populate a viewer's tab.
+
+`twitch::chat_events` derives subscriptions from open channel tabs, learned room IDs, session roles,
+and granted token scopes. `twitch::eventsub` reconciles subscription additions/removals in place,
+one HTTP operation per tick so socket reads continue during slow API responses. Failed or revoked
+subscriptions back off for five minutes. The supervisor removes sockets when the account's final
+channel tab closes; tab changes leave other sockets intact. Explicit credential/sleep restart
+signals still rebuild connections. Server-requested handovers retain and drain the old socket
+until the replacement welcomes it, and keepalives bound otherwise silent failures. A bounded
+delivery-ID window prevents replayed EventSub messages from being printed twice.
+
+These events use the ordinary `chat://messages` batching sink as account-stamped `notice` rows.
+AutoMod events additionally require the payload's sender ID to match that account; their text
+cannot enter a listener log because notices are excluded from listener matching. Confirmed
+unban/untimeout notices carry optional `unbannedLogin` metadata to clear the existing frontend
+moderation record without parsing their display text. No held message is echoed publicly; an
+approved message still arrives through IRC. Existing tokens need reauthorization for new scopes.
+
 ## Chat backlog on join
 
 Joining a channel shows the last 150 messages rather than an empty pane. Twitch has no chat
@@ -186,9 +225,10 @@ API this app can't use.
 
 ## Whispers
 
-Whispers arrive on their own socket: Twitch doesn't deliver them over IRC at all, so
+Whispers arrive over EventSub: Twitch doesn't deliver them over IRC at all, so
 [`src-tauri/src/twitch/eventsub.rs`](src-tauri/src/twitch/eventsub.rs) holds an EventSub
-WebSocket subscribed to `user.whisper.message` (the *Your own account* permission covers it) and
+WebSocket subscribed to `user.whisper.message` (the *Your own account* permission covers it), shared
+with the channel event subscriptions above, and
 feeds the same batching sink the chat connections use. A whisper is addressed to one account, so
 there's one of these per account that can carry one, and the message is stamped with whose it is
 on the way out. EventSub sends the sender and the text and

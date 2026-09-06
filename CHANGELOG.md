@@ -7,8 +7,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added Bits totals on cheers and notices for bans, timeouts, deleted messages, chat clears,
+  and chat-mode changes. Added shared-chat session notifications and private AutoMod feedback
+  for your messages, plus moderation activity, VIP/moderator changes, Hype Trains, and shoutouts
+  when your account has the required Twitch role and permissions.
+
 ### Fixed
 
+- Made chat notifications readable when Twitch omits their description, including announcements,
+  watch streaks, moderator anniversaries, subscription events, raids, Bits badges, charity
+  donations, and shared-chat notices. Unrecognized events now show a fallback instead of an empty row.
 - Kept an open link preview anchored while incoming chat moves its source link, dismissing it on
   Escape or deliberate pointer movement away while allowing movement over the link or preview,
   crossing the gap between them, and a small movement margin instead of reacting to

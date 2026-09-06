@@ -1044,6 +1044,19 @@ fn handle_line(
         }
         "ROOMSTATE" => {
             let channel = msg.channel()?;
+            let notices = {
+                let mut sessions = state.sessions.write();
+                session_for_generation(
+                    &mut sessions,
+                    (account.to_string(), channel.clone()),
+                    connection_generation,
+                )
+                .room_settings
+                .update(&msg)
+            };
+            for text in notices {
+                let _ = sink.send(stamped(account, &channel, text));
+            }
             // ROOMSTATE carries room-id, which is the broadcaster's Twitch user id.
             // That's exactly what 7TV and the Helix badge endpoint need, and it
             // saves us an authenticated user lookup.
@@ -1131,6 +1144,9 @@ fn handle_line(
                     "duration": msg.tag("ban-duration").and_then(|d| d.parse::<u64>().ok()),
                 }),
             );
+            if let Some(text) = super::events::moderation_text(&msg) {
+                let _ = sink.send(stamped(account, &channel, text));
+            }
         }
         "CLEARMSG" => {
             let channel = msg.channel()?;
@@ -1142,6 +1158,9 @@ fn handle_line(
                     "messageId": msg.tag("target-msg-id"),
                 }),
             );
+            if let Some(text) = super::events::moderation_text(&msg) {
+                let _ = sink.send(stamped(account, &channel, text));
+            }
         }
         "NOTICE" => {
             let channel = msg.channel().unwrap_or_default();

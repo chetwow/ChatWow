@@ -1266,7 +1266,12 @@ export const useChat = create<ChatState>((set) => ({
     if (!tab) return;
 
     if (MOCK_MODE) {
-      const { buildOwnMockMessage } = await import("../dev/mockData");
+      const { buildOwnMockMessage, mockBlockedMessage } = await import("../dev/mockData");
+      const blocked = mockBlockedMessage(tab, text);
+      if (blocked) {
+        useChat.getState().ingest([blocked]);
+        throw new Error('Your message was blocked by AutoMod (test phrase: "banphrase").');
+      }
       const login = loginOf(useChat.getState(), tab.account) ?? "you";
       useChat.getState().ingest([buildOwnMockMessage(tab, login, text, replyTo)]);
       noteEmoteUses(tab, text);
@@ -1591,7 +1596,17 @@ export const useChat = create<ChatState>((set) => ({
         }
       }
 
-      return { messages, unread, mentions, chatters, mentionLog };
+      let moderations = state.moderations;
+      for (const message of stamped) {
+        if (!message.historical && message.unbannedLogin && targetsFor(state, message).length > 0) {
+          const key = moderationKey(message.channel, message.unbannedLogin);
+          if (key in moderations) {
+            if (moderations === state.moderations) moderations = { ...moderations };
+            delete moderations[key];
+          }
+        }
+      }
+      return { messages, unread, mentions, chatters, mentionLog, moderations };
     });
 
     // Global and situational mute controls only take the sound. A listener's

@@ -70,6 +70,7 @@ pub struct Session {
     /// this channel", so this tag is the only source. Per account by nature:
     /// one of your logins can be a mod here and another not.
     pub role: crate::irc::parse::ChannelRole,
+    pub room_settings: crate::irc::events::RoomSettings,
     /// Twitch's own emotes for this account in this channel -- completion
     /// fodder, deliberately not part of `ChannelData::emotes` (see
     /// `twitch::emotes`). Per account because subscriber emotes are.

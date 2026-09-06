@@ -12,6 +12,8 @@ in a browser.
 - Custom listener tabs for account mentions, selected users, and arbitrary phrases across open channels
 - Optional sound and tab notifications for listener matches
 - Moderator shortcuts for deleting messages, bans, unbans, and timeouts
+- Chat activity notices for cheers, moderation, shared chat, chat-mode changes, and your own
+  AutoMod results; Hype Train and shoutout notices where Twitch permissions allow
 - Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
 - Replies, whispers, badges, hover-previewable scrollbar mention markers, Twitch chat commands, and link previews
 - Automatic chat reconnection and missed-message recovery after the computer wakes from sleep
