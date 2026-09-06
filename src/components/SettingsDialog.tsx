@@ -869,6 +869,13 @@ export function SettingsDialog({
                     label="Preview other links"
                   />
                 </Row>
+                <Row label="Play Twitch clips inline">
+                  <Toggle
+                    checked={preferences.inlineTwitchClips}
+                    onChange={(inlineTwitchClips) => updatePreferences({ inlineTwitchClips })}
+                    label="Play Twitch clips inline"
+                  />
+                </Row>
                 <Row label="Play YouTube videos inline">
                   <Toggle
                     checked={preferences.inlineYoutube}

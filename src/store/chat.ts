@@ -98,6 +98,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   tabAvatarOpacity: 0.4,
   previewImages: true,
   previewPages: true,
+  inlineTwitchClips: false,
   inlineYoutube: false,
   singleRowTabs: true,
   showLiveStreamThumbnails: false,

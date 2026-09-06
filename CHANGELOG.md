@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional inline Twitch clip playback, with a browser fallback and link-menu action.
+
 - Optional inline YouTube playback from chat links, with a browser prompt when playback fails.
 - Copy link addresses from any link context menu, and open inline YouTube links in a browser.
 
@@ -20,6 +22,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Default all four permission options on when adding an account.
 
 ### Fixed
+
+- Scale inline Twitch clips to fit narrow chat panes without horizontal scrolling.
 
 - Account permission checkboxes now follow the selected account, keeping edits separate and
   avoiding incorrect re-login reminders when switching accounts. Both enabling and disabling

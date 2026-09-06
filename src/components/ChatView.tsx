@@ -1,3 +1,4 @@
+import { twitchClip } from "../lib/twitchClips";
 import { openLink, youtubeVideo } from "../lib/youtube";
 import {
   useCallback,
@@ -651,11 +652,12 @@ export function ChatView({
   };
 
   const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
+  const inlineTwitchClips = useChat((state) => state.preferences.inlineTwitchClips);
   const menuOptions: ContextMenuOption[] = menu
     ? [
         ...(menu.link ? [
           { label: "Copy link address", onSelect: () => { void navigator.clipboard.writeText(menu.link!); } },
-          ...(inlineYoutube && youtubeVideo(menu.link) ? [{ label: "Open in browser", onSelect: () => { void openLink(menu.link!); } }] : []),
+          ...(((inlineYoutube && youtubeVideo(menu.link)) || (inlineTwitchClips && twitchClip(menu.link))) ? [{ label: "Open in browser", onSelect: () => { void openLink(menu.link!); } }] : []),
           { separator: true as const },
         ] : []),
         {

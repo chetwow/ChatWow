@@ -323,6 +323,7 @@ export type Preferences = {
   previewImages: boolean;
   /** Show what the page says about itself on hover, for every other link. */
   previewPages: boolean;
+  inlineTwitchClips: boolean;
   inlineYoutube: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;

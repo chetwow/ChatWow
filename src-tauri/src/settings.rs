@@ -234,6 +234,8 @@ pub struct Preferences {
     pub preview_pages: bool,
     /// Expand clicked YouTube links into an inline player. Opt-in.
     pub inline_youtube: bool,
+    /// Expand clicked Twitch clips into an inline player. Opt-in.
+    pub inline_twitch_clips: bool,
     /// Keep the channel tabs on one row and scroll them sideways. On by
     /// default: wrapping keeps every tab in sight, but it also lets the tab
     /// bar grow to several rows deep and take that height off the chat.
@@ -306,6 +308,7 @@ impl Default for Preferences {
             preview_images: true,
             preview_pages: true,
             inline_youtube: false,
+            inline_twitch_clips: false,
             single_row_tabs: true,
             show_live_stream_thumbnails: false,
             split_layout: "none".to_string(),

@@ -1,5 +1,7 @@
 import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { TwitchClipPlayer } from "./TwitchClipPlayer";
+import { twitchClip } from "../lib/twitchClips";
 import { YoutubePlayer } from "./YoutubePlayer";
 import { youtubeVideo, openLink } from "../lib/youtube";
 import { EmoteImage } from "./EmoteImage";
@@ -417,9 +419,12 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   // message identity and the messages already on screen are immutable, so
   // flipping one has to reach them through the store.
   const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
+  const inlineTwitchClips = useChat((state) => state.preferences.inlineTwitchClips);
+  const clip = twitchClip(segment.href);
   const [expanded, setExpanded] = useState(false);
   const video = youtubeVideo(segment.href);
-  useEffect(() => { if (!inlineYoutube) setExpanded(false); }, [inlineYoutube]);
+  const inline = Boolean((inlineYoutube && video) || (inlineTwitchClips && clip));
+  useEffect(() => { if (!inline) setExpanded(false); }, [inline]);
   const kind = linkKind(segment.href);
   const enabled = useChat((state) => state.preferences[PREFERENCE[kind]]);
   const image = kind === "image" ? imagePreviewUrl(segment.href) : null;
@@ -495,7 +500,7 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
         onClick={() => {
           cancel();
           hide();
-          if (inlineYoutube && video) setExpanded((value) => !value);
+          if (inline) setExpanded((value) => !value);
           else void openLink(segment.href);
         }}
         onMouseEnter={
@@ -539,6 +544,9 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
       >
         {segment.text}
       </button>
+      {inlineTwitchClips && expanded && clip && (
+        <TwitchClipPlayer key={segment.href} clip={clip} href={segment.href} onClose={() => setExpanded(false)} />
+      )}
       {inlineYoutube && expanded && video && (
         <YoutubePlayer key={segment.href} video={video} href={segment.href} onClose={() => setExpanded(false)} />
       )}

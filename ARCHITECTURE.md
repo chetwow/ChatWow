@@ -1000,6 +1000,18 @@ The embed uses the page origin and the browser's `strict-origin-when-cross-origi
 policy. Packaged webviews whose custom origin suppresses HTTP Referer may encounter YouTube
 error 153 and use the browser fallback; desktop playback needs verification on each platform.
 
+`inlineTwitchClips` separately enables click-to-expand Twitch clips. Only clip links are
+recognized; channels and VODs stay external. The iframe uses the current hostname as Twitch's
+required `parent`, disables autoplay and fullscreen, and preserves Twitch's 400x300 minimum
+internally. A resize observer scales the whole iframe proportionally in narrower panes and
+reserves its scaled height, avoiding horizontal scrolling without reloading playback.
+Clips have no interactive JavaScript API, so
+iframe load is not treated as proof of playback: load failures/timeouts offer a browser
+prompt. Errors displayed inside the cross-origin frame cannot be detected; the link context
+menu offers “Open in browser”.
+Closing, disabling, or removing the row unmounts the frame. Custom desktop origins may be
+rejected by Twitch's parent checks; the browser path remains available.
+
 Hovering a link shows what's behind it. The two halves are split by what the answer costs.
 
 **An image link is classified locally and fetched by Rust.** `imagePreviewUrl`

@@ -414,6 +414,8 @@ const DRAFTS: Draft[] = [
         text: "https://clips.twitch.tv/SoftKindPuppyKappa-abc123",
         href: "https://clips.twitch.tv/SoftKindPuppyKappa-abc123",
       },
+      text(" · example clip: "),
+      { kind: "link", text: "https://clips.twitch.tv/IncredulousAbstemiousFennelImGlitch", href: "https://clips.twitch.tv/IncredulousAbstemiousFennelImGlitch" },
       text(" and "),
       { kind: "link", text: "https://twitch.tv/forsen", href: "https://twitch.tv/forsen" },
     ],
