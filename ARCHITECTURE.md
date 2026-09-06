@@ -28,6 +28,10 @@ Rust rather than the webview:
 Messages are batched every 80ms before crossing the IPC bridge, which is what keeps a
 high-traffic channel from swamping the UI.
 
+The IPC types in `src/types.ts` are hand-mirrored from Rust structs, not generated. A payload
+change therefore needs matching definitions on both sides; either compiler alone can miss drift
+across that boundary.
+
 Not everything belongs behind that line. Whether a message names you, which emotes are
 blacklisted, and what the `/` picker offers are all decided in the frontend, because each
 depends on state that changes without the already-resolved backlog being rebuilt — the
@@ -59,9 +63,10 @@ are not fetched using another signed-in account's credentials to populate a view
 
 `twitch::chat_events` derives subscriptions from open channel tabs, learned room IDs, session roles,
 and granted token scopes. `twitch::eventsub` reconciles subscription additions/removals in place,
-one HTTP operation per tick so socket reads continue during slow API responses. Failed or revoked
-subscriptions back off for five minutes. The supervisor removes sockets when the account's final
-channel tab closes; tab changes leave other sockets intact. Explicit credential/sleep restart
+at most one HTTP operation per tick. The socket loop awaits that operation, so reads pause during
+the request, bounded by its eight-second timeout. Failed or revoked subscriptions back off for
+five minutes. The supervisor removes sockets when the account's final channel tab closes;
+tab changes leave other sockets intact. Explicit credential/sleep restart
 signals still rebuild connections. Server-requested handovers retain and drain the old socket
 until the replacement welcomes it, and keepalives bound otherwise silent failures. A bounded
 delivery-ID window prevents replayed EventSub messages from being printed twice.
@@ -131,10 +136,11 @@ already in is a fresh join with its own backlog, even though the room's emotes a
 already in hand ([Accounts and tabs](#accounts-and-tabs)).
 
 Worth knowing: it's one volunteer's server, so a failure is a non-event (no backlog, not a broken
-join), and asking it about a channel tells it you joined that channel -- the one thing this app
-does that Twitch and 7TV don't see. Users can opt out of being recorded at
-<https://www.twitch.tv/recent_messages>, and Settings -> General -> *Show recent message history
-on join* turns it off here, after which the app only ever talks to Twitch and 7TV.
+join), and asking it about a channel discloses that channel to another service. Users can opt out
+of being recorded at <https://www.twitch.tv/recent_messages>. Settings -> General -> *Show recent
+message history on join* disables both join backlog and reconnect recovery requests here. It does not disable
+other network features: enabled BTTV and FFZ providers, ivr.fi user cards, link previews, and
+GitHub update checks can still contact their respective services.
 
 ## Losing the connection, and coming back
 
@@ -264,22 +270,24 @@ API this app can't use.
 
 Whispers arrive over EventSub: Twitch doesn't deliver them over IRC at all, so
 [`src-tauri/src/twitch/eventsub.rs`](src-tauri/src/twitch/eventsub.rs) holds an EventSub
-WebSocket subscribed to `user.whisper.message` (the *Your own account* permission covers it), shared
-with the channel event subscriptions above, and
-feeds the same batching sink the chat connections use. A whisper is addressed to one account, so
-there's one of these per account that can carry one, and the message is stamped with whose it is
-on the way out. EventSub sends the sender and the text and
-nothing else -- no emote ranges, no badges, no color -- so a whisper resolves 7TV globals, links
-and mentions from its text, the name gets the usual palette color, and there are no badges to
-draw. It carries no channel either, so Rust sends an empty one and the store files it under whichever
-channel of *that account* you're reading -- only the frontend knows which that is -- as well as
-into that account's mentions log.
+WebSocket for each signed-in account with open channel tabs. The `user.whisper.message`
+subscription (covered by the *Your own account* permission) shares it with the channel events
+above, and both feed the same batching sink as IRC. Each whisper is stamped with its receiving
+account. EventSub supplies sender identity and text, but no emote ranges, badges, or color.
+Rust resolves enabled third-party global emotes, links, and mentions from the text and assigns
+the usual palette color. There are no Twitch badges; the sender's user ID separately queues a
+7TV badge lookup, whose result can appear on an already-rendered whisper.
+
+Whispers carry no channel, so Rust sends an empty one. The store files the message in the focused
+channel tab if it belongs to the receiving account, otherwise in that account's first channel
+tab. Legacy mentions tabs also collect that account's whispers. Custom listeners require a
+selected source channel and therefore do not collect whispers.
 
 The restart signal is owned by the supervisor rather than by each socket: one `Notify` wakes one
-waiter, so several sockets can't share it. A subscription belongs to the token that made it, so a
-token change drops every socket and brings back the ones still wanted. What must *not* happen is
-restarting them when nothing changed -- re-validating a good token, at startup or at an hourly
-check, rewrites its scopes and login, which is worth persisting but leaves the old subscription
+waiter, so several sockets can't share it. An explicit restart drops every socket and brings back
+the ones still wanted; ordinary token renewal keeps healthy sockets running. What must *not*
+happen is restarting them when nothing changed -- re-validating a good token, at startup or at an
+hourly check, rewrites its scopes and login, which is worth persisting but leaves the old subscription
 behind on Twitch's side, and three of those is the limit for one type and condition. Past that
 Twitch refuses and whispers stop arriving, silently. The token worker distinguishes metadata
 changes from credential changes and keeps healthy sockets alive during routine renewal. EventSub
@@ -642,11 +650,11 @@ with a channel open twice, the two copies are otherwise identical.
 
 What was one question is now two:
 
-- **A channel's assets are fetched once; a session's are per account.** The emote and badge sets
-  belong to the room. The backlog, the messages buffered while joining, the Twitch emotes this
-  login owns (subscriber emotes) and the `USERSTATE` role belong to `state::Session`, keyed by
-  (account, channel) -- a second account joining a room the first is already in still needs all
-  of them.
+- **A channel's assets are fetched once; a session's are per account.** Third-party emote sets
+  and Twitch badge sets belong to the room. The backlog, messages buffered while joining, `USERSTATE`
+  role, and fetched Twitch channel-emote catalog belong to `state::Session`, keyed by
+  (account, channel). The Twitch catalog is fetched with that account's credentials, but lists
+  the room's emotes regardless of whether the account is entitled to send them.
 - **"Is this about me?" is per tab.** `isAboutYou` takes the login the tab reads as, so the same
   message highlights in one tab and not in the one beside it. Custom mention logs are per
   listener tab, because each independently selects accounts, channels and phrases.
@@ -654,8 +662,9 @@ What was one question is now two:
 Calls that ask Twitch about the *world* rather than about you -- badge images, who's live,
 channel search, a link preview -- go through `Auth::any_credentials` instead: any token answers
 them identically, so needing a particular one would mean losing them the moment a tab went
-anonymous. Sending, slash commands and emote completion use `Auth::credentials(account)`, since
-those are about you and about which of you.
+anonymous. Sending and slash commands use `Auth::credentials(account)` because the acting account
+matters. Twitch completion catalogs also use that lookup in the current implementation, although
+the global and channel catalog endpoints do not filter by the account's emote entitlements.
 
 Anonymous (`settings::ANONYMOUS`, the empty id) is a first-class account rather than a failure.
 It's how the app works before you ever sign in, it stays a per-tab choice afterwards, and it's
@@ -717,11 +726,12 @@ while chat moves; incoming messages and manual scrolling are not dismissal actio
 
 ## Message history
 
-`↑` in the composer walks back through what you've sent in the current channel, `↓` comes
+`↑` in the composer walks back through what you've sent in the current tab, `↓` comes
 forward again; stepping past the newest entry restores whatever you'd half-typed when the walk
 started, and typing over a recalled message ends the walk so the next `↑` starts from the top.
-History is per channel and lives only for the session, and a repeat of the previous message
-doesn't add a second entry. The emote picker takes the arrows first while it's open.
+History is keyed by tab ID, keeps up to 100 entries, and lives only for the session; duplicate
+channel tabs have separate histories. A repeat of the previous message doesn't add a second
+entry. The emote picker takes the arrows first while it's open.
 
 ## Searching a tab
 
@@ -926,10 +936,11 @@ resolved from the persistent cache or provider again as they talk.
 ## User cards
 
 Clicking a name opens [UserCard.tsx](src/components/UserCard.tsx). Its top half is fetched, its
-bottom half is free -- the messages that chatter has already sent in this tab, filtered out of
-the store. That log is one tab only: the same name in two tabs is two conversations. The ear
-action in its header creates the same current-channel user listener as the chatter-name context
-menu, including its one-time backfill and notifications-off default.
+bottom half is free -- that chatter's retained messages gathered from every tab on the clicked
+message's channel, deduplicated by message ID and sorted chronologically. This also lets a card
+opened from a listener show the channel's retained conversation beyond the listener's matches.
+The ear action in its header creates the same current-channel user listener as the chatter-name
+context menu, including its one-time backfill and notifications-off default.
 
 The fetched half needs two services, because Twitch only answers one of it.
 
@@ -968,12 +979,11 @@ Answers are cached per channel-and-name for the session in
 keyed on the login it's about, so clicking a second name remounts rather than reusing the first
 person's state.
 
-The card sizes itself from the window in both directions: a share of the width between bounds, and
-a share of the height for the message log. The window's own minimum is 420x320, narrower than the
-card's floor and shorter than its natural height, so the width clamps to what's available and the
-log is the section that gives -- it has a scrollbar already, so shrinking it loses nothing. Its
-position is measured after layout and clamped into the window: the name it hangs off is a row
-inside a scroller and can sit partly, or entirely, outside the visible area.
+The card sizes itself from the window in both directions: 30% of the width, bounded to 300–420px
+and clamped to the available space, and a share of the height for the message log. At the window's
+420x320 minimum, the log is the section that gives -- it has a scrollbar already, so shrinking it
+loses nothing. Its position is measured after layout and clamped into the window: the name it
+hangs off is a row inside a scroller and can sit partly, or entirely, outside the visible area.
 
 ## Link previews
 
@@ -1076,11 +1086,14 @@ the store instead of taking a prop -- the same reason the emote blacklists do.
 
 ## Emote completion and search
 
-Both entry points -- `Tab` and the `:` picker -- are fed by the same index, built per *tab*: the
-7TV global and channel sets, which belong to the room, plus Twitch's global and channel emotes
-for that tab's account, which don't. Subscriber emotes are the reason for the split -- what one
-of your logins can send isn't what another can -- so the same channel open twice offers two
-different completion lists, and changing a tab's account rebuilds its own.
+Both entry points -- `Tab` and the `:` picker -- are fed by the same index, built per *tab* from
+the enabled 7TV, BTTV, and FFZ global and channel sets plus Twitch's global and channel catalogs.
+Third-party sets are shared across accounts. Twitch globals are stored per account and channel
+catalogs per session, fetched using that account's credentials; an anonymous tab has only the
+third-party entries. These Twitch endpoints list catalog emotes regardless of the account's
+entitlement to send them. The index is therefore not an inventory of owned subscriber emotes,
+and two signed-in accounts on the same room normally receive the same catalog. Changing a tab's
+account rebuilds its index.
 
 The `:` picker ranks an exact prefix above a coincidental substring hit, so a name that merely
 contains what you typed is reachable without burying the one that starts with it. Emoji join the
@@ -1204,6 +1217,11 @@ decorations back on with `titleBarStyle: "Overlay"`, so the system draws the fra
 traffic lights over our own bar and we draw no window buttons of our own. `IS_MACOS`
 ([src/lib/tauri.ts](src/lib/tauri.ts)) gates that, the padding the lights land in, and the sizes
 of everything else in the row.
+
+Tauri merges the platform config by replacing arrays, so the macOS `app.windows` entry replaces
+the entire base window list. Shared window settings belong in both config files; changing only
+the base silently leaves macOS unchanged. Both entries disable native `dragDropEnabled` because
+Tauri's file-drop handling otherwise intercepts the HTML5 tab-drag events used by split view.
 
 The lights are a fixed system size. Apps that shrink them call `setFrameSize` on the buttons
 AppKit hands back, which Tauri exposes no way to reach and which is fragile enough that Warp,
@@ -1357,7 +1375,7 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/twitch/badges.rs` | Helix global and channel badges |
 | `src-tauri/src/twitch/emotes.rs` | Helix emote names, for completion only |
 | `src-tauri/src/twitch/commands.rs` | Every slash command, as its Helix call |
-| `src-tauri/src/twitch/eventsub.rs` | The whisper socket, one per account |
+| `src-tauri/src/twitch/eventsub.rs` | Shared whisper/channel-event socket per account with open channel tabs |
 | `src-tauri/src/usercard.rs` | The card behind a name: Helix profile, ivr.fi follow and subs |
 | `src-tauri/src/linkinfo.rs` | Link previews: the fetch, the meta scan, the YouTube fields |
 | `src-tauri/src/emotes/seventv_links.rs` | A 7TV emote link, previewed as the emote |
@@ -1365,7 +1383,7 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/state.rs` | Accounts, connections, per-room data and per-session state |
 | `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
-| `src/store/chat.ts` | Zustand store, per-channel 500-message ring buffer, pane layout |
+| `src/store/chat.ts` | Zustand store, per-tab message arrays trimmed to 500 when exceeding 600, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
 | `src/components/Panes.tsx` | One pane or two, the divider, and the empty-pane screen |
 | `src/components/AccountMenu.tsx` | The tab's (and composer's) account picker |
@@ -1388,6 +1406,12 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `scripts/bump-version.py` | Sets the version in the five files that have to agree |
 
 ## Diagnostics
+
+Tauri's synchronous `setup()` callback runs outside a Tokio runtime context. Startup work uses
+Tauri's async runtime, directly or through `diagnostics::supervise`, rather than `tokio::spawn`.
+Shared state uses short-lived `parking_lot::RwLock` guards: async work clones the owned values
+it needs and releases those guards before awaiting. Locks intentionally spanning async operations,
+such as room-asset loading and updater serialization, use Tokio's async mutexes instead.
 
 ### Development reloads
 
@@ -1431,13 +1455,13 @@ the plugin, or the logger it writes into doesn't exist yet and the first panic i
 goes missing.
 
 `supervise` replaces `tauri::async_runtime::spawn` for the long-lived tasks -- the IRC sockets,
-the whisper sockets, the 7TV event socket, the pollers, the badge resolver, the asset loads. It
+the EventSub supervisor, the 7TV event socket, the pollers, the badge resolver, the asset loads. It
 catches the unwind and names the task that stopped; the hook has already written why. Nothing is
 restarted: each of these already has its own retry loop for the failures it expects, so reaching
 that line means an assumption broke rather than a network did, and running it again over state it
-may have left half-written is a worse answer than a line in the log. The whisper sockets are the
-one exception and are spawned directly, because their handles are deliberately aborted whenever
-the accounts change and `supervise` would report each of those as a task ending.
+may have left half-written is a worse answer than a line in the log. Individual EventSub account
+tasks are spawned directly so the supervisor can abort their handles on sign-out, final-channel-tab
+closure, or an explicit restart.
 
 The webview half is [src/lib/diagnostics.ts](src/lib/diagnostics.ts): `error` and
 `unhandledrejection` listeners installed before the first render, forwarding through the plugin's
@@ -1472,17 +1496,14 @@ and what folding it into a channel does to the merged map -- and, for link previ
 meta-tag scan, the entity decoding, YouTube and Twitch url recognition, the count and duration
 formatting, and the refusal to fetch this machine's own network.
 
-`cargo test -- --ignored` additionally hits the real APIs: one check runs a message through the
-whole pipeline off the live Twitch socket and 7TV, another parses the BetterTTV and FrankerFaceZ
-sets for real channels, a third resolves 7TV badges for users who do and don't have one, a fourth
-loads a user card unauthenticated -- the path with no Helix token, where ivr.fi answers both
-halves -- a fifth reads real pages for previews, including the YouTube card whose every row
-comes from a different part of the page, and a sixth opens the 7TV event socket and checks that
-a real channel's emote set is something 7TV will accept a subscription for, which is the half
-of that protocol no offline test can cover. A seventh covers Twitch's own links and needs a
-token, so it skips unless `TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are set. Those are
-the ones that catch a provider changing its response shape -- the symptom is an empty map,
-which is indistinguishable from a channel that simply has no emotes there.
+`cargo test -- --ignored` additionally runs opt-in checks against real services. The checks in
+`livecheck.rs` cover the Twitch/7TV message pipeline, BTTV and FFZ catalogs, 7TV badges,
+unauthenticated ivr.fi user cards, page previews including YouTube, 7TV emote-link previews,
+Twitch link previews, and a real 7TV emote-set subscription. The Twitch link check skips unless
+`TWITCH_TEST_CLIENT_ID` and `TWITCH_TEST_TOKEN` are set. Separate ignored tests in `irc/client.rs`
+and `twitch/pins.rs` check Twitch's anonymous WebSocket ping/pong support and anonymous public-pin
+queries. These catch provider response and protocol changes that offline fixtures cannot detect;
+an unexpectedly empty catalog can otherwise look like a channel simply has no emotes.
 
 `npm test` runs the Vitest frontend regression suite, and `npm run build` type-checks and bundles
 the production UI. The release workflow runs both, plus Rust formatting, strict Clippy and the
