@@ -1,3 +1,4 @@
+import { InlinePlayerActions } from "./InlinePlayerActions";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { twitchClipEmbed } from "../lib/twitchClips";
 import { openLink } from "../lib/youtube";
@@ -36,8 +37,11 @@ export function TwitchClipPlayer({ clip, href, onClose }: {
     <span className="my-2 block w-full max-w-[480px] rounded-md border border-line bg-surface-raised p-2 text-xs text-ink" onClick={(event) => event.stopPropagation()}>
       <span className="mb-2 flex items-center justify-between gap-2">
         <span>Twitch clip{loading && !prompt ? " · Loading…" : ""}</span>
-        <button className="text-ink-dim hover:text-ink" onClick={onClose} aria-label="Close Twitch clip player">Close</button>
+        <InlinePlayerActions name="Twitch clip" onClose={onClose} onOpenBrowser={() => {
+          void openLink(href).then(onClose).catch(() => setBrowserError(true));
+        }} />
       </span>
+      {browserError && <span role="alert" className="mb-2 block">Couldn’t open the browser. Copy the link address from its context menu.</span>}
       {prompt ? (
         <span role="alert" className="block">
           Clip not playing inline? Open it in your browser?
@@ -47,7 +51,6 @@ export function TwitchClipPlayer({ clip, href, onClose }: {
             }}>Open in browser</button>
             <button onClick={onClose}>Cancel</button>
           </span>
-          {browserError && <span className="mt-2 block">Couldn’t open the browser. Copy the link address from its context menu.</span>}
         </span>
       ) : (
         <>

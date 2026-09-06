@@ -23,6 +23,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Inline players use an X close icon and an adjacent icon to open the link in a browser and close the player.
+
 - Opening an inline video closes the previous player and stops its playback across chat panes.
 
 - Default all four permission options on when adding an account.
