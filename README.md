@@ -9,20 +9,17 @@ in a browser.
 - Tabbed chats for multiple channels, with optional split-screen viewing
 - Multiple Twitch accounts, with per-tab account selection and permission controls
 - Chat history search
+- Six built-in color themes, plus customizable appearance and notifications
 - Custom listener tabs for account mentions, selected users, and arbitrary phrases across open channels
 - Optional sound and tab notifications for listener matches
 - Mute notification sounds or ignore notifications from specific users and channels through settings and context menus
 - Moderator shortcuts for deleting messages, bans, unbans, and timeouts
-- Chat activity notices for cheers, moderation, shared chat, chat-mode changes, and your own
-  AutoMod results; Hype Train and shoutout notices where Twitch permissions allow
 - Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
 - Animated Twitch Cheermotes with tier colors and Bits amounts, including channel-custom art
-- Twitch Gigantify power-ups, with an on/off toggle and adjustable size up to 500% (400% by default)
-- Cosmic Abyss, Rainbow Eclipse, and Emote Party message effects, with an on/off toggle and reduced-motion support
+- Twitch Gigantify power-ups, with an on/off toggle and adjustable size
+- Cosmic Abyss, Rainbow Eclipse, and Emote Party message effects, with an on/off toggle
 - Replies, whispers, badges, hover-previewable scrollbar mention markers, Twitch chat commands, and link previews
-- Automatic chat reconnection and missed-message recovery after the computer wakes from sleep
-- An offline What's New summary the first time each new version launches
-- Six built-in color themes, plus customizable appearance and notifications
+
 
 ChatWow is available for Windows, macOS, and Linux.
 
