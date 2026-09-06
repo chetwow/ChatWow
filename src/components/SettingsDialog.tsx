@@ -883,18 +883,18 @@ export function SettingsDialog({
                     label="Play YouTube videos inline"
                   />
                 </Row>
-                <Row label="Keep video players open when scrolled off screen">
+                <Row label="Close inline player when scrolled off screen">
                   <Toggle
-                    checked={preferences.keepVideoPlayersOffscreen}
-                    onChange={(keepVideoPlayersOffscreen) => updatePreferences({ keepVideoPlayersOffscreen })}
-                    label="Keep video players open when scrolled off screen"
+                    checked={!preferences.keepVideoPlayersOffscreen}
+                    onChange={(closeOffscreen) => updatePreferences({ keepVideoPlayersOffscreen: !closeOffscreen })}
+                    label="Close inline player when scrolled off screen"
                   />
                 </Row>
-                <Row label="Keep video players open when tab inactive">
+                <Row label="Close inline player when tab inactive">
                   <Toggle
-                    checked={preferences.keepVideoPlayersInactive}
-                    onChange={(keepVideoPlayersInactive) => updatePreferences({ keepVideoPlayersInactive })}
-                    label="Keep video players open when tab inactive"
+                    checked={!preferences.keepVideoPlayersInactive}
+                    onChange={(closeInactive) => updatePreferences({ keepVideoPlayersInactive: !closeInactive })}
+                    label="Close inline player when tab inactive"
                   />
                 </Row>
               </Section>
