@@ -1202,8 +1202,7 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
-              <Section title="Muted notifications">
-                <p className="text-xs text-ink-dim">Silence sounds from these users or channels. Highlights, badges, and listener messages remain.</p>
+              <Section title="Muted notifications" hint="Silence sounds from these users or channels. Highlights, badges, and listener messages remain.">
                 <NameListEditor
                   entries={preferences.notificationMutes}
                   placeholder="@user or #channel"
@@ -1213,8 +1212,7 @@ export function SettingsDialog({
                   onRemove={(entry) => setNotificationMuted(entry, false)}
                 />
               </Section>
-              <Section title="Ignored notifications">
-                <p className="text-xs text-ink-dim">Disable sounds, mention highlights, badges, and listener matches. Messages stay visible in channel chat.</p>
+              <Section title="Ignored notifications" hint="Disable sounds, mention highlights, badges, and listener matches. Messages stay visible in channel chat.">
                 <NameListEditor
                   entries={preferences.mentionIgnores}
                   placeholder="@user or #channel"

@@ -190,13 +190,12 @@ impl Subscriptions {
             .retain(|(spec, retry)| wanted.contains(spec) && *retry > tokio::time::Instant::now());
         // At most one HTTP operation per tick so WebSocket reads aren't starved
         // when many tabs open at once or Twitch is slow to answer.
-        let obsolete: Vec<_> = self
+        let obsolete = self
             .active
             .iter()
-            .filter(|(spec, _)| !wanted.contains(spec))
-            .cloned()
-            .collect();
-        for (_, id) in obsolete {
+            .find(|(spec, _)| !wanted.contains(spec))
+            .map(|(_, id)| id.clone());
+        if let Some(id) = obsolete {
             let response = state
                 .http
                 .delete(SUBSCRIPTIONS_URL)

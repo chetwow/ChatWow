@@ -1117,9 +1117,10 @@ have them sitting in its corner.
 Almost nothing carries an info dot. The reader is someone who went looking for a third-party
 Twitch client, so a hint explaining what a mention or a block is reads as condescension, and a
 hint restating its own label is worse than none -- the dot promises something the tooltip then
-fails to deliver. One survives, on the log folder, because what a log file contains is a fact
-about this app that nothing on screen reveals. Where two controls genuinely needed telling apart
-the fix was the label: "Notify on any mention" became "Notify on your name without the @". A hint
+fails to deliver. Log folder explains what the logs contain; muted and ignored notifications
+explain their different effects on sounds, badges, highlights, and listener matches. Where other
+controls needed telling apart, the fix was the label: "Notify on any mention" became "Notify on
+your name without the @". A hint
 resets case, weight and tracking rather than inheriting them: it hangs inside the label it
 explains, and a section heading's small caps were being inherited into whole sentences.
 
