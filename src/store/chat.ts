@@ -32,6 +32,7 @@ import type {
   RoleEvent,
   EmoteRule,
   Preferences,
+  PinnedMessage,
   EmoteEntry,
   ChannelReadyEvent,
   ChatMessage,
@@ -478,7 +479,31 @@ export function activeModeration(
   return held && (held.expiresAt === null || held.expiresAt > now) ? held : undefined;
 }
 
+function unexpiredPins(pins: Record<string, PinnedMessage>): Record<string, PinnedMessage> {
+  const now = Date.now();
+  return Object.fromEntries(Object.entries(pins).filter(([, pin]) =>
+    pin.expiresAt === null || pin.expiresAt > now,
+  ));
+}
+
+/** Shared by the panel and the tab menu so blocked/expired pins stay hidden. */
+export function tabPin(state: Pick<ChatState, "tabs" | "pinnedMessages" | "preferences">, tabId: string) {
+  const tab = state.tabs.find((tab) => tab.id === tabId);
+  if (tab?.kind !== "channel") return undefined;
+  const pin = state.pinnedMessages[tab.channel];
+  if (!pin || (pin.expiresAt !== null && pin.expiresAt <= Date.now()) ||
+    userBlocked(pin.message, state.preferences.blockedUsers)) return undefined;
+  return pin;
+}
+
 type ChatState = {
+  /** Public pins by channel; dismissal belongs to each tab and pin identity. */
+  pinnedMessages: Record<string, PinnedMessage>;
+  dismissedPins: Record<string, string>;
+  receivePinnedMessages: (pins: Record<string, PinnedMessage>) => void;
+  dismissPinnedMessage: (tabId: string) => void;
+  viewPinnedMessage: (tabId: string) => void;
+  expirePinnedMessages: () => void;
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];
   /**
@@ -793,6 +818,7 @@ function forgetTab(state: ChatState, id: string) {
   };
   return {
     messages: drop(state.messages),
+    dismissedPins: drop(state.dismissedPins),
     unread: drop(state.unread),
     mentions: drop(state.mentions),
     chatters: drop(state.chatters),
@@ -870,6 +896,26 @@ async function closeTabNow(id: string) {
 }
 
 export const useChat = create<ChatState>((set) => ({
+  pinnedMessages: {},
+  dismissedPins: {},
+  receivePinnedMessages: (pins) => set({ pinnedMessages: unexpiredPins(pins) }),
+  dismissPinnedMessage: (tabId) => set((state) => {
+    const pin = tabPin(state, tabId);
+    return pin ? { dismissedPins: { ...state.dismissedPins, [tabId]: pin.id } } : {};
+  }),
+  viewPinnedMessage: (tabId) => {
+    const state = useChat.getState();
+    if (!tabPin(state, tabId)) return;
+    const dismissedPins = { ...state.dismissedPins };
+    delete dismissedPins[tabId];
+    set({ dismissedPins });
+    state.setActive(tabId);
+  },
+  expirePinnedMessages: () => set((state) => {
+    const pins = unexpiredPins(state.pinnedMessages);
+    return Object.keys(pins).length === Object.keys(state.pinnedMessages).length
+      ? state : { pinnedMessages: pins };
+  }),
   tabs: [],
   active: [null, null],
   focusedPane: 0,
@@ -1699,6 +1745,7 @@ export const useChat = create<ChatState>((set) => ({
         buildInitialMessages,
         mockAuthStatus,
         mockSevenTvBadges,
+        mockPinnedMessages,
         MOCK_CHANNEL_AVATARS,
       } = await import("../dev/mockData");
       const { mockUpdateState } = await import("../dev/mockUpdates");
@@ -1712,6 +1759,7 @@ export const useChat = create<ChatState>((set) => ({
         emoteCounts: Object.fromEntries(tabs.map((tab) => [tab.channel, 886])),
         live: { [tabs[0].channel]: true },
         channelAvatars: MOCK_CHANNEL_AVATARS,
+        pinnedMessages: mockPinnedMessages(),
         // One tab of each, so the command picker's filtering is visible.
         roles: { [tabs[0].id]: "moderator", [tabs[1].id]: "broadcaster" },
         connections: Object.fromEntries(tabs.map((tab) => [tab.account, "connected" as const])),
@@ -1724,13 +1772,15 @@ export const useChat = create<ChatState>((set) => ({
       return;
     }
 
-    const [tabs, auth, preferences, channelAvatars, live, update] = await Promise.all([
+    const pinsBeforeSnapshot = useChat.getState().pinnedMessages;
+    const [tabs, auth, preferences, channelAvatars, live, update, pins] = await Promise.all([
       api.listTabs(),
       api.authStatus(),
       api.preferences(),
       api.channelAvatars(),
       api.liveChannels(),
       api.updateState(),
+      api.pinnedMessages(),
     ]);
     const settings = normalize(preferences);
     set((state) => ({
@@ -1739,6 +1789,9 @@ export const useChat = create<ChatState>((set) => ({
       preferences: settings,
       update,
       channelAvatars,
+      // An event received during startup is newer than this requested snapshot.
+      pinnedMessages: state.pinnedMessages === pinsBeforeSnapshot
+        ? unexpiredPins(pins) : state.pinnedMessages,
       live: Object.fromEntries(live.map((login) => [login, true])),
       // Each pane opens on its own first tab.
       active: settleActive({ tabs, preferences: settings }, state.active),
@@ -1758,6 +1811,7 @@ export async function subscribeToBackend(): Promise<() => void> {
   if (MOCK_MODE) {
     const { randomMockMessage } = await import("../dev/mockData");
     const interval = window.setInterval(() => {
+      useChat.getState().expirePinnedMessages();
       const tabs = useChat.getState().tabs.filter((tab) => tab.kind === "channel");
       if (tabs.length === 0) return;
       const tab = tabs[Math.floor(Math.random() * tabs.length)];
@@ -1767,6 +1821,9 @@ export async function subscribeToBackend(): Promise<() => void> {
   }
 
   const unlisteners = await Promise.all([
+    listen<Record<string, PinnedMessage>>("chat://pins", (event) => {
+      useChat.getState().receivePinnedMessages(event.payload);
+    }),
     listen<ChatMessage[]>("chat://messages", (event) => {
       useChat.getState().ingest(event.payload);
     }),
@@ -1874,5 +1931,9 @@ export async function subscribeToBackend(): Promise<() => void> {
     }),
   ]);
 
-  return () => unlisteners.forEach((off) => off());
+  const expiry = window.setInterval(() => useChat.getState().expirePinnedMessages(), 1000);
+  return () => {
+    window.clearInterval(expiry);
+    unlisteners.forEach((off) => off());
+  };
 }

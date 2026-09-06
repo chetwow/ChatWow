@@ -8,7 +8,7 @@ import {
   type DragEvent,
   type MouseEvent,
 } from "react";
-import { mentionTabName, paneTabs, useChat } from "../store/chat";
+import { mentionTabName, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
 import { AccountMenu } from "./AccountMenu";
@@ -45,6 +45,11 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const moveTab = useChat((state) => state.moveTab);
   /** Which tab's account menu is open, and where it was opened. */
   const [accountMenu, setAccountMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const canViewPin = useChat((state) => {
+    if (!accountMenu) return false;
+    const pin = tabPin(state, accountMenu.id);
+    return !!pin && state.dismissedPins[accountMenu.id] === pin.id;
+  });
   const [barMenu, setBarMenu] = useState<{ x: number; y: number } | null>(null);
   const [optionsTab, setOptionsTab] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -477,6 +482,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       tabId={accountMenu.id}
       x={accountMenu.x}
       y={accountMenu.y}
+      onViewPinnedMessage={canViewPin
+        ? () => useChat.getState().viewPinnedMessage(accountMenu.id) : undefined}
       onOptions={() => setOptionsTab(accountMenu.id)}
       onRename={() => {
         const tab = tabs_.find((candidate) => candidate.id === accountMenu.id);

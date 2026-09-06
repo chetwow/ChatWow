@@ -322,7 +322,7 @@ function ReplyQuote({ replyTo, highlighted }: { replyTo: ReplyInfo; highlighted:
  * card's log of someone's messages renders them exactly as chat does, rather
  * than flattening a `PagChomp` back into six letters.
  */
-export function MessageBody({ message }: { message: StoredMessage }) {
+export function MessageBody({ message }: { message: Pick<StoredMessage, "segments" | "deleted"> }) {
   return (
     <span className={message.deleted ? "line-through" : undefined}>
       {message.segments.map((segment, index) => (

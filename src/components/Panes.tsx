@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from "react";
 import { TabBar } from "./TabBar";
 import { ChatView } from "./ChatView";
+import { PinnedMessagePanel } from "./PinnedMessagePanel";
 import { clampRatio, paneTabs, useChat } from "../store/chat";
 import { useTabDrag } from "../store/tabDrag";
 import type { PaneIndex } from "../types";
@@ -100,6 +101,7 @@ function Pane({
       }}
     >
       <TabBar pane={pane} onAdd={onAdd} />
+      {active && <PinnedMessagePanel tabId={active} />}
       {active ? (
         <ChatView
           key={active}

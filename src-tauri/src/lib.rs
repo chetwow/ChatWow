@@ -1108,6 +1108,11 @@ fn channel_avatars(state: State<'_, Shared>) -> HashMap<String, String> {
     state.channel_avatars.read().clone()
 }
 
+#[tauri::command]
+fn pinned_messages(state: State<'_, Shared>) -> HashMap<String, twitch::pins::PinnedMessage> {
+    twitch::pins::snapshot(&state)
+}
+
 /// Which joined channels are live, for the tab bar to start from.
 ///
 /// Same reason as `channel_avatars`, and the same startup to get wrong:
@@ -1705,6 +1710,10 @@ pub fn run() {
                 client::watch_for_system_sleep(Arc::clone(&shared)),
             );
             diagnostics::supervise("live poll", poll_live(handle.clone(), Arc::clone(&shared)));
+            diagnostics::supervise(
+                "pinned messages",
+                twitch::pins::run(handle.clone(), Arc::clone(&shared)),
+            );
             // Tokens outlive neither the app nor a long session on their own.
             diagnostics::supervise(
                 "token poll",
@@ -1759,6 +1768,7 @@ pub fn run() {
             set_tab_account,
             set_tab_avatar_mode,
             channel_avatars,
+            pinned_messages,
             live_channels,
             reorder_tabs,
             send_message,

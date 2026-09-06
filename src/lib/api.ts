@@ -8,6 +8,7 @@ import type {
   PreviewImage,
   MentionFilter,
   Preferences,
+  PinnedMessage,
   Tab,
   TabAvatarMode,
   UpdateState,
@@ -54,6 +55,7 @@ export const api = {
   reorderTabs: (ids: string[]) => invoke<Tab[]>("reorder_tabs", { ids }),
   /** Owner avatars fetched so far, by channel. Empty when signed out. */
   channelAvatars: () => invoke<Record<string, string>>("channel_avatars"),
+  pinnedMessages: () => invoke<Record<string, PinnedMessage>>("pinned_messages"),
   /** Which joined channels are live right now. Empty when signed out. */
   liveChannels: () => invoke<string[]>("live_channels"),
   sendMessage: (account: string, channel: string, text: string, replyToId?: string) =>

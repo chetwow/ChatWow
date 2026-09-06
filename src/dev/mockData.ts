@@ -9,6 +9,7 @@ import type {
   LinkPreview,
   MessageEffect,
   Overlay,
+  PinnedMessage,
   ReplyInfo,
   Segment,
   Tab,
@@ -23,6 +24,30 @@ import { linkKind } from "../lib/links";
  */
 
 export const MOCK_CHANNELS = ["sodapoppin", "xqc", "forsen"];
+
+export function mockPinnedMessages(): Record<string, PinnedMessage> {
+  return {
+    sodapoppin: {
+      id: "mock-pin-1",
+      pinnedBy: "sodapoppin",
+      expiresAt: null,
+      message: {
+        id: "mock-pinned-message-1", channel: "sodapoppin", account: "", userId: "12345",
+        ts: Date.now(), login: "chatmod", displayName: "ChatMod", color: "#b99aff",
+        badges: [], isAction: false, isFirstMessage: false, kind: "chat", historical: false,
+        systemMessage: null, replyTo: null,
+        segments: [
+          { kind: "text", text: "Welcome in! Today's schedule is on " },
+          { kind: "link", text: "twitch.tv/sodapoppin/schedule", href: "https://www.twitch.tv/sodapoppin/schedule" },
+          { kind: "text", text: ". Enjoy the stream " },
+          { kind: "emote", id: "25", name: "Kappa", provider: "twitch", overlays: [],
+            url: "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+            url_large: "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0" },
+        ],
+      },
+    },
+  };
+}
 
 const PARTY_EFFECT: MessageEffect = {
   kind: "emote-party",

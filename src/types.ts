@@ -102,6 +102,14 @@ export type ChatMessage = {
   messageEffect?: MessageEffect;
 };
 
+/** Public room state, rendered separately from the chat timeline. */
+export type PinnedMessage = {
+  id: string;
+  message: ChatMessage;
+  pinnedBy: string;
+  expiresAt: number | null;
+};
+
 /** A message after the store adds its local identity. */
 export type StoredMessage = ChatMessage & {
   key: number;

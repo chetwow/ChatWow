@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Show Twitch pinned messages beneath the tabs, with an X to dismiss each pin and a
+  "View pinned message" tab-menu option to bring it back. New pins appear automatically.
+
 ### Fixed
 
 - Restored signed-in chat after sleep when Twitch credentials expire, checking and renewing them

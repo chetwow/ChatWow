@@ -194,6 +194,7 @@ pub struct AuthStatus {
 #[derive(Debug, Default)]
 pub struct ChannelData {
     pub room_id: Option<String>,
+    pub pinned_message: Option<crate::twitch::pins::PinnedMessage>,
     /// Whether the emote and badge sets have landed. Fetched once per channel
     /// however many accounts are in it -- they're the same sets either way.
     pub assets_ready: bool,

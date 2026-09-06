@@ -73,6 +73,32 @@ unban/untimeout notices carry optional `unbannedLogin` metadata to clear the exi
 moderation record without parsing their display text. No held message is echoed publicly; an
 approved message still arrives through IRC. Existing tokens need reauthorization for new scopes.
 
+## Pinned messages
+
+Public moderator pins belong to `ChannelData`, shared across accounts viewing the same room.
+The supported Helix pin endpoint requires moderator privileges, so `twitch::pins` isolates an
+anonymous query to Twitch's web GraphQL endpoint for ordinary viewer and signed-out tabs.
+It uses the public web client identifier, never an account token, cookie, or integrity credential.
+This undocumented interface may change; failures do not interrupt chat or authentication.
+
+One supervised task polls joined room IDs every 15 seconds, with at most four requests in flight,
+an eight-second timeout and a 256 KB response cap. Empty results remove a pin; failed or malformed
+responses keep the last successful result for up to a minute before the next failed poll clears
+it. Expired pins are excluded from snapshots immediately. A changed full map emits `chat://pins`;
+`pinned_messages` supplies the startup snapshot. The frontend also expires pins by wall clock,
+including when the backend is waiting on a request. Poll timing uses wall clock to refresh after
+sleep. Closing the final room tab drops its `ChannelData` and pin.
+
+Structured Twitch fragments are adapted to code-point emote ranges for the existing Rust
+renderer, preserving links, Cheermotes, third-party emotes and overlays. Pins never pass through
+the chat ingest path: no timeline duplication, unread counts, sounds, or listener backfill.
+React reuses `MessageBody` and its provider/blacklist rules, and hides pins from blocked users.
+The panel sits between each pane's tab bar and chat view, outside the scrolling timeline.
+Session-only dismissal is keyed by tab ID and pin ID; duration changes keep the dismissal and
+a different pin appears automatically. Only dismissed, still-current pins offer "View pinned
+message" in the tab menu; choosing it activates that tab in its existing pane. Closing a tab
+forgets its dismissal.
+
 ## Chat backlog on join
 
 Joining a channel shows the last 150 messages rather than an empty pane. Twitch has no chat

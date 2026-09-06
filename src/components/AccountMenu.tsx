@@ -21,6 +21,7 @@ export function AccountMenu({
   y,
   onOptions,
   onRename,
+  onViewPinnedMessage,
   onClose,
 }: {
   tabId: string;
@@ -28,6 +29,7 @@ export function AccountMenu({
   y: number;
   onOptions?: () => void;
   onRename?: () => void;
+  onViewPinnedMessage?: () => void;
   onClose: () => void;
 }) {
   const accounts = useChat((state) => state.auth.accounts);
@@ -98,6 +100,10 @@ export function AccountMenu({
     ...accounts.map((account) => choose(account.id)),
     choose(ANONYMOUS),
     { separator: true },
+    ...(onViewPinnedMessage ? [
+      { label: "View pinned message", onSelect: onViewPinnedMessage } satisfies ContextMenuOption,
+      { separator: true } satisfies ContextMenuOption,
+    ] : []),
     {
       label: ignoring ? "Stop ignoring notifications" : "Ignore notifications",
       onSelect: () => setMentionIgnored(channelRule, !ignoring),
