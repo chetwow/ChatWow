@@ -1380,6 +1380,24 @@ overlay inside the cog's existing fixed box: it must never change what the title
 
 ## Diagnostics
 
+### Development reloads
+
+Vite can reset the webview while Rust's IRC sessions remain alive; one-time readiness, role,
+and connection events have already fired. Only `import.meta.env.DEV && IS_TAURI` loads
+`src/dev/backendSession.ts`. It serializes listener attachment, bootstrap, and cleanup across
+StrictMode remounts and hot module replacement, retries failed initialization, and reads a
+metadata snapshot every two seconds. Missing completion indexes are rebuilt from Rust's held
+catalogs. This restores the composer and tab state without reconnecting sockets, refreshing
+tokens, replaying messages, or recreating EventSub subscriptions. A full webview reload still
+starts a new in-memory message log; new traffic continues on the existing sockets.
+
+`dev::dev_chat_snapshot`, its passive status listener, and the entire Rust `dev` module are
+guarded by `cfg(debug_assertions)`. The frontend helper is dynamically imported behind Vite's
+compile-time DEV guard and is absent from production output. Release startup and networking
+remain on their existing path.
+
+### Logging
+
 Nothing this app knew used to survive it. Rust's diagnostics went to stderr, which under
 `npm run tauri dev` means a terminal you may have closed and in a bundled `.app` means nowhere at
 all; an exception in the webview stayed in a devtools console nobody had open; and a panic inside

@@ -1,6 +1,8 @@
 mod auth;
 mod badge_cache;
 mod color;
+#[cfg(debug_assertions)]
+mod dev;
 mod diagnostics;
 mod emotes;
 mod irc;
@@ -1649,6 +1651,8 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            #[cfg(debug_assertions)]
+            dev::install(&handle);
             let shared: Shared = Arc::new(AppState::new());
 
             // Restore the previous session.
@@ -1747,6 +1751,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(debug_assertions)]
+            dev::dev_chat_snapshot,
             auth_status,
             set_client_id_override,
             set_permission_groups,

@@ -18,7 +18,7 @@ import {
   tabShortcut,
 } from "./lib/tabShortcuts";
 import { themeStyle } from "./lib/themes";
-import { IS_MACOS } from "./lib/tauri";
+import { IS_MACOS, IS_TAURI } from "./lib/tauri";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -69,6 +69,14 @@ export default function App() {
     // sent only when something *changes*, so the next one could be minutes
     // away or never. Bootstrapping afterwards means anything missed is read
     // back rather than waited for.
+    if (import.meta.env.DEV && IS_TAURI) {
+      let cancelled = false;
+      let stop: (() => void) | undefined;
+      void import("./dev/backendSession").then(({ startDevBackend }) => {
+        if (!cancelled) stop = startDevBackend();
+      });
+      return () => { cancelled = true; stop?.(); };
+    }
     const listening = subscribeToBackend();
     void listening.then(() => bootstrap());
     return () => {
