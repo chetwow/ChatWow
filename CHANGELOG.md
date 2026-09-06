@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Replaced the title-bar app name with an info button showing ChatWow, its version, and a
+  GitHub link without hover previews.
 - Added a "Display message effect animations" option; turning it off keeps static clouds,
   glow, and party emotes. Power-up switches now read "Display message effects", "Display
   message effect animations", and "Display Gigantify", all on by default.

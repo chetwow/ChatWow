@@ -1171,7 +1171,12 @@ title bar rather than at the top of the window: on macOS the traffic lights are 
 system over everything the webview renders, so a dialog reaching the top of the window would
 have them sitting in its corner.
 
-Almost nothing carries an info dot. The reader is someone who went looking for a third-party
+The title bar's info button opens a small About panel with the app name, the current build version
+from the existing update-state snapshot, and an ordinary external GitHub link. It bypasses the
+chat-link renderer and preview fetching. The button and panel are outside the drag region;
+Escape, outside clicks, window blur, or focus leaving the panel dismiss it.
+
+Almost nothing carries a tooltip info dot. The reader is someone who went looking for a third-party
 Twitch client, so a hint explaining what a mention or a block is reads as condescension, and a
 hint restating its own label is worse than none -- the dot promises something the tooltip then
 fails to deliver. Log folder explains what the logs contain; muted and ignored notifications

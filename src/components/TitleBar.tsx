@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useChat } from "../store/chat";
-import { IS_MACOS, TITLE_BAR_PX } from "../lib/tauri";
+import { IS_MACOS, IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
 import type { AuthStatus } from "../types";
@@ -215,6 +216,81 @@ const ICON_GAP = IS_MACOS ? "" : "mr-1";
 const GLYPH = IS_MACOS ? 16 : 13;
 const TEXT = IS_MACOS ? "text-[12px]" : "text-[11px]";
 
+function AppInfoButton() {
+  const version = useChat((state) => state.update.currentVersion);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    panel.current?.focus();
+    const dismissOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const dismiss = () => setOpen(false);
+    window.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("blur", dismiss);
+    return () => {
+      window.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("blur", dismiss);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className="relative shrink-0"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+          button.current?.focus();
+        }
+      }}>
+      <button ref={button}
+        onPointerDown={(event) => {
+          // WebKit can blur the panel without focusing a clicked button.
+          // Keep focus until click toggles it, so blur cannot close then reopen it.
+          if (event.button === 0) event.preventDefault();
+        }}
+        onClick={() => setOpen((current) => !current)}
+        aria-label="About ChatWow" title="About ChatWow"
+        aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? "app-info" : undefined}
+        className={`grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={GLYPH} height={GLYPH}
+          fill="none" stroke="currentColor" strokeWidth="1.4">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 7v4" strokeLinecap="round" />
+          <circle cx="8" cy="4.7" r=".8" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
+      {open && (
+        <div ref={panel} id="app-info" role="dialog" aria-labelledby="app-info-name"
+          data-modal tabIndex={-1}
+          className="absolute right-0 top-full z-50 mt-1 w-56 max-w-[calc(100vw-100px)] rounded-lg border border-line bg-surface-raised p-4 shadow-2xl shadow-black/60 outline-none">
+          <h2 id="app-info-name" className="text-[14px] font-semibold text-ink">ChatWow</h2>
+          <p className="mt-1 text-[12px] text-ink-dim">{version ? `Version ${version}` : "Loading version…"}</p>
+          {/* Ordinary external link: deliberately no chat-link hover preview. */}
+          <a href="https://github.com/chetwow/ChatWow" target="_blank" rel="noopener noreferrer"
+            onClick={(event) => {
+              if (IS_TAURI) {
+                event.preventDefault();
+                void openUrl("https://github.com/chetwow/ChatWow");
+              }
+            }}
+            className="mt-3 inline-block text-[12px] text-accent hover:underline focus-visible:outline-accent">
+            GitHub
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TitleBar({
   onOpenSettings,
   onSearch,
@@ -242,15 +318,6 @@ export function TitleBar({
       style={{ height: TITLE_BAR_PX }}
       className={`flex shrink-0 items-center border-b border-line bg-surface-raised ${BAR}`}
     >
-      <div data-tauri-drag-region className="flex items-center gap-2">
-        <span
-          data-tauri-drag-region
-          className={`shrink-0 font-semibold tracking-wide text-ink-dim ${TEXT}`}
-        >
-          ChatWow
-        </span>
-      </div>
-
       <div data-tauri-drag-region className="flex-1" />
 
       <button
@@ -293,7 +360,7 @@ export function TitleBar({
         onClick={() => onOpenSettings("general")}
         aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
         title={updatePending ? "An update is waiting" : "Settings"}
-        className={`relative ${ICON_GAP} grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
+        className={`relative ml-3 ${ICON_GAP} grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
       >
         {/* A cog, not a sun: the teeth are a heavy dashed ring around the
             body circle, which reads as a gear at 13px without hand-plotting
@@ -310,6 +377,8 @@ export function TitleBar({
           <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-accent" />
         )}
       </button>
+
+      <AppInfoButton />
 
       {!IS_MACOS && (
         <>
