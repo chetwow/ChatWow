@@ -23,6 +23,8 @@ in a browser.
 
 ChatWow is available for Windows, macOS, and Linux.
 
+<img width="1400" height="1050" alt="screenshot2" src="https://github.com/user-attachments/assets/e2513db3-406d-4400-ba66-8e401bc5a4c4" />
+
 ## Keyboard shortcuts
 
 - `Ctrl+1`–`Ctrl+8` on Windows/Linux or `Cmd+1`–`Cmd+8` on macOS selects a numbered tab.
@@ -33,4 +35,3 @@ ChatWow is available for Windows, macOS, and Linux.
 - `Cmd+,` opens Settings on macOS.
 
 <img width="1448" height="1086" alt="d2da58ce-a0ac-49fa-b96b-460619b790c7" src="https://github.com/user-attachments/assets/59a67fa2-48cd-4c77-9dfb-df47b6762327" />
-<p align="center"><img width="532" height="774" alt="image" src="https://github.com/user-attachments/assets/16c2f899-392b-4063-b79c-80a8f81aacfb" /></p>
