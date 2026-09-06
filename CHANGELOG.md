@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-06
+
 ### Added
 
 - Replaced the title-bar app name with an info button showing ChatWow, its version, and a
@@ -19,8 +21,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Restored channel readiness and connection indicators after development hot reloads without
-  restarting healthy chat connections. Release behavior is unchanged.
 - Tab unread counts now include only chat messages and whispers, excluding connection status
   lines and Twitch event notifications.
 - Restored signed-in chat after sleep when Twitch credentials expire, checking and renewing them
