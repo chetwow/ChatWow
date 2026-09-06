@@ -13,6 +13,30 @@ use crate::irc::parse::{strip_action, IrcMessage};
 use crate::twitch::badges::{Badge, BadgeMap};
 use crate::twitch::cheermotes::{Catalog as CheermoteCatalog, Cheermote};
 
+/// Exact, readable durations for notices. Wide input also accommodates minutes
+/// converted to seconds without overflowing the original integer type.
+pub fn format_notice_duration(mut seconds: u128) -> String {
+    let mut parts = Vec::new();
+    for (size, unit) in [
+        (86_400, "day"),
+        (3_600, "hour"),
+        (60, "minute"),
+        (1, "second"),
+    ] {
+        let count = seconds / size;
+        seconds %= size;
+        if count > 0 {
+            let plural = if count == 1 { "" } else { "s" };
+            parts.push(format!("{count} {unit}{plural}"));
+        }
+    }
+    if parts.is_empty() {
+        "0 seconds".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Overlay {
     pub id: String,
@@ -796,6 +820,23 @@ pub fn notice(channel: &str, text: impl Into<String>) -> ChatMessage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn notice_durations_use_exact_units_and_correct_plurals() {
+        for (seconds, expected) in [
+            (0, "0 seconds"),
+            (1, "1 second"),
+            (59, "59 seconds"),
+            (60, "1 minute"),
+            (61, "1 minute 1 second"),
+            (3_600, "1 hour"),
+            (5_400, "1 hour 30 minutes"),
+            (86_400, "1 day"),
+            (183_845, "2 days 3 hours 4 minutes 5 seconds"),
+        ] {
+            assert_eq!(super::format_notice_duration(seconds), expected);
+        }
+    }
+
     use super::*;
 
     #[test]

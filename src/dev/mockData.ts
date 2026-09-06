@@ -269,7 +269,9 @@ type Draft = Partial<ChatMessage> & { login: string; displayName: string; color:
 // Event notices use the same resolved shape as the IRC/EventSub batching sink.
 const EVENT_DRAFTS: Draft[] = [
   "troublemaker was banned.",
-  "chattyviewer was timed out for 60 seconds.",
+  "chattyviewer was timed out for 1 minute.",
+  "chattyviewer was timed out for 1 hour 30 minutes.",
+  "chattyviewer was timed out for 1 day.",
   "LongtimeMod unbanned troublemaker.",
   "LongtimeMod removed the timeout for chattyviewer.",
   "A message from troublemaker was deleted by a moderator.",

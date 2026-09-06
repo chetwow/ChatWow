@@ -14,6 +14,7 @@
 //! round trip. Twitch is the final word either way; a command the picker got
 //! wrong fails here with Twitch's own explanation.
 
+use crate::render::format_notice_duration;
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
@@ -192,7 +193,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                 None => (600, rest),
             };
             ban(ctx, &login, Some(seconds), reason).await?;
-            Ok(format!("Timed out {login} for {seconds}s."))
+            Ok(format!(
+                "Timed out {login} for {}.",
+                format_notice_duration(seconds.into())
+            ))
         }
 
         "unban" | "untimeout" => {
@@ -266,7 +270,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                 json!({ "slow_mode": true, "slow_mode_wait_time": seconds }),
             )
             .await?;
-            Ok(format!("Slow mode on, {seconds}s between messages."))
+            Ok(format!(
+                "Slow mode on, {} between messages.",
+                format_notice_duration(seconds.into())
+            ))
         }
         "slowoff" => {
             chat_settings(ctx, json!({ "slow_mode": false })).await?;
@@ -287,7 +294,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
             Ok(match minutes {
                 0 => "Followers-only mode on.".to_string(),
                 minutes => {
-                    format!("Followers-only mode on, {minutes} minutes of following required.")
+                    format!(
+                        "Followers-only mode on, {} of following required.",
+                        format_notice_duration(u128::from(minutes) * 60)
+                    )
                 }
             })
         }
@@ -476,7 +486,10 @@ pub async fn run(ctx: &Context<'_>, name: &str, args: &str) -> Result<String> {
                     Some(json!({ "broadcaster_id": broadcaster, "length": seconds })),
                 )
                 .await?;
-            Ok(format!("Started a {seconds}s commercial."))
+            Ok(format!(
+                "Started a commercial lasting {}.",
+                format_notice_duration(seconds.into())
+            ))
         }
 
         "marker" => {

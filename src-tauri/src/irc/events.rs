@@ -1,5 +1,6 @@
 //! Notices derived from IRC events that are available to every chat reader.
 use super::parse::IrcMessage;
+use crate::render::format_notice_duration;
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]
@@ -30,8 +31,13 @@ impl RoomSettings {
                 continue;
             }
             let detail = match tag {
-                "slow" if value > 0 => format!("enabled ({value} seconds)"),
-                "followers-only" if value >= 0 => format!("enabled ({value} minutes)"),
+                "slow" if value > 0 => {
+                    format!("enabled ({})", format_notice_duration(value as u128))
+                }
+                "followers-only" if value == 0 => "enabled (0 minutes)".to_string(),
+                "followers-only" if value > 0 => {
+                    format!("enabled ({})", format_notice_duration(value as u128 * 60))
+                }
                 "followers-only" => "disabled".to_string(),
                 _ if value > 0 => "enabled".to_string(),
                 _ => "disabled".to_string(),
@@ -47,7 +53,10 @@ pub fn moderation_text(msg: &IrcMessage) -> Option<String> {
     Some(match msg.command.as_str() {
         "CLEARCHAT" => match msg.text().filter(|login| !login.is_empty()) {
             Some(login) => match msg.tag("ban-duration").and_then(|v| v.parse::<u64>().ok()) {
-                Some(seconds) => format!("{login} was timed out for {seconds} seconds."),
+                Some(seconds) => format!(
+                    "{login} was timed out for {}.",
+                    format_notice_duration(seconds.into())
+                ),
                 None => format!("{login} was banned."),
             },
             None => "Chat was cleared by a moderator.".to_string(),
@@ -95,6 +104,13 @@ mod tests {
         assert!(room
             .update(&parse_modes("slow=bad;followers-only=-9"))
             .is_empty());
+        assert_eq!(
+            room.update(&parse_modes("slow=90;followers-only=1440")),
+            [
+                "Slow mode enabled (1 minute 30 seconds).",
+                "Followers-only mode enabled (1 day)."
+            ]
+        );
     }
 
     #[test]
@@ -106,7 +122,11 @@ mod tests {
             ),
             (
                 "@ban-duration=60 :tmi.twitch.tv CLEARCHAT #room :viewer",
-                "viewer was timed out for 60 seconds.",
+                "viewer was timed out for 1 minute.",
+            ),
+            (
+                "@ban-duration=86400 :tmi.twitch.tv CLEARCHAT #room :viewer",
+                "viewer was timed out for 1 day.",
             ),
             (
                 ":tmi.twitch.tv CLEARCHAT #room",

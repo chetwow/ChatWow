@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Show readable days, hours, minutes, and seconds in timeout and chat-mode notices and
+  command confirmations instead of large raw durations.
+
 ## [1.4.0] - 2026-09-06
 
 ### Added
