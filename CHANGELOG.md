@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Hover a live channel tab for 1.5 seconds to see its stream title and category.
+- Added “Show live stream thumbnails on hover” in Tabs settings, off by default.
+
 ### Fixed
 
 - Show readable days, hours, minutes, and seconds in timeout and chat-mode notices and

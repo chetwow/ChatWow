@@ -6,8 +6,8 @@
 //! and a confidently wrong "offline" dot is worse than no dot.
 
 use anyhow::Result;
-use serde::Deserialize;
-use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Helix caps `user_login` at 100 per request. Nobody has that many tabs, but
 /// chunking costs one line and turns a silent 400 into a non-event.
@@ -19,8 +19,22 @@ struct StreamsResponse {
     data: Vec<Stream>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamInfo {
+    pub title: String,
+    pub category: String,
+    pub thumbnail_url: String,
+}
+
 #[derive(Deserialize)]
 struct Stream {
+    #[serde(default)]
+    thumbnail_url: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    game_name: String,
     #[serde(default)]
     user_login: String,
     /// "live" for an actual broadcast; Twitch also uses this for reruns.
@@ -32,12 +46,24 @@ struct Stream {
 /// so absence is what tells us a channel is offline -- but `type` still has to
 /// be checked, since a rerun comes back here too and isn't the streamer being
 /// on.
-fn live_logins(response: StreamsResponse) -> HashSet<String> {
+fn live_logins(response: StreamsResponse) -> HashMap<String, StreamInfo> {
     response
         .data
         .into_iter()
         .filter(|stream| stream.kind == "live" && !stream.user_login.is_empty())
-        .map(|stream| stream.user_login.to_lowercase())
+        .map(|stream| {
+            (
+                stream.user_login.to_lowercase(),
+                StreamInfo {
+                    title: stream.title,
+                    category: stream.game_name,
+                    thumbnail_url: stream
+                        .thumbnail_url
+                        .replace("{width}", "640")
+                        .replace("{height}", "360"),
+                },
+            )
+        })
         .collect()
 }
 
@@ -49,8 +75,8 @@ pub async fn fetch_live(
     client_id: &str,
     token: &str,
     logins: &[String],
-) -> Result<HashSet<String>> {
-    let mut live = HashSet::new();
+) -> Result<HashMap<String, StreamInfo>> {
+    let mut live = HashMap::new();
     for chunk in logins.chunks(MAX_LOGINS) {
         let query: Vec<(&str, &str)> = chunk
             .iter()
@@ -75,7 +101,7 @@ pub async fn fetch_live(
 mod tests {
     use super::*;
 
-    fn parse(json: &str) -> HashSet<String> {
+    fn parse(json: &str) -> HashMap<String, StreamInfo> {
         live_logins(serde_json::from_str(json).unwrap())
     }
 
@@ -88,8 +114,8 @@ mod tests {
             ]}"#,
         );
         assert_eq!(live.len(), 2);
-        assert!(live.contains("forsen"));
-        assert!(live.contains("nymn"));
+        assert!(live.contains_key("forsen"));
+        assert!(live.contains_key("nymn"));
     }
 
     #[test]
@@ -104,12 +130,49 @@ mod tests {
     fn logins_are_lowercased_to_match_the_channel_list() {
         // Channels are stored lowercase; Helix isn't guaranteed to agree.
         let live = parse(r#"{"data":[{"user_login":"Forsen","type":"live"}]}"#);
-        assert!(live.contains("forsen"));
+        assert!(live.contains_key("forsen"));
     }
 
     #[test]
     fn nobody_live_is_not_an_error() {
         assert!(parse(r#"{"data":[]}"#).is_empty());
         assert!(parse(r#"{}"#).is_empty());
+    }
+
+    #[test]
+    fn resolves_thumbnail_dimensions_and_mirrors_the_ipc_field() {
+        let live = parse(
+            r#"{"data":[{"user_login":"forsen","type":"live","thumbnail_url":"https://static-cdn.jtvnw.net/previews-ttv/live_user_forsen-{width}x{height}.jpg"}]}"#,
+        );
+        assert_eq!(
+            live["forsen"].thumbnail_url,
+            "https://static-cdn.jtvnw.net/previews-ttv/live_user_forsen-640x360.jpg"
+        );
+        assert_eq!(
+            serde_json::to_value(&live).unwrap()["forsen"]["thumbnailUrl"],
+            live["forsen"].thumbnail_url
+        );
+        assert!(
+            parse(r#"{"data":[{"user_login":"forsen","type":"live"}]}"#)["forsen"]
+                .thumbnail_url
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn retains_metadata_and_detects_changes_without_a_live_status_change() {
+        let first = parse(
+            r#"{"data":[{"user_login":"Forsen","type":"live","title":"Hello 世界","game_name":"Minecraft"}]}"#,
+        );
+        assert_eq!(first["forsen"].title, "Hello 世界");
+        assert_eq!(first["forsen"].category, "Minecraft");
+        let next = parse(
+            r#"{"data":[{"user_login":"forsen","type":"live","title":"New title","game_name":"Just Chatting"}]}"#,
+        );
+        assert_ne!(first, next);
+        assert_eq!(
+            serde_json::to_value(&first).unwrap()["forsen"]["category"],
+            "Minecraft"
+        );
     }
 }

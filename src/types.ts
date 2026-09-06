@@ -325,6 +325,7 @@ export type Preferences = {
   previewPages: boolean;
   /** Keep the tabs on one scrolling row instead of wrapping onto several. */
   singleRowTabs: boolean;
+  showLiveStreamThumbnails: boolean;
   /** Whether the window is split, and along which axis. */
   splitLayout: SplitLayout;
   /** The first pane's share of the split axis, as a fraction. */
@@ -531,3 +532,10 @@ export type UpdateState = {
    */
   canInstall: boolean;
 };
+
+/** Current live broadcast metadata, keyed by channel in the live snapshot. */
+export interface StreamInfo {
+  title: string;
+  category: string;
+  thumbnailUrl: string;
+}

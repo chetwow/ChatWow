@@ -8,6 +8,7 @@ import {
   type DragEvent,
   type MouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { mentionTabName, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
@@ -36,6 +37,38 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const mentions = useChat((state) => state.mentions);
   const ready = useChat((state) => state.ready);
   const live = useChat((state) => state.live);
+  const [streamHover, setStreamHover] = useState<{ id: string; element: HTMLDivElement } | null>(null);
+  const [streamVisible, setStreamVisible] = useState(false);
+  const dismissStream = () => {
+    setStreamHover(null);
+    setStreamVisible(false);
+  };
+  useEffect(() => {
+    if (!streamHover) return;
+    const timer = window.setTimeout(() => setStreamVisible(true), 1500);
+    const dismiss = () => {
+      setStreamHover(null);
+      setStreamVisible(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", escape);
+    window.addEventListener("blur", dismiss);
+    window.addEventListener("resize", dismiss);
+    // Only scrolling the hovered tab's container can move this anchor.
+    const scroll = (event: Event) => {
+      if (event.target instanceof Element && event.target.contains(streamHover.element)) dismiss();
+    };
+    window.addEventListener("scroll", scroll, true);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", escape);
+      window.removeEventListener("blur", dismiss);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", scroll, true);
+    };
+  }, [streamHover]);
   const auth = useChat((state) => state.auth);
   const channelAvatars = useChat((state) => state.channelAvatars);
   const setActive = useChat((state) => state.setActive);
@@ -339,7 +372,15 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
             }
           }}
           draggable
+          onMouseEnter={(event) => {
+            if (isMentions || drag || accountMenu || barMenu) return;
+            setStreamVisible(false);
+            setStreamHover({ id: tab.id, element: event.currentTarget });
+          }}
+          onMouseLeave={dismissStream}
+          onPointerDown={dismissStream}
           onDragStart={(event) => {
+            dismissStream();
             startDrag({ tab: tab.id, pane });
             event.dataTransfer.effectAllowed = "move";
           }}
@@ -354,6 +395,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           // Right-click is where a tab's account is changed -- the tab is the
           // thing being changed, so it's the thing you aim at.
           onContextMenu={(event) => {
+            dismissStream();
             event.preventDefault();
             event.stopPropagation();
             setBarMenu(null);
@@ -522,6 +564,18 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const optionsDialog = optionsTab && (
     <MentionOptionsDialog tabId={optionsTab} onClose={() => setOptionsTab(null)} />
   );
+  const hoveredTab = streamHover && tabList.find((tab) => tab.id === streamHover.id);
+  const stream = hoveredTab && live[hoveredTab.channel];
+  const streamPopup = streamVisible && streamHover && hoveredTab && stream && (
+    <StreamTooltip
+      key={hoveredTab.id}
+      anchor={streamHover.element}
+      channel={hoveredTab.channel}
+      title={stream.title}
+      category={stream.category}
+      thumbnailUrl={preferences.showLiveStreamThumbnails ? stream.thumbnailUrl : ""}
+    />
+  );
 
   if (singleRow) {
     // The button sits outside the scroller so it stays pinned to the right
@@ -554,6 +608,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
         {barContextMenu}
         {optionsDialog}
         {renameDialog}
+        {streamPopup}
       </div>
     );
   }
@@ -572,7 +627,56 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       {barContextMenu}
       {optionsDialog}
       {renameDialog}
+      {streamPopup}
     </div>
+  );
+}
+
+function StreamTooltip({ anchor, channel, title, category, thumbnailUrl }: {
+  anchor: HTMLDivElement;
+  channel: string;
+  title: string;
+  category: string;
+  thumbnailUrl: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+  // Reopening in a later minute requests a fresh frame instead of reusing one
+  // cached for the entire broadcast. The URL itself is resolved by Rust.
+  const [thumbnailMinute] = useState(() => Math.floor(Date.now() / 60_000));
+  const showThumbnail = !!thumbnailUrl && failedThumbnail !== thumbnailUrl;
+  const thumbnailSrc = thumbnailUrl.startsWith("https://")
+    ? `${thumbnailUrl}${thumbnailUrl.includes("?") ? "&" : "?"}t=${thumbnailMinute}`
+    : thumbnailUrl;
+  const [position, setPosition] = useState({ left: 8, top: 8 });
+  useLayoutEffect(() => {
+    const box = anchor.getBoundingClientRect();
+    const popup = ref.current;
+    if (!popup) return;
+    setPosition({
+      left: Math.max(8, Math.min(box.left, window.innerWidth - popup.offsetWidth - 8)),
+      top: Math.max(8, Math.min(box.bottom + 6, window.innerHeight - popup.offsetHeight - 8)),
+    });
+  }, [anchor, title, category, showThumbnail]);
+  return createPortal(
+    <div ref={ref} role="tooltip" style={position}
+      className="pointer-events-none fixed z-50 w-[320px] max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)] overflow-hidden rounded-md border border-line bg-surface px-3 py-2 text-[12px] leading-relaxed text-ink shadow-lg shadow-black/50">
+      <div className="mb-1 text-[11px] text-ink-dim">#{channel} · Live</div>
+      {showThumbnail && (
+        <img
+          src={thumbnailSrc}
+          alt={`Live stream preview for ${channel}`}
+          width={640}
+          height={360}
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailedThumbnail(thumbnailUrl)}
+          className="mb-2 aspect-video w-full rounded object-cover"
+        />
+      )}
+      <div className="break-words font-medium">{title || "Untitled stream"}</div>
+      <div className="mt-1 break-words text-ink-dim">{category || "No category"}</div>
+    </div>, document.body,
   );
 }
 

@@ -287,7 +287,7 @@ pub struct AppState {
     pub wake_recovery: AtomicBool,
     /// Logins currently broadcasting, refreshed by the live poller. Empty when
     /// signed out, where we simply don't know rather than knowing they're off.
-    pub live: RwLock<HashSet<String>>,
+    pub live: RwLock<HashMap<String, crate::twitch::streams::StreamInfo>>,
     /// Kicks the live poller off its interval, so a channel you just joined
     /// gets its dot now rather than up to a poll period later.
     pub live_poll: tokio::sync::Notify,
@@ -343,7 +343,7 @@ impl AppState {
             auth: RwLock::new(Auth::default()),
             token_check: tokio::sync::Notify::new(),
             wake_recovery: AtomicBool::new(false),
-            live: RwLock::new(HashSet::new()),
+            live: RwLock::new(HashMap::new()),
             sink: RwLock::new(None),
             live_poll: tokio::sync::Notify::new(),
             eventsub_restart: tokio::sync::Notify::new(),

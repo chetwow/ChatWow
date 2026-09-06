@@ -1135,3 +1135,11 @@ export function mockAuthStatus(): AuthStatus {
 export function mockCommandResult(input: string): string {
   return `Mock mode: "${input.trim()}" wasn't sent anywhere.`;
 }
+
+export const mockStreamInfo = {
+  title: "Sunday adventures — exploring the world with chat",
+  category: "Minecraft",
+  thumbnailUrl: `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#83c9ed"/><rect x="480" y="40" width="64" height="64" fill="#fff1aa"/><path d="M0 250h80v-60h100v40h100v-100h100v70h100v-40h80v90h80v110H0z" fill="#4e8650"/><path d="M0 290h160v-30h120v40h160v-30h200v90H0z" fill="#75573e"/><text x="24" y="42" font-family="sans-serif" font-size="20" fill="#17354a">Mock stream preview</text></svg>',
+  )}`,
+};

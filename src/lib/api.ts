@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  StreamInfo,
   AuthStatus,
   ChannelHit,
   DeviceCode,
@@ -57,7 +58,7 @@ export const api = {
   channelAvatars: () => invoke<Record<string, string>>("channel_avatars"),
   pinnedMessages: () => invoke<Record<string, PinnedMessage>>("pinned_messages"),
   /** Which joined channels are live right now. Empty when signed out. */
-  liveChannels: () => invoke<string[]>("live_channels"),
+  liveChannels: () => invoke<Record<string, StreamInfo>>("live_channels"),
   sendMessage: (account: string, channel: string, text: string, replyToId?: string) =>
     invoke<void>("send_message", { account, channel, text, replyToId }),
   /** Runs a slash command; resolves with the line to print into the channel. */

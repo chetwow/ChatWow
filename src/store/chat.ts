@@ -25,6 +25,7 @@ import { isThemeId } from "../lib/themes";
 import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
 import { ANONYMOUS } from "../types";
 import type {
+  StreamInfo,
   AuthStatus,
   Badge,
   UpdateState,
@@ -98,6 +99,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   previewImages: true,
   previewPages: true,
   singleRowTabs: true,
+  showLiveStreamThumbnails: false,
   splitLayout: "none",
   splitRatio: 0.5,
   splitIndex: 0,
@@ -154,6 +156,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   };
   const { showComposerAvatar, notifyActiveTab, ...current } = source;
   const merged = { ...DEFAULT_PREFERENCES, ...current };
+  if (typeof merged.showLiveStreamThumbnails !== "boolean") {
+    merged.showLiveStreamThumbnails = DEFAULT_PREFERENCES.showLiveStreamThumbnails;
+  }
   // Mock-mode localStorage can still contain the boolean used before the
   // three explicit modes. The native backend performs the same migration.
   if (!("composerAvatarMode" in source) && typeof showComposerAvatar === "boolean") {
@@ -556,7 +561,7 @@ type ChatState = {
    * known to be live", never a confident "offline". Keyed by channel: who's
    * live is a property of the room, not of the tab watching it.
    */
-  live: Record<string, boolean>;
+  live: Record<string, StreamInfo>;
   /**
    * Each channel owner's profile picture, by channel -- what a tab draws
    * behind its name under `owner`. Keyed by channel because it belongs to the
@@ -1758,6 +1763,7 @@ export const useChat = create<ChatState>((set) => ({
         mockSevenTvBadges,
         mockPinnedMessages,
         MOCK_CHANNEL_AVATARS,
+        mockStreamInfo,
       } = await import("../dev/mockData");
       const { mockUpdateState } = await import("../dev/mockUpdates");
       const preferences = readMockPreferences();
@@ -1768,7 +1774,7 @@ export const useChat = create<ChatState>((set) => ({
         active: settleActive({ tabs, preferences }, [null, null]),
         ready: Object.fromEntries(tabs.map((tab) => [tab.id, true])),
         emoteCounts: Object.fromEntries(tabs.map((tab) => [tab.channel, 886])),
-        live: { [tabs[0].channel]: true },
+        live: { [tabs[0].channel]: mockStreamInfo },
         channelAvatars: MOCK_CHANNEL_AVATARS,
         pinnedMessages: mockPinnedMessages(),
         // One tab of each, so the command picker's filtering is visible.
@@ -1803,7 +1809,7 @@ export const useChat = create<ChatState>((set) => ({
       // An event received during startup is newer than this requested snapshot.
       pinnedMessages: state.pinnedMessages === pinsBeforeSnapshot
         ? unexpiredPins(pins) : state.pinnedMessages,
-      live: Object.fromEntries(live.map((login) => [login, true])),
+      live,
       // Each pane opens on its own first tab.
       active: settleActive({ tabs, preferences: settings }, state.active),
     }));
@@ -1925,9 +1931,9 @@ export async function subscribeToBackend(): Promise<() => void> {
 
     // Sent whole rather than as deltas, and only when the set actually
     // changes, so replacing the map wholesale is both correct and cheap.
-    listen<string[]>("chat://live", (event) => {
+    listen<Record<string, StreamInfo>>("chat://live", (event) => {
       useChat.setState({
-        live: Object.fromEntries(event.payload.map((login) => [login, true])),
+        live: event.payload,
       });
     }),
     // The whole map every time, not a delta: it only grows, and it's one

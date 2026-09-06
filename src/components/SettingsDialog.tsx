@@ -1035,6 +1035,13 @@ export function SettingsDialog({
                     label="Keep tabs on one row"
                   />
                 </Row>
+                <Row label="Show live stream thumbnails on hover">
+                  <Toggle
+                    checked={preferences.showLiveStreamThumbnails}
+                    onChange={(showLiveStreamThumbnails) => updatePreferences({ showLiveStreamThumbnails })}
+                    label="Show live stream thumbnails on hover"
+                  />
+                </Row>
                 {/* What a tab *opens* with: an open tab keeps the one it has
                     and changes through its own right-click menu. */}
                 <Row label="Default background avatar">

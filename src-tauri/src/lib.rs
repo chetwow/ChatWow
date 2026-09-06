@@ -747,7 +747,7 @@ async fn poll_live(app: AppHandle, state: Shared) {
                     Err(_) => continue,
                 }
             }
-            _ => HashSet::new(),
+            _ => HashMap::new(),
         };
 
         let changed = {
@@ -762,7 +762,7 @@ async fn poll_live(app: AppHandle, state: Shared) {
         // Only on a change: this runs every minute forever, and an unchanged
         // payload would re-render every tab for nothing.
         if changed {
-            let _ = app.emit("chat://live", live.iter().collect::<Vec<_>>());
+            let _ = app.emit("chat://live", &live);
         }
 
         fetch_channel_avatars(&app, &state, credentials, &logins).await;
@@ -1123,8 +1123,8 @@ fn pinned_messages(state: State<'_, Shared>) -> HashMap<String, twitch::pins::Pi
 /// one emit and the next is whenever a channel actually goes on or off air, so
 /// the dots would sit dark through a session that started with everyone live.
 #[tauri::command]
-fn live_channels(state: State<'_, Shared>) -> Vec<String> {
-    state.live.read().iter().cloned().collect()
+fn live_channels(state: State<'_, Shared>) -> HashMap<String, twitch::streams::StreamInfo> {
+    state.live.read().clone()
 }
 
 /// Apply the one validation and normalization path shared by creation and Options.

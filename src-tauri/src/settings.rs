@@ -236,6 +236,8 @@ pub struct Preferences {
     /// default: wrapping keeps every tab in sight, but it also lets the tab
     /// bar grow to several rows deep and take that height off the chat.
     pub single_row_tabs: bool,
+    /// Load a stream thumbnail when its channel-tab hover tooltip opens.
+    pub show_live_stream_thumbnails: bool,
     /// Whether the window is split, and along which axis: `none`, `row`
     /// (panes side by side) or `column` (stacked). A value this app doesn't
     /// know falls back to `none` in the frontend, like `chat_font_size`.
@@ -302,6 +304,7 @@ impl Default for Preferences {
             preview_images: true,
             preview_pages: true,
             single_row_tabs: true,
+            show_live_stream_thumbnails: false,
             split_layout: "none".to_string(),
             split_ratio: 0.5,
             split_index: 0,
@@ -527,6 +530,19 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_stream_thumbnails_default_off_and_round_trip() {
+        let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
+        assert!(!defaults.show_live_stream_thumbnails);
+        let saved: super::Preferences =
+            serde_json::from_str(r#"{"showLiveStreamThumbnails":true}"#).unwrap();
+        assert!(saved.show_live_stream_thumbnails);
+        assert_eq!(
+            serde_json::to_value(saved).unwrap()["showLiveStreamThumbnails"],
+            true
+        );
+    }
+
     #[test]
     fn notification_mutes_default_empty_and_round_trip() {
         let defaults: super::Preferences = serde_json::from_str("{}").unwrap();

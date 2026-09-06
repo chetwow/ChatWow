@@ -522,6 +522,15 @@ live) re-triggers the observer mid-transition, corrupts the measurement, and fli
 between rows. Hence the fixed-size slots -- the close button shares the unread badge's, the
 status dot's is reserved whether or not a dot is in it.
 
+The live poll retains each broadcast's title and category alongside its channel login in one
+shared snapshot, used by both the live dot and a 1.5-second channel-tab hover tooltip.
+The tooltip renders in a viewport-clamped portal so it cannot affect tab widths or be clipped
+by the scrolling row. Offline channels and signed-out sessions have no stream tooltip.
+The snapshot also carries a thumbnail URL with dimensions resolved in Rust. The default-off
+`showLiveStreamThumbnails` preference gates mounting the image, so only an opened tooltip with
+the option enabled downloads a frame. Image dimensions reserve space before loading; failures
+fall back to the text tooltip. Reopening in a later minute refreshes the image's cache key.
+
 A tab deliberately doesn't say which account it reads as *in words*. The row is scanned for
 channel names, and a second word on every tab costs more room than it buys -- the question is
 answered where it's asked instead: the right-click menu ticks the current account, and the
