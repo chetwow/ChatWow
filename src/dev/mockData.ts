@@ -427,6 +427,8 @@ const DRAFTS: Draft[] = [
       { kind: "link", text: "https://youtu.be/qMpBobAonKs", href: "https://youtu.be/qMpBobAonKs" },
       text(" and "),
       { kind: "link", text: "https://example.com/nothing", href: "https://example.com/nothing" },
+      text(" · unavailable video: "),
+      { kind: "link", text: "https://youtu.be/00000000000", href: "https://youtu.be/00000000000" },
     ],
   },
   {

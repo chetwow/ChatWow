@@ -336,6 +336,7 @@ function ClientIdOverride({
       <p className="text-[11px] leading-relaxed text-ink-faint">
         Only needed if this build's Twitch app stops working. Register your own at{" "}
         <button
+          data-link-href={CONSOLE_URL}
           onClick={() => void openUrl(CONSOLE_URL)}
           className="text-accent underline underline-offset-2"
         >
@@ -535,6 +536,7 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
           </p>
           <div className="flex gap-2">
             <button
+              data-link-href={device.verification_uri}
               onClick={() => void openUrl(device.verification_uri)}
               className="flex-1 rounded-md border border-line py-1.5 text-ink transition-colors hover:bg-surface-hover"
             >

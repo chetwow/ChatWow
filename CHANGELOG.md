@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional inline YouTube playback from chat links, with a browser prompt when playback fails.
+- Copy link addresses from any link context menu, and open inline YouTube links in a browser.
+
 - Hover a live channel tab for 1.5 seconds to see its stream title and category.
 - Added “Show live stream thumbnails on hover” in Tabs settings, off by default.
 

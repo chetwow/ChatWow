@@ -869,6 +869,13 @@ export function SettingsDialog({
                     label="Preview other links"
                   />
                 </Row>
+                <Row label="Play YouTube videos inline">
+                  <Toggle
+                    checked={preferences.inlineYoutube}
+                    onChange={(inlineYoutube) => updatePreferences({ inlineYoutube })}
+                    label="Play YouTube videos inline"
+                  />
+                </Row>
               </Section>
               <Section title="Moderation">
                 <Row label="Default timeout duration">

@@ -1,6 +1,7 @@
 import { Fragment, memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { YoutubePlayer } from "./YoutubePlayer";
+import { youtubeVideo, openLink } from "../lib/youtube";
 import { EmoteImage } from "./EmoteImage";
 import { MessageEffectFrame } from "./MessageEffectFrame";
 import { useTooltip } from "../store/tooltip";
@@ -415,6 +416,10 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   // than passed down, for the reason `EmoteView` gives: rows are memoized on
   // message identity and the messages already on screen are immutable, so
   // flipping one has to reach them through the store.
+  const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
+  const [expanded, setExpanded] = useState(false);
+  const video = youtubeVideo(segment.href);
+  useEffect(() => { if (!inlineYoutube) setExpanded(false); }, [inlineYoutube]);
   const kind = linkKind(segment.href);
   const enabled = useChat((state) => state.preferences[PREFERENCE[kind]]);
   const image = kind === "image" ? imagePreviewUrl(segment.href) : null;
@@ -484,53 +489,60 @@ function LinkView({ segment }: { segment: Extract<Segment, { kind: "link" }> }) 
   };
 
   return (
-    <button
-      onClick={() => {
-        cancel();
-        hide();
-        void openUrl(segment.href);
-      }}
-      onMouseEnter={
-        enabled
-          ? (event) => {
-              const element = event.currentTarget;
-              pointer.current = { x: event.clientX, y: event.clientY };
-              window.clearTimeout(timer.current);
-              // Measured when it fires, not now: chat may have scrolled under
-              // the pointer in between.
-              timer.current = window.setTimeout(() => {
-                timer.current = undefined;
-                preview(element);
-              }, PREVIEW_DELAY_MS);
-            }
-          : undefined
-      }
-      onPointerMove={(event) => {
-        pointer.current = { x: event.clientX, y: event.clientY };
-      }}
-      onMouseLeave={
-        enabled
-          ? () => {
-              // Before the delay, an ordinary pass over a link should still
-              // do nothing. After the popup appears, mouseleave may merely be
-              // chat reflow; the app-level pointermove listener distinguishes
-              // real input and dismisses it instead.
-              if (timer.current !== undefined) cancel();
-            }
-          : undefined
-      }
-      // `anywhere` rather than the row's inherited `break-word`: a button is an
-      // atomic inline box, so it's laid out at its own intrinsic width, and
-      // `break-word` doesn't shrink that -- a url with nothing to break on
-      // (no hyphen, no slash in the right place) stretched the row past the
-      // pane and was cut off. `anywhere` is the one that counts a forced break
-      // when measuring, so the button can be as narrow as the pane.
-      // `text-left` because a button centres its text, which only shows once
-      // there is more than one line of it.
-      className="cursor-pointer text-left text-accent underline decoration-accent/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent"
-    >
-      {segment.text}
-    </button>
+    <>
+      <button
+        data-link-href={segment.href}
+        onClick={() => {
+          cancel();
+          hide();
+          if (inlineYoutube && video) setExpanded((value) => !value);
+          else void openLink(segment.href);
+        }}
+        onMouseEnter={
+          enabled
+            ? (event) => {
+                const element = event.currentTarget;
+                pointer.current = { x: event.clientX, y: event.clientY };
+                window.clearTimeout(timer.current);
+                // Measured when it fires, not now: chat may have scrolled under
+                // the pointer in between.
+                timer.current = window.setTimeout(() => {
+                  timer.current = undefined;
+                  preview(element);
+                }, PREVIEW_DELAY_MS);
+              }
+            : undefined
+        }
+        onPointerMove={(event) => {
+          pointer.current = { x: event.clientX, y: event.clientY };
+        }}
+        onMouseLeave={
+          enabled
+            ? () => {
+                // Before the delay, an ordinary pass over a link should still
+                // do nothing. After the popup appears, mouseleave may merely be
+                // chat reflow; the app-level pointermove listener distinguishes
+                // real input and dismisses it instead.
+                if (timer.current !== undefined) cancel();
+              }
+            : undefined
+        }
+        // `anywhere` rather than the row's inherited `break-word`: a button is an
+        // atomic inline box, so it's laid out at its own intrinsic width, and
+        // `break-word` doesn't shrink that -- a url with nothing to break on
+        // (no hyphen, no slash in the right place) stretched the row past the
+        // pane and was cut off. `anywhere` is the one that counts a forced break
+        // when measuring, so the button can be as narrow as the pane.
+        // `text-left` because a button centres its text, which only shows once
+        // there is more than one line of it.
+        className="cursor-pointer text-left text-accent underline decoration-accent/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent"
+      >
+        {segment.text}
+      </button>
+      {inlineYoutube && expanded && video && (
+        <YoutubePlayer key={segment.href} video={video} href={segment.href} onClose={() => setExpanded(false)} />
+      )}
+    </>
   );
 }
 
@@ -605,6 +617,7 @@ function MessageRowInner({
   if (message.kind === "notice") {
     return (
       <div
+        data-message-menu={onContextMenu ? "true" : undefined}
         onContextMenu={handleContextMenu}
         className={`msg-row ${leftPad} break-words pr-1.5 py-[3px] text-ink-faint italic ${searchClass}`}
       >
@@ -699,7 +712,8 @@ function MessageRowInner({
 
   return (
     <div
-      onContextMenu={handleContextMenu}
+      data-message-menu={onContextMenu ? "true" : undefined}
+        onContextMenu={handleContextMenu}
       className={[
         `msg-row rise group relative flex gap-1.5 ${leftPad} pr-1.5 py-[3px] leading-[1.45] hover:bg-surface-hover`,
         dimmed,

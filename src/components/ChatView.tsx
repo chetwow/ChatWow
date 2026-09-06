@@ -1,3 +1,4 @@
+import { openLink, youtubeVideo } from "../lib/youtube";
 import {
   useCallback,
   useEffect,
@@ -121,6 +122,7 @@ export function ChatView({
     y: number;
     message: StoredMessage;
     emote: EmoteTarget | null;
+    link: string | null;
     /** Only true when the right-click landed on the chatter-name button. */
     chatterName: boolean;
     /**
@@ -398,6 +400,7 @@ export function ChatView({
       y: event.clientY,
       message,
       emote: emoteAt(event.target),
+      link: (event.target as Element).closest("[data-link-href]")?.getAttribute("data-link-href") ?? null,
       chatterName: chatterNameAt(event.target),
       selection: (window.getSelection()?.toString() ?? "").trim(),
     });
@@ -647,8 +650,14 @@ export function ChatView({
       : [];
   };
 
+  const inlineYoutube = useChat((state) => state.preferences.inlineYoutube);
   const menuOptions: ContextMenuOption[] = menu
     ? [
+        ...(menu.link ? [
+          { label: "Copy link address", onSelect: () => { void navigator.clipboard.writeText(menu.link!); } },
+          ...(inlineYoutube && youtubeVideo(menu.link) ? [{ label: "Open in browser", onSelect: () => { void openLink(menu.link!); } }] : []),
+          { separator: true as const },
+        ] : []),
         {
           // Selecting part of a message and then copying the whole thing is
           // never what was meant, so a selection wins -- and the label says so,

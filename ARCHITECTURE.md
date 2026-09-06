@@ -987,6 +987,19 @@ hangs off is a row inside a scroller and can sit partly, or entirely, outside th
 
 ## Link previews
 
+The opt-in `inlineYoutube` preference is independent of hover previews. Clicking a recognized
+YouTube video link mounts `YoutubePlayer` inside that message; no player API is loaded until
+that click. The official IFrame API reports playback errors, and a bounded loading timeout
+catches unavailable scripts or frames. Either failure asks whether to open the original URL
+in a browser. Closing the player, disabling the preference, or removing the row destroys it.
+YouTube controls start playback explicitly. Chat link menus retain message actions and add
+link copying; an app-level menu covers links in other surfaces. YouTube links also offer
+external opening while inline playback is enabled.
+
+The embed uses the page origin and the browser's `strict-origin-when-cross-origin` referrer
+policy. Packaged webviews whose custom origin suppresses HTTP Referer may encounter YouTube
+error 153 and use the browser fallback; desktop playback needs verification on each platform.
+
 Hovering a link shows what's behind it. The two halves are split by what the answer costs.
 
 **An image link is classified locally and fetched by Rust.** `imagePreviewUrl`
