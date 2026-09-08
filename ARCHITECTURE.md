@@ -601,7 +601,7 @@ outside the scroller and its offsets don't move as the row does. The check is ke
 channels have mentions rather than on the mentions map, which is a fresh object on every batch.
 
 Keyboard tab selection follows the same single `tabs` order that persistence and the pane
-boundary use. The platform primary modifier plus 1–8 selects that numbered tab, while 9 selects
+layout use. The platform primary modifier plus 1–8 selects that numbered tab, while 9 selects
 the final one; Ctrl+Tab/Ctrl+Shift+Tab on Windows and Linux or Cmd+Option+Left/Right on macOS
 cycles with wraparound. `setActive` derives the selected tab's pane and focuses it, so a shortcut
 crossing the split boundary also makes that pane the owner of subsequent focused-pane actions.
@@ -613,8 +613,7 @@ The most recently closed tab is retained in frontend memory with its former pane
 `Ctrl+Shift+T` on Windows/Linux, `Cmd+Shift+T` on macOS, or **Reopen closed tab** in a tab-bar
 context menu adds it through the ordinary validated backend path and moves it back into that
 pane. This is deliberately one session-only undo record, not another persisted tab list. Closing
-a first-pane tab moves `splitIndex` with it so the other pane's first tab is not silently pulled
-across the boundary. If the closed tab's account has since been removed, a channel or legacy
+a tab preserves every other tab's panel membership. If the closed tab's account has since been removed, a channel or legacy
 listener reopens Anonymous; custom listeners drop removed account IDs, and an account-only
 listener left with no valid account or other matching criterion is no longer reopenable. The
 backend's reopen flag exists solely to admit old `mention: None` listener tabs that ordinary new
@@ -684,45 +683,49 @@ next save.
 
 ## Split view
 
-The window holds one pane or two, never a tree of them: `splitLayout` is `none`, `row` or
-`column`, and `splitRatio` is the first pane's share of that axis. Both live in `Preferences`
-with everything else the user can set, so a split window comes back split.
+The window is a binary tree of panes. Each split node stores an axis and ratio, and each leaf
+has a stable numeric identity, so splitting a panel does not renumber the others. `paneLayout`
+in `Preferences` persists that tree and a tab-ID-to-pane-ID membership map. Rust stores the
+frontend-owned value unchanged; the frontend validates it before rendering. Older settings
+without a tree import `splitLayout`, `splitRatio` and `splitIndex` on their first layout edit.
 
-Which pane a tab is in is **one number**, `splitIndex`: how many of the leading `tabs` belong to
-the first pane. `tabs` stays the single record of what's open and in what order -- it's the
-backend's list, written by `reorder_tabs` -- so dragging a tab across the divider is an ordinary
-move within it, and no tab can end up in both panes or in neither. A second list per pane would
-have to be reconciled against that one on every open, close and reorder; a boundary can't drift
-out of agreement with itself.
+`tabs` remains the backend's single record of which tabs exist and their order. Membership
+never opens or duplicates a tab; stale assignments are ignored, and newly appended tabs fall
+back to the final leaf until `placeNewTab` moves them into the focused pane. `paneTabs` and
+`paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive each panel's contents. `commitTabs`
+updates the tree membership and visual tab order together, persisting order through
+`reorder_tabs`. Closing a tab materializes any legacy boundary before removing it, so other
+panels retain their tabs. Reopening restores the original panel if it still exists and otherwise
+uses the focused panel. Removing a panel merges its tabs into its sibling subtree and promotes
+that sibling, preserving the remaining dividers.
 
-`paneTabs` and `paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive everything from those
-pieces, and `commitTabs` writes a rearranged pair of tab lists back to them -- order to the
-backend, boundary to the preferences, each only if it actually changed. Every rearrangement (a
-drag across, a close, an unsplit) then runs `settleActive`, which corrects each pane's open tab
-against the tabs it actually holds rather than patching `active` by hand at each call site.
+`active` maps pane IDs to their visible tab. Every visible tab counts as read; `focusedPane`
+identifies where new tabs and whispers go and what `Ctrl/Cmd+W` closes. `settleActive` repairs
+that map after layout changes, falling back to the first remaining tab in each panel.
+Capture-phase pointer and focus handlers select the working pane. Only that pane's composer
+captures typing; when it is empty, a visible composer takes over. Mounting a composer in any
+other panel must not steal focus.
 
-`active` is therefore a pair, one tab per pane, and both are "what you're reading": a message
-that lands in either is one you can see, so neither counts as unread. `focusedPane` -- the pane
-you last clicked in, tracked by a capture-phase pointer handler on the pane wrapper -- is the
-narrower question of where a whisper is filed, what `Ctrl/Cmd+W` closes, and which half a newly
-opened tab drops into. A tab opened from the first pane arrives at the end of `tabs`, which is
-the *second* pane, so `placeNewTab` moves it back across.
+Each split branch in [Panes.tsx](src/components/Panes.tsx) measures its own rectangle and owns
+its draggable divider. Drag ratios stay local until pointer release or cancellation, avoiding
+repeated settings writes. Tabs can be dragged within a bar or between any panels, including
+onto an empty panel's body. The shared [tab drag store](src/store/tabDrag.ts) keeps the dragged
+identity available before HTML5 permits reading the drop payload.
 
-Two panes mean two composers, and a composer reclaims focus on any keystroke anywhere in the
-window, so chat feels always-focused. Exactly one of them can be doing that,
-or they take turns stealing the caret from each other -- hence `capturesTyping`, which is the
-focused pane, or the other one when the focused pane has nothing open. It gates the mount-time
-focus as well: a composer mounting in the half you *aren't* working in (its pane fell back to
-another tab when you dragged one out) would otherwise take the caret and, through the focus
-handler, the pane focus with it.
+The title-bar split button always offers left, right, up and down. Opening its menu selects
+the focused panel; a transient [selection store](src/store/splitTarget.ts) highlights that
+panel's tab bar independently of chat focus. Arrow keys move the selection spatially using
+rendered panel rectangles, preferring aligned neighbors. They are captured before reaching
+composers or chat shortcuts; Tab and Enter can choose menu actions. Selection, outside click,
+Escape and window blur close the menu and clear the highlight. Scrolling and incoming messages
+do not dismiss it. Each action divides only the selected panel, keeping its tabs together and
+adding an empty panel on the requested side.
 
-Dragging a tab between panes is HTML5 drag and drop, and the payload can't be read until the
-drop -- so the tab being dragged lives in a small store of its own
-([src/store/tabDrag.ts](src/store/tabDrag.ts)) that both bars and both panes can see. A pane
-accepts a drop anywhere in its body, not just on its tab bar: an empty one has no tab to aim at.
-
-The split menu hangs off a title-bar button. Like message, tab, and account menus, it remains open
-while chat moves; incoming messages and manual scrolling are not dismissal actions.
+Menu focus starts on the container. Arrow keys only select a panel; Tab explicitly enters
+the menu actions. Pointer movement returns action highlighting to hover, so keyboard focus
+and hover cannot highlight two actions at once. On macOS, the arrow handler schedules
+`show_menu_cursor` after the keyboard event: AppKit clears WebKit's hide-until-mouse-moves
+state on the main thread, only while this window is focused.
 
 ## Message history
 
@@ -1005,7 +1008,7 @@ behavior. An intersection observer closes fully off-screen players when requeste
 tab when inactive-tab closing is disabled. Its `ChatView` and pinned-message panel remain
 mounted but hidden, with typing capture and search requests disabled.
 `VideoTabContext` supplies the owning tab and whether it is visible to links in those views.
-Both visible split panes count as active. Hidden retained tabs skip the
+All visible split panes count as active. Hidden retained tabs skip the
 scroll visibility check; closing a tab or opening another video still removes the player.
 The same observer records off-screen state even when retention is enabled. That state shows
 a floating close-player button at the top center of the owning chat, clearing when the

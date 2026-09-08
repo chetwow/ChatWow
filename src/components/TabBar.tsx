@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { mentionTabName, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { useTabDrag } from "../store/tabDrag";
+import { useSplitTarget } from "../store/splitTarget";
 import { AccountMenu } from "./AccountMenu";
 import { ContextMenu } from "./ContextMenu";
 import { MentionOptionsDialog } from "./MentionOptionsDialog";
@@ -26,10 +27,11 @@ const ROUNDING_SLOP = 2;
 /**
  * One pane's row of tabs. Everything here is about this pane's own tabs --
  * which of them wrap onto which row, which is being dragged, which has a
- * mention past the edge of a scrolled row -- so a split window runs two of
- * these, measuring independently against their own widths.
+ * mention past the edge of a scrolled row -- so a split window runs one per panel, measuring independently against their own widths.
  */
 export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) {
+  const splitTarget = useSplitTarget((state) => state.pane === pane);
+  const splitHighlight = splitTarget ? "ring-2 ring-inset ring-accent bg-accent/20" : "bg-surface-raised";
   const tabs_ = useChat((state) => state.tabs);
   const preferences = useChat((state) => state.preferences);
   const active = useChat((state) => state.active[pane]);
@@ -325,7 +327,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
 
   /**
    * Take the drop: the store works out what moving this tab here means for
-   * the channel order, the split boundary and the mentions tab's place. An
+   * the channel order, the panel memberships and the mentions tab's place. An
    * index of `tabList.length` is the drop on the bar's own background, which
    * is how a tab is dragged into a pane with no tabs to aim at.
    */
@@ -583,7 +585,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     // level with the tabs instead of centred against the scrollbar's gutter.
     return (
       <div
-        className="relative flex shrink-0 items-stretch border-b border-line bg-surface-raised px-1"
+        data-split-target={splitTarget || undefined}
+        className={`relative flex shrink-0 items-stretch border-b border-line px-1 ${splitHighlight}`}
         onContextMenu={openBarMenu}
         {...dragHandlers}
       >
@@ -616,7 +619,8 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   return (
     <div
       ref={rowRef}
-      className="flex shrink-0 flex-wrap items-stretch gap-x-1 border-b border-line bg-surface-raised px-1"
+      data-split-target={splitTarget || undefined}
+      className={`flex shrink-0 flex-wrap items-stretch gap-x-1 border-b border-line px-1 ${splitHighlight}`}
       onContextMenu={openBarMenu}
       {...dragHandlers}
     >

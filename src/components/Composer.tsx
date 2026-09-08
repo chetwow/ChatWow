@@ -400,6 +400,7 @@ export function Composer({
       // Already handled by the input itself -- an Enter that took an emote out
       // of the picker must not also send the message.
       if (event.defaultPrevented) return;
+      if (document.querySelector("[data-menu]")) return;
       if (document.querySelector("[data-modal]")) return;
       if (isForeignTextField(document.activeElement)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;

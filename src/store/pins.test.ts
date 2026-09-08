@@ -48,7 +48,7 @@ describe("Pinned messages", () => {
     state.dismissPinnedMessage(other.id);
     state.viewPinnedMessage(other.id);
     expect(useChat.getState().dismissedPins).toEqual({});
-    expect(useChat.getState().active).toEqual([room.id, other.id]);
+    expect(useChat.getState().active).toEqual({ 0: room.id, 1: other.id });
     expect(useChat.getState().focusedPane).toBe(1);
   });
 

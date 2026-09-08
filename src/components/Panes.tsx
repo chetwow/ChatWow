@@ -4,9 +4,10 @@ import { VideoTabContext } from "./VideoTabContext";
 import { TabBar } from "./TabBar";
 import { ChatView } from "./ChatView";
 import { PinnedMessagePanel } from "./PinnedMessagePanel";
-import { clampRatio, paneTabs, useChat } from "../store/chat";
+import { paneTabs, useChat } from "../store/chat";
+import { clampRatio, getPaneLayout } from "../lib/panes";
 import { useTabDrag } from "../store/tabDrag";
-import type { PaneIndex } from "../types";
+import type { PaneIndex, PaneNode } from "../types";
 
 /** The divider's own thickness, and the whole of its grab area. */
 const DIVIDER = 5;
@@ -42,8 +43,8 @@ function EmptyPane({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => voi
 }
 
 /**
- * One half of the window (or the whole of it, unsplit): a row of tabs and
- * whichever of them is open. Both panes read the same store -- a channel is
+ * One leaf of the layout: a row of tabs and
+ * whichever of them is open. All panes read the same store -- a channel is
  * joined, resolved and stored once however many panes are on screen -- so all
  * that's per-pane here is which tab is showing.
  */
@@ -78,7 +79,7 @@ function Pane({
    * other pane takes it.
    */
   const typingPane = useChat((state) =>
-    state.active[state.focusedPane] ? state.focusedPane : state.focusedPane === 0 ? 1 : 0,
+    state.active[state.focusedPane] ? state.focusedPane : Number(Object.keys(state.active).find((id) => state.active[Number(id)])),
   );
   // A tab dragged from the *other* pane can be dropped anywhere in this one,
   // not just on its tab bar -- there may be no tabs there to aim at.
@@ -93,6 +94,7 @@ function Pane({
 
   return (
     <div
+      data-pane-id={pane}
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       // Capture, so a click lands the focus here before whatever it was a
       // click *on* runs -- joining a channel from this pane's add button has
@@ -157,6 +159,8 @@ function Divider({
       onPointerMove={(event) => {
         if (event.currentTarget.hasPointerCapture(event.pointerId)) onDrag(event);
       }}
+      onLostPointerCapture={onSettle}
+      onPointerCancel={onSettle}
       onPointerUp={(event) => {
         event.currentTarget.releasePointerCapture(event.pointerId);
         onSettle();
@@ -170,89 +174,59 @@ function Divider({
   );
 }
 
-/**
- * The window's chat area: one pane, or two with a border you can drag. There
- * are exactly two -- a pane can't itself be split -- so this is a ratio and an
- * axis rather than a tree.
- */
-export function Panes({
-  onAdd,
-  onSignIn,
-  search,
-  onCloseSearch,
-}: {
+type PaneProps = {
   onAdd: () => void;
   onSignIn: () => void;
   search: TabSearchSession | null;
   onCloseSearch: () => void;
-}) {
-  const layout = useChat((state) => state.preferences.splitLayout);
-  const ratio = useChat((state) => state.preferences.splitRatio);
+};
+
+/** Each branch owns its divider and measures only its own part of the window. */
+function PaneBranch({ node, ...props }: PaneProps & { node: Extract<PaneNode, { kind: "split" }> }) {
   const setSplitRatio = useChat((state) => state.setSplitRatio);
   const container = useRef<HTMLDivElement>(null);
-  /** The ratio being dragged to, kept out of the store until the pointer lifts. */
   const [dragging, setDragging] = useState<number | null>(null);
-
-  if (layout === "none") {
-    return (
-      <Pane
-        pane={0}
-        onAdd={onAdd}
-        onSignIn={onSignIn}
-        search={search}
-        onCloseSearch={onCloseSearch}
-      />
-    );
-  }
-
-  const vertical = layout === "row";
-  const shown = clampRatio(dragging ?? ratio);
-
+  const dragRatio = useRef<number | null>(null);
+  const vertical = node.axis === "row";
+  const shown = clampRatio(dragging ?? node.ratio);
   const onDrag = (event: PointerEvent<HTMLDivElement>) => {
     const box = container.current?.getBoundingClientRect();
     if (!box) return;
     const along = vertical
-      ? (event.clientX - box.left) / box.width
-      : (event.clientY - box.top) / box.height;
-    setDragging(clampRatio(along));
+      ? (event.clientX - box.left - DIVIDER / 2) / (box.width - DIVIDER)
+      : (event.clientY - box.top - DIVIDER / 2) / (box.height - DIVIDER);
+    dragRatio.current = clampRatio(along);
+    setDragging(dragRatio.current);
   };
-
+  const settle = () => {
+    if (dragRatio.current !== null) setSplitRatio(node.id, dragRatio.current);
+    dragRatio.current = null;
+    setDragging(null);
+  };
   return (
     <div
       ref={container}
-      className={`flex min-h-0 flex-1 overflow-hidden ${vertical ? "flex-row" : "flex-col"} ${
-        dragging === null ? "" : "select-none"
-      }`}
+      className={`flex min-h-0 min-w-0 flex-1 overflow-hidden ${vertical ? "flex-row" : "flex-col"} ${dragging === null ? "" : "select-none"}`}
     >
-      {/* Grow factors rather than percentages, so the two panes divide
-          whatever the divider doesn't take without any arithmetic about how
-          thick it is. */}
       <div className="flex min-h-0 min-w-0" style={{ flex: `${shown} 1 0%` }}>
-        <Pane
-          pane={0}
-          onAdd={onAdd}
-          onSignIn={onSignIn}
-          search={search}
-          onCloseSearch={onCloseSearch}
-        />
+        <PaneTree node={node.first} {...props} />
       </div>
-      <Divider
-        vertical={vertical}
-        onDrag={onDrag}
-        onSettle={() => {
-          if (dragging !== null) setSplitRatio(dragging);
-          setDragging(null);
-        }}
-      />
+      <Divider vertical={vertical} onDrag={onDrag} onSettle={settle} />
       <div className="flex min-h-0 min-w-0" style={{ flex: `${1 - shown} 1 0%` }}>
-        <Pane
-          pane={1}
-          onAdd={onAdd}
-          onSignIn={onSignIn}
-          search={search}
-          onCloseSearch={onCloseSearch}
-        />
+        <PaneTree node={node.second} {...props} />
       </div>
     </div>
   );
+}
+
+function PaneTree({ node, ...props }: PaneProps & { node: PaneNode }) {
+  return node.kind === "pane"
+    ? <Pane key={node.id} pane={node.id} {...props} />
+    : <PaneBranch key={node.id} node={node} {...props} />;
+}
+
+export function Panes(props: PaneProps) {
+  const preferences = useChat((state) => state.preferences);
+  const tabs = useChat((state) => state.tabs);
+  return <PaneTree node={getPaneLayout({ tabs, preferences }).root} {...props} />;
 }

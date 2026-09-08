@@ -77,6 +77,7 @@ export const api = {
   recordEmoteUses: (account: string, channel: string, names: string[]) =>
     invoke<void>("record_emote_uses", { account, channel, names }),
   preferences: () => invoke<Preferences>("preferences"),
+  showMenuCursor: () => invoke<void>("show_menu_cursor"),
   setPreferences: (preferences: Preferences) =>
     invoke<Preferences>("set_preferences", { preferences }),
   lastSeenVersion: () => invoke<string>("last_seen_version"),

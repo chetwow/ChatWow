@@ -262,6 +262,8 @@ pub struct Preferences {
     /// stays the single record of which tabs exist and in what order --
     /// dragging a tab across the divider is a move within that one list.
     pub split_index: usize,
+    /// Frontend-owned nested pane tree and tab memberships. None imports legacy splits.
+    pub pane_layout: Option<serde_json::Value>,
     /// Mentions to say nothing about, each entry either `@login` or
     /// `#channel`. One list rather than two: they're the same instruction
     /// ("don't tell me about this") and the prefix is what it applies to.
@@ -326,6 +328,7 @@ impl Default for Preferences {
             split_layout: "none".to_string(),
             split_ratio: 0.5,
             split_index: 0,
+            pane_layout: None,
             mention_ignores: Vec::new(),
             notification_mutes: Vec::new(),
             blocked_users: Vec::new(),
@@ -723,6 +726,35 @@ mod tests {
         ).unwrap();
         assert!(!saved.preferences.keep_video_players_offscreen);
         assert!(saved.preferences.keep_video_players_inactive);
+    }
+
+    #[test]
+    fn nested_pane_layout_round_trips_without_changing_legacy_settings() {
+        let legacy: Preferences =
+            serde_json::from_str(r#"{"splitLayout":"column","splitRatio":0.3,"splitIndex":2}"#)
+                .unwrap();
+        assert!(legacy.pane_layout.is_none());
+        assert_eq!(legacy.split_index, 2);
+        let layout = serde_json::json!({
+            "root": {
+                "kind": "split", "id": "outer", "axis": "row", "ratio": 0.6,
+                "first": { "kind": "pane", "id": 0 },
+                "second": {
+                    "kind": "split", "id": "inner", "axis": "column", "ratio": 0.4,
+                    "first": { "kind": "pane", "id": 1 },
+                    "second": { "kind": "pane", "id": 2 }
+                }
+            },
+            "tabPanes": { "alpha": 0, "bravo": 2 }
+        });
+        let preferences = Preferences {
+            pane_layout: Some(layout.clone()),
+            ..legacy
+        };
+        let saved = serde_json::to_string(&preferences).unwrap();
+        let restored: Preferences = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.pane_layout, Some(layout));
+        assert_eq!(restored.split_layout, "column");
     }
 
     #[test]

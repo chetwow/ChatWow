@@ -44,12 +44,14 @@ describe("Tab unread counts", () => {
     expect(useChat.getState().unread.room).toBe(5);
   });
 
-  it("keeps both active panes read", () => {
+  it("keeps all active panes read, including nested panels", () => {
     const second = { ...room, id: "second", channel: "second" };
-    useChat.setState({ tabs: [room, second], active: [room.id, second.id] });
+    const third = { ...room, id: "third", channel: "third" };
+    useChat.setState({ tabs: [room, second, third], active: { 0: room.id, 1: second.id, 4: third.id } });
     useChat.getState().ingest([
       message("chat", "chat"),
       message("other", "chat", { channel: "second" }),
+      message("nested", "chat", { channel: "third" }),
       message("status", "notice"),
     ]);
     expect(useChat.getState().unread).toEqual({});

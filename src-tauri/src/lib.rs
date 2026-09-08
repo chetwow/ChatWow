@@ -441,6 +441,26 @@ fn preferences(state: State<'_, Shared>) -> settings::Preferences {
     state.preferences.read().clone()
 }
 
+/// Undo WebKit's hide-until-mouse-moves behavior after split-menu navigation.
+/// NSCursor::unhide and Tauri's explicit cursor visibility are different states.
+#[tauri::command]
+fn show_menu_cursor(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let focused_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                if focused_window.is_focused().unwrap_or(false) {
+                    objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(false);
+                }
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+    Ok(())
+}
+
 #[tauri::command]
 fn last_seen_version(state: State<'_, Shared>) -> String {
     state.last_seen_version.read().clone()
@@ -1779,6 +1799,7 @@ pub fn run() {
             reorder_tabs,
             send_message,
             preferences,
+            show_menu_cursor,
             set_preferences,
             last_seen_version,
             acknowledge_whats_new,

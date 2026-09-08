@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Split any panel left, right, up or down, with tab-bar highlighting and arrow-key panel selection.
+
 ### Added
 
 - Zoom chat text and emotes with Ctrl/Cmd +/− or the scroll wheel, with bounded media and temporary zoom controls.

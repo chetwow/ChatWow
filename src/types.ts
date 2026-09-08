@@ -248,15 +248,22 @@ export type EmoteRule = {
   value: string;
 };
 
-/**
- * Which of the two panes something is in. There are exactly two: one split,
- * not a tree of them, so this is an index rather than a path.
- */
-export type PaneIndex = 0 | 1;
+/** Stable pane identity, independent of its position in the layout. */
+export type PaneIndex = number;
+
+export type SplitDirection = "left" | "right" | "up" | "down";
+export type PaneNode =
+  | { kind: "pane"; id: PaneIndex }
+  | { kind: "split"; id: string; axis: "row" | "column"; ratio: number; first: PaneNode; second: PaneNode };
+
+export type PaneLayout = {
+  root: PaneNode;
+  /** Membership only; the backend's tabs list still owns existence and order. */
+  tabPanes: Record<string, PaneIndex>;
+};
 
 /**
- * How the window is divided: not at all, into two panes side by side, or into
- * two stacked one above the other.
+ * Legacy two-pane layout, retained for importing existing settings.
  */
 export type SplitLayout = "none" | "row" | "column";
 
@@ -339,6 +346,8 @@ export type Preferences = {
   splitRatio: number;
   /** How many leading tabs belong to the first pane; the rest to the second. */
   splitIndex: number;
+  /** Nested layout. Null imports the legacy split fields above. */
+  paneLayout: PaneLayout | null;
   /** Mentions to stay quiet about: `@login` or `#channel`, in one list. */
   mentionIgnores: string[];
   /** Sound-only rules: `@login` or `#channel`; visual notifications remain. */

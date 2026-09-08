@@ -23,6 +23,7 @@ import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { isThemeId } from "../lib/themes";
 import { normalizeChatZoom } from "../lib/chatZoom";
+import { clampRatio, getPaneLayout, mapPaneNode, normalizePaneLayout, paneIds, siblingPane, withoutPane } from "../lib/panes";
 import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
 import { ANONYMOUS } from "../types";
 import type {
@@ -47,6 +48,8 @@ import type {
   NewTabAvatarMode,
   MentionFilter,
   SplitLayout,
+  SplitDirection,
+  PaneLayout,
   TabAvatarMode,
   StatusEvent,
   StoredMessage,
@@ -110,6 +113,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   splitLayout: "none",
   splitRatio: 0.5,
   splitIndex: 0,
+  paneLayout: null,
   mentionIgnores: [],
   notificationMutes: [],
   blockedUsers: [],
@@ -215,18 +219,8 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!Number.isInteger(merged.splitIndex) || merged.splitIndex < 0) {
     merged.splitIndex = DEFAULT_PREFERENCES.splitIndex;
   }
+  merged.paneLayout = normalizePaneLayout(merged.paneLayout);
   return merged;
-}
-
-/**
- * The narrowest either pane can be dragged, as a fraction of the split axis.
- * A pane below this is one you can't read but can still lose tabs into, which
- * is worse than simply refusing to go there.
- */
-const MIN_RATIO = 0.15;
-
-export function clampRatio(ratio: number): number {
-  return Math.min(1 - MIN_RATIO, Math.max(MIN_RATIO, ratio));
 }
 
 /**
@@ -253,9 +247,6 @@ function writeMockPreferences(preferences: Preferences) {
 
 let nextKey = 1;
 
-/** Both panes, for iterating -- there are exactly two, never a tree of them. */
-export const PANES: readonly PaneIndex[] = [0, 1];
-
 /** A tab id, minted here: the view has a key before the backend has heard of it. */
 function newTabId(): string {
   return crypto.randomUUID?.() ?? `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -264,27 +255,25 @@ function newTabId(): string {
 /** The pieces the pane layout is derived from, and all it needs to be derived. */
 type Layout = { tabs: Tab[]; preferences: Preferences };
 
-/**
- * The tabs in one pane, in bar order. `splitIndex` is the boundary in the one
- * `tabs` list rather than a second list of its own: that list is the backend's
- * record of what's open and in what order, and keeping the split as a position
- * in it means dragging a tab across the divider is an ordinary move within it
- * -- nothing can end up in both panes, or in neither.
- *
- * Unsplit, everything is in the first pane and the second is empty.
- */
-export function paneTabs(layout: Layout, pane: PaneIndex): Tab[] {
-  if (layout.preferences.splitLayout === "none") return pane === 0 ? layout.tabs : [];
-  const at = Math.min(layout.preferences.splitIndex, layout.tabs.length);
-  return pane === 0 ? layout.tabs.slice(0, at) : layout.tabs.slice(at);
+/** Pane identities in visual tree order. */
+export function panes(layout: Layout): PaneIndex[] {
+  return paneIds(getPaneLayout(layout).root);
 }
 
-/** Which pane a tab is in, or `null` for one that isn't open anywhere. */
+/** Unassigned newly opened tabs land at the end until placeNewTab moves them. */
+export function paneTabs(layout: Layout, pane: PaneIndex): Tab[] {
+  const { root, tabPanes } = getPaneLayout(layout);
+  const ids = paneIds(root);
+  if (!ids.includes(pane)) return [];
+  const fallback = ids[ids.length - 1];
+  return layout.tabs.filter((tab) => (ids.includes(tabPanes[tab.id]) ? tabPanes[tab.id] : fallback) === pane);
+}
+
 export function paneOf(layout: Layout, id: string): PaneIndex | null {
-  for (const pane of PANES) {
-    if (paneTabs(layout, pane).some((tab) => tab.id === id)) return pane;
-  }
-  return null;
+  if (!layout.tabs.some((tab) => tab.id === id)) return null;
+  const { root, tabPanes } = getPaneLayout(layout);
+  const ids = paneIds(root);
+  return ids.includes(tabPanes[id]) ? tabPanes[id] : ids[ids.length - 1];
 }
 
 export function tabById(layout: { tabs: Tab[] }, id: string | null): Tab | undefined {
@@ -471,14 +460,12 @@ export function avatarOf(state: { auth: AuthStatus }, account: string | undefine
  * dragged across the divider, closed, or swept up by an unsplit leaves the
  * pane it was in pointing at something that isn't there any more.
  */
-function settleActive(layout: Layout, preferred: (string | null)[]): [string | null, string | null] {
-  const next: (string | null)[] = [preferred[0] ?? null, preferred[1] ?? null];
-  for (const pane of PANES) {
+function settleActive(layout: Layout, preferred: Record<PaneIndex, string | null>): Record<PaneIndex, string | null> {
+  return Object.fromEntries(panes(layout).map((pane) => {
     const tabs = paneTabs(layout, pane);
-    if (next[pane] && tabs.some((tab) => tab.id === next[pane])) continue;
-    next[pane] = tabs[0]?.id ?? null;
-  }
-  return next as [string | null, string | null];
+    const id = preferred[pane];
+    return [pane, id && tabs.some((tab) => tab.id === id) ? id : tabs[0]?.id ?? null];
+  }));
 }
 
 export type ActiveModeration = {
@@ -529,13 +516,13 @@ type ChatState = {
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];
   /**
-   * The tab each pane is showing, by id. Both are "what you're reading" -- a
-   * message arriving in either is one you can see, so neither counts as unread
+   * The tab each pane is showing, by id. All are "what you're reading" -- a
+   * message arriving in any visible tab does not count as unread
    * -- but only `focusedPane` decides where a whisper is filed and what Ctrl+W
    * closes.
    */
-  active: [string | null, string | null];
-  /** The pane you last clicked in. Always `0` while unsplit. */
+  active: Record<PaneIndex, string | null>;
+  /** The pane you last clicked in. */
   focusedPane: PaneIndex;
   /**
    * Messages per tab, not per channel. The same channel open under two
@@ -628,16 +615,11 @@ type ChatState = {
    * what a drop onto a given tab means.
    */
   moveTab: (id: string, pane: PaneIndex, index: number) => void;
-  /** Divide the window, putting the new empty pane first (left/top) or second. */
-  split: (layout: Exclude<SplitLayout, "none">, newPaneFirst: boolean) => void;
-  /** Turn an existing split from side-by-side to stacked, or back. */
-  setSplitLayout: (layout: Exclude<SplitLayout, "none">) => void;
-  /** Exchange the two panes, contents and sizes together. */
-  swapPanes: () => void;
-  /** Undo the split, gathering every tab back into one pane. */
-  removeSplit: () => void;
-  /** Where the divider sits, as the first pane's share of the split axis. */
-  setSplitRatio: (ratio: number) => void;
+  /** Divide one pane, leaving its tabs in place and focusing the new empty pane. */
+  split: (pane: PaneIndex, direction: SplitDirection) => void;
+  /** Merge a pane's tabs into its sibling and remove that pane. */
+  removePane: (pane: PaneIndex) => void;
+  setSplitRatio: (id: string, ratio: number) => void;
   /**
    * Open a tab and switch to it. `account` defaults to the one new tabs are
    * set to use; the same channel under a *different* account is a new tab
@@ -782,41 +764,27 @@ function targetsFor(state: ChatState, message: ChatMessage): string[] {
   return here ? [here.id] : [];
 }
 
-/**
- * Write a rearranged pair of tab lists back to the two places they came from:
- * the tab order (the backend's) and the boundary between the panes. Only what
- * actually changed is written, so an in-pane drag doesn't touch the split and a
- * drag across it doesn't rewrite an order that hasn't moved.
- */
-function commitTabs(lists: [Tab[], Tab[]]) {
+/** Commit visual tab order and membership together; tabs remain backend-owned. */
+function commitTabs(lists: Record<PaneIndex, Tab[]>, layout = getPaneLayout(useChat.getState())) {
   const state = useChat.getState();
-  const split = state.preferences.splitLayout !== "none";
-  const tabs = split ? lists[0].concat(lists[1]) : lists[0];
-
-  if (tabs.length !== state.tabs.length || tabs.some((tab, at) => tab.id !== state.tabs[at]?.id)) {
-    useChat.setState({ tabs });
-    if (IS_TAURI) void api.reorderTabs(tabs.map((tab) => tab.id));
-  }
-  if (split && lists[0].length !== state.preferences.splitIndex) {
-    useChat.getState().updatePreferences({ splitIndex: lists[0].length });
-  }
+  const ids = paneIds(layout.root);
+  const tabs = ids.flatMap((pane) => lists[pane] ?? []);
+  const paneLayout: PaneLayout = {
+    root: layout.root,
+    tabPanes: Object.fromEntries(ids.flatMap((pane) => (lists[pane] ?? []).map((tab) => [tab.id, pane]))),
+  };
+  const preferences = normalize({ ...state.preferences, paneLayout });
+  useChat.setState({ tabs, preferences });
+  if (IS_TAURI) {
+    if (tabs.some((tab, at) => tab.id !== state.tabs[at]?.id)) void api.reorderTabs(tabs.map((tab) => tab.id));
+    void api.setPreferences(preferences);
+  } else writeMockPreferences(preferences);
 }
 
-/**
- * Put a freshly opened tab in the pane you were working in, and show it. The
- * backend appends it, which is the *second* pane's end, so opening one from the
- * first is a move back across the divider.
- */
+/** Put a backend-appended tab into the focused pane and show it there. */
 function placeNewTab(id: string) {
   const state = useChat.getState();
-  if (state.preferences.splitLayout !== "none" && state.focusedPane === 0) {
-    const lists: [Tab[], Tab[]] = [paneTabs(state, 0), paneTabs(state, 1)];
-    const at = lists[1].findIndex((tab) => tab.id === id);
-    if (at >= 0) {
-      lists[0].push(lists[1].splice(at, 1)[0]);
-      commitTabs(lists);
-    }
-  }
+  state.moveTab(id, state.focusedPane, paneTabs(state, state.focusedPane).length);
   useChat.getState().setActive(id);
 }
 
@@ -891,7 +859,8 @@ async function closeTabNow(id: string) {
   const pane = paneOf(before, id) ?? before.focusedPane;
   const index = paneTabs(before, pane).findIndex((candidate) => candidate.id === id);
   const closed: ClosedTab = { tab, pane, index: Math.max(0, index) };
-  const shrinkFirstPane = before.preferences.splitLayout !== "none" && pane === 0;
+  // Materialize legacy membership before removing a tab changes its boundary.
+  if (!before.preferences.paneLayout) before.updatePreferences({ paneLayout: getPaneLayout(before) });
 
   const tabs = IS_TAURI
     ? await api.closeTab(id)
@@ -903,16 +872,8 @@ async function closeTabNow(id: string) {
     listenerCloseWarning: null,
     ...forgetTab(state, id),
   }));
-  // Preserve the remaining pane memberships. Without moving the boundary, a
-  // close in the first pane would pull the second pane's first tab across.
-  if (
-    shrinkFirstPane &&
-    useChat.getState().preferences.splitLayout === before.preferences.splitLayout
-  ) {
-    useChat
-      .getState()
-      .updatePreferences({ splitIndex: Math.max(0, before.preferences.splitIndex - 1) });
-  }
+  const current = useChat.getState();
+  commitTabs(Object.fromEntries(panes(current).map((id) => [id, paneTabs(current, id)])));
   const settled = useChat.getState();
   useChat.setState({ active: settleActive(settled, settled.active) });
 }
@@ -939,7 +900,7 @@ export const useChat = create<ChatState>((set) => ({
       ? state : { pinnedMessages: pins };
   }),
   tabs: [],
-  active: [null, null],
+  active: { 0: null },
   focusedPane: 0,
   messages: {},
   unread: {},
@@ -975,7 +936,8 @@ export const useChat = create<ChatState>((set) => ({
   setActive: (id, pane) =>
     set((state) => {
       const target = pane ?? paneOf(state, id) ?? state.focusedPane;
-      const active = state.active.slice() as [string | null, string | null];
+      if (!paneTabs(state, target).some((tab) => tab.id === id)) return {};
+      const active = { ...state.active };
       active[target] = id;
       return {
         active,
@@ -987,7 +949,7 @@ export const useChat = create<ChatState>((set) => ({
 
   focusPane: (pane) =>
     set((state) => {
-      if (state.focusedPane === pane || state.preferences.splitLayout === "none") return {};
+      if (state.focusedPane === pane || !panes(state).includes(pane)) return {};
       // Reading a pane clears what you hadn't looked at in it, the same way
       // clicking its tab does -- the messages are in front of you either way.
       const id = state.active[pane];
@@ -1001,8 +963,10 @@ export const useChat = create<ChatState>((set) => ({
 
   moveTab: (id, pane, index) => {
     const state = useChat.getState();
-    const lists: [Tab[], Tab[]] = [paneTabs(state, 0), paneTabs(state, 1)];
-    const from = PANES.find((candidate) => lists[candidate].some((tab) => tab.id === id));
+    const ids = panes(state);
+    if (!ids.includes(pane)) return;
+    const lists = Object.fromEntries(ids.map((id) => [id, paneTabs(state, id)]));
+    const from = ids.find((candidate) => lists[candidate].some((tab) => tab.id === id));
     if (from === undefined) return;
     const [moved] = lists[from].splice(
       lists[from].findIndex((tab) => tab.id === id),
@@ -1017,61 +981,53 @@ export const useChat = create<ChatState>((set) => ({
     if (from === pane) return;
     // Dragging a tab into the other pane is asking to read it there, so it
     // arrives shown and focused; the pane it left falls back to a neighbour.
-    const preferred = settled.active.slice();
+    const preferred = { ...settled.active };
     preferred[pane] = id;
     preferred[from] = settled.active[from] === id ? null : settled.active[from];
     set({ active: settleActive(settled, preferred), focusedPane: pane });
   },
 
-  split: (layout, newPaneFirst) => {
+  split: (pane, direction) => {
     const state = useChat.getState();
-    state.updatePreferences({
-      splitLayout: layout,
-      // Everything open stays together in the pane that isn't the new one.
-      splitIndex: newPaneFirst ? 0 : state.tabs.length,
-    });
-    const pane: PaneIndex = newPaneFirst ? 0 : 1;
-    const preferred: (string | null)[] = [null, null];
-    // Whatever was on screen is still on screen, in the other pane.
-    preferred[pane === 0 ? 1 : 0] = state.active[state.focusedPane];
+    const layout = getPaneLayout(state);
+    const ids = paneIds(layout.root);
+    if (!ids.includes(pane)) return;
+    let added = 0;
+    // A closed tab still remembers its former pane; do not reuse that identity.
+    while (ids.includes(added) || state.lastClosedTab?.pane === added) added++;
+    const newPane = { kind: "pane" as const, id: added };
+    const first = direction === "left" || direction === "up";
+    const root = mapPaneNode(layout.root, (node) => node.kind === "pane" && node.id === pane ? {
+      kind: "split", id: newTabId(), axis: direction === "left" || direction === "right" ? "row" : "column",
+      ratio: 0.5, first: first ? newPane : node, second: first ? node : newPane,
+    } : node);
+    commitTabs(Object.fromEntries(ids.map((id) => [id, paneTabs(state, id)])), { ...layout, root });
     const settled = useChat.getState();
-    // The empty pane takes the focus: splitting is how you make room for
-    // something, so Ctrl+K and the add button should fill the new half.
-    set({ active: settleActive(settled, preferred), focusedPane: pane });
+    set({ active: settleActive(settled, state.active), focusedPane: added });
   },
 
-  setSplitLayout: (layout) => useChat.getState().updatePreferences({ splitLayout: layout }),
-
-  swapPanes: () => {
+  removePane: (pane) => {
     const state = useChat.getState();
-    if (state.preferences.splitLayout === "none") return;
-    commitTabs([paneTabs(state, 1), paneTabs(state, 0)]);
-    // The divider moves with the contents: a pane that was wide stays wide
-    // around the tabs it was made wide for.
-    useChat
-      .getState()
-      .updatePreferences({ splitRatio: clampRatio(1 - state.preferences.splitRatio) });
-    const settled = useChat.getState();
-    set({
-      active: settleActive(settled, [state.active[1], state.active[0]]),
-      focusedPane: state.focusedPane === 0 ? 1 : 0,
-    });
+    const layout = getPaneLayout(state);
+    const ids = paneIds(layout.root);
+    if (!ids.includes(pane) || ids.length === 1) return;
+    const root = withoutPane(layout.root, pane)!;
+    const target = siblingPane(layout.root, pane)!;
+    const lists = Object.fromEntries(ids.map((id) => [id, paneTabs(state, id)]));
+    lists[target].push(...lists[pane]);
+    commitTabs(lists, { ...layout, root });
+    const preferred = { ...state.active };
+    if (state.focusedPane === pane && state.active[pane]) preferred[target] = state.active[pane];
+    set({ active: settleActive(useChat.getState(), preferred), focusedPane: state.focusedPane === pane ? target : state.focusedPane });
   },
 
-  removeSplit: () => {
+  setSplitRatio: (id, ratio) => {
     const state = useChat.getState();
-    if (state.preferences.splitLayout === "none") return;
-    state.updatePreferences({ splitLayout: "none" });
-    const settled = useChat.getState();
-    set({
-      // You keep reading what you were reading; the other pane's tab is still
-      // in the bar, one click away.
-      active: settleActive(settled, [state.active[state.focusedPane], null]),
-      focusedPane: 0,
-    });
+    const layout = getPaneLayout(state);
+    const root = mapPaneNode(layout.root, (node) => node.kind === "split" && node.id === id
+      ? { ...node, ratio: clampRatio(ratio) } : node);
+    state.updatePreferences({ paneLayout: { ...layout, root } });
   },
-
-  setSplitRatio: (ratio) => useChat.getState().updatePreferences({ splitRatio: clampRatio(ratio) }),
 
   openTab: async (kind, channel, account) => {
     const state = useChat.getState();
@@ -1289,7 +1245,7 @@ export const useChat = create<ChatState>((set) => ({
         ...(IS_TAURI ? {} : { ready: { ...current.ready, [opened.id]: true } }),
       }));
       const current = useChat.getState();
-      const pane = current.preferences.splitLayout === "none" ? 0 : closed.pane;
+      const pane = panes(current).includes(closed.pane) ? closed.pane : current.focusedPane;
       current.moveTab(opened.id, pane, closed.index);
       useChat.getState().setActive(opened.id, pane);
     } catch {
@@ -1618,7 +1574,7 @@ export const useChat = create<ChatState>((set) => ({
         const { notifyOnTag, notifyOnName } = state.preferences;
         // Either pane counts as looking at it: a message you can see land
         // isn't news, whichever half of the window it landed in.
-        const watching = state.active.includes(id);
+        const watching = Object.values(state.active).includes(id);
         // A whisper always pings, unlike a mention in the channel you're
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
@@ -1671,7 +1627,7 @@ export const useChat = create<ChatState>((set) => ({
         // Unread counts conversation among the unseen matches. The rose mention counter is the
         // listener's optional notification indication, so it moves only when
         // that listener has notifications enabled.
-        if (!state.active.includes(tab.id)) {
+        if (!Object.values(state.active).includes(tab.id)) {
           const count = addressed.filter(countsAsUnread).length;
           if (count > 0) unread[tab.id] = (unread[tab.id] ?? 0) + count;
           if (listenerNotifies(tab)) {
@@ -1680,12 +1636,12 @@ export const useChat = create<ChatState>((set) => ({
         }
 
         const sourceVisible = addressed.some((message) =>
-          state.active.some((id) => {
+          Object.values(state.active).some((id) => {
             const activeTab = tabById(state, id);
             return activeTab?.kind === "channel" && activeTab.channel === message.channel;
           }),
         );
-        const watching = state.active.includes(tab.id) || sourceVisible;
+        const watching = Object.values(state.active).includes(tab.id) || sourceVisible;
         if (
           listenerNotifies(tab) &&
           notificationSoundAllowed(state.preferences, windowActive, watching) &&
@@ -1779,7 +1735,8 @@ export const useChat = create<ChatState>((set) => ({
       set({
         tabs,
         auth: mockAuthStatus(),
-        active: settleActive({ tabs, preferences }, [null, null]),
+        active: settleActive({ tabs, preferences }, {}),
+        focusedPane: paneIds(getPaneLayout({ tabs, preferences }).root)[0],
         ready: Object.fromEntries(tabs.map((tab) => [tab.id, true])),
         emoteCounts: Object.fromEntries(tabs.map((tab) => [tab.channel, 886])),
         live: { [tabs[0].channel]: mockStreamInfo },
@@ -1820,6 +1777,7 @@ export const useChat = create<ChatState>((set) => ({
       live,
       // Each pane opens on its own first tab.
       active: settleActive({ tabs, preferences: settings }, state.active),
+      focusedPane: paneIds(getPaneLayout({ tabs, preferences: settings }).root)[0],
     }));
   },
 }));

@@ -21,16 +21,28 @@ export function ContextMenu({
   y,
   options,
   onClose,
+  onKeyDown,
+  autoFocus = false,
+  label,
 }: {
   x: number;
   y: number;
   options: ContextMenuOption[];
   onClose: () => void;
+  onKeyDown?: (event: KeyboardEvent) => void;
+  autoFocus?: boolean;
+  label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [keyboardNavigation, setKeyboardNavigation] = useState(false);
   const [style, setStyle] = useState<{ left: number; top: number; visibility: "hidden" | "visible" }>(
     { left: x, top: y, visibility: "hidden" },
   );
+
+  useLayoutEffect(() => {
+    // Opening the menu or choosing a panel does not select a menu action.
+    if (autoFocus && style.visibility === "visible") ref.current?.focus({ preventScroll: true });
+  }, [autoFocus, style.visibility]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -45,24 +57,42 @@ export function ContextMenu({
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+    const keyDown = (event: KeyboardEvent) => {
+      if (autoFocus && event.key === "Tab") setKeyboardNavigation(true);
+      onKeyDown?.(event);
+      if (autoFocus && event.defaultPrevented) {
+        setKeyboardNavigation(false);
+        ref.current?.focus({ preventScroll: true });
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
     };
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", keyDown, true);
     window.addEventListener("blur", onClose);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", keyDown, true);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [onClose, onKeyDown, autoFocus]);
 
   return (
     <div
       ref={ref}
+      role="menu"
+      tabIndex={autoFocus ? -1 : undefined}
+      aria-label={label}
+      data-menu=""
+      onPointerMove={() => {
+        if (!autoFocus || !keyboardNavigation) return;
+        setKeyboardNavigation(false);
+        ref.current?.focus({ preventScroll: true });
+      }}
       style={{ left: style.left, top: style.top, visibility: style.visibility }}
-      className="scroller fixed z-50 max-h-[calc(100vh-1rem)] min-w-[140px] overflow-y-auto rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60"
+      className="scroller fixed z-50 max-h-[calc(100vh-1rem)] min-w-[140px] overflow-y-auto rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60 outline-none"
     >
       {options.map((option, index) =>
         "separator" in option ? (
@@ -77,11 +107,15 @@ export function ContextMenu({
         ) : (
           <button
             key={index}
+            role="menuitem"
             onClick={() => {
               option.onSelect();
               onClose();
             }}
-            className="block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+            className={`block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim transition-colors ${
+              autoFocus ? `outline-none ${keyboardNavigation ? "focus:bg-surface-hover focus:text-ink" : "hover:bg-surface-hover hover:text-ink"}`
+                : "hover:bg-surface-hover hover:text-ink"
+            }`}
           >
             {option.label}
           </button>

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useChat } from "../store/chat";
+import { panes, useChat } from "../store/chat";
+import { adjacentPane } from "../lib/panes";
+import { useSplitTarget } from "../store/splitTarget";
+import { api } from "../lib/api";
 import { IS_MACOS, IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import type { SettingsTab } from "./SettingsDialog";
-import type { AuthStatus } from "../types";
+import type { AuthStatus, SplitDirection } from "../types";
 
 function ControlButton({
   onClick,
@@ -110,71 +113,89 @@ function PinButton() {
   );
 }
 
-/**
- * Divide the window, or put it back. The four directions say where the new
- * pane goes, which is only a question while there isn't one -- once the
- * window is split there are two panes to arrange rather than one to add, so
- * the menu turns into the three things you can do with them.
- */
+/** Choose a panel independently of chat focus, then split it in any direction. */
 function SplitButton() {
-  const layout = useChat((state) => state.preferences.splitLayout);
   const split = useChat((state) => state.split);
-  const setSplitLayout = useChat((state) => state.setSplitLayout);
-  const swapPanes = useChat((state) => state.swapPanes);
-  const removeSplit = useChat((state) => state.removeSplit);
+  const removePane = useChat((state) => state.removePane);
+  const count = useChat((state) => panes(state).length);
+  const target = useSplitTarget((state) => state.pane);
+  const select = useSplitTarget((state) => state.select);
   const button = useRef<HTMLButtonElement>(null);
+  const cursorFrame = useRef<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const options: ContextMenuOption[] =
-    layout === "none"
-      ? [
-          { label: "Split left", onSelect: () => split("row", true) },
-          { label: "Split right", onSelect: () => split("row", false) },
-          { label: "Split up", onSelect: () => split("column", true) },
-          { label: "Split down", onSelect: () => split("column", false) },
-        ]
-      : [
-          { label: "Side by side", onSelect: () => setSplitLayout("row") },
-          { label: "Stacked", onSelect: () => setSplitLayout("column") },
-          { label: "Swap panes", onSelect: swapPanes },
-          { separator: true },
-          { label: "Remove split", onSelect: removeSplit },
-        ];
+  const cancelCursorRestore = () => {
+    if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current);
+    cursorFrame.current = null;
+  };
+  useEffect(() => () => {
+    select(null);
+    cancelCursorRestore();
+  }, [select]);
+
+  const close = () => {
+    cancelCursorRestore();
+    setMenu(null);
+    select(null);
+  };
+  const navigate = (event: KeyboardEvent) => {
+    const directions: Record<string, SplitDirection> = {
+      ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+    };
+    const direction = directions[event.key];
+    if (!direction || target === null) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const rects = Array.from(document.querySelectorAll<HTMLElement>("[data-pane-id]")).map((element) => {
+      const { left, top, right, bottom } = element.getBoundingClientRect();
+      return { id: Number(element.dataset.paneId), left, top, right, bottom };
+    });
+    select(adjacentPane(rects, target, direction));
+    if (IS_TAURI && IS_MACOS) {
+      // WebKit hides the pointer after handling keydown, even when JS cancels
+      // it. Restore it after that event has finished, without moving the mouse.
+      cancelCursorRestore();
+      cursorFrame.current = requestAnimationFrame(() => {
+        cursorFrame.current = null;
+        void api.showMenuCursor().catch((error) => console.warn("Couldn't restore menu cursor", error));
+      });
+    }
+  };
+  const options: ContextMenuOption[] = [
+    ...(["left", "right", "up", "down"] as const).map((direction) => ({
+      label: `Split ${direction}`,
+      onSelect: () => { if (target !== null) split(target, direction); },
+    })),
+    ...(count > 1 ? [
+      { separator: true } as const,
+      { label: "Remove panel", onSelect: () => { if (target !== null) removePane(target); } },
+    ] : []),
+  ];
 
   return (
     <>
       <button
         ref={button}
         onClick={() => {
-          // Opened under the button rather than at the pointer: it's a menu
-          // belonging to a control, not a context menu for what was clicked.
           const box = button.current?.getBoundingClientRect();
-          setMenu(menu ? null : { x: box ? box.left : 0, y: box ? box.bottom + 4 : 0 });
+          select(useChat.getState().focusedPane);
+          setMenu({ x: box?.left ?? 0, y: box ? box.bottom + 4 : 0 });
         }}
         aria-label="Split view"
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         title="Split view"
         className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
-          layout === "none" ? "text-ink-dim hover:text-ink" : "text-accent hover:text-accent"
+          menu ? "text-accent" : "text-ink-dim hover:text-ink"
         }`}
       >
-        {/* A pane with a divider through it, turned the way the window is
-            actually divided -- upright while there's no split, since that's
-            what picking one would give you. */}
         <svg viewBox="0 0 16 16" width={GLYPH} height={GLYPH} fill="none" stroke="currentColor" strokeWidth="1.3">
           <rect x="1.7" y="2.7" width="12.6" height="10.6" rx="1.6" />
-          {layout === "column" ? <path d="M1.7 8h12.6" /> : <path d="M8 2.7v10.6" />}
+          <path d="M8 2.7v10.6" />
         </svg>
       </button>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          options={options}
-          onClose={() => setMenu(null)}
-        />
-      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} options={options} onClose={close}
+        onKeyDown={navigate} autoFocus label="Split panel" />}
     </>
   );
 }
