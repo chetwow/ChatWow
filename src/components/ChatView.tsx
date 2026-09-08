@@ -12,6 +12,7 @@ import {
 } from "react";
 import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
+import { ChatZoomControl } from "./ChatZoomControl";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
 import {
@@ -120,7 +121,9 @@ export function ChatView({
     state.tabId === id && state.offscreen ? state.owner : null,
   );
   const scroller = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const chatZoom = useChat((state) => state.preferences.chatZoom);
   const mentionRail = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   const [menu, setMenu] = useState<{
@@ -258,7 +261,23 @@ export function ChatView({
     if (element && pinned) {
       element.scrollTop = element.scrollHeight;
     }
-  }, [messages, pinned, channel]);
+  }, [messages, pinned, channel, chatZoom]);
+
+  // The scroller stays in window pixels while its transcript uses CSS zoom.
+  // Divide the available height by zoom so even oversized media fits a short
+  // window or a horizontal split. Recompute when either dimension changes.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    const transcript = content.current;
+    if (!element || !transcript) return;
+    const measure = () => transcript.style.setProperty(
+      "--chat-media-max-height", `${Math.max(0, element.clientHeight - 16) * 100 / chatZoom}px`,
+    );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [chatZoom]);
 
   // Match wrappers carry a numeric index, so navigation never has to put an
   // arbitrary message key into a CSS selector. Finding moves away from the
@@ -291,6 +310,26 @@ export function ChatView({
   // limitation on Windows, not related to this effect: tauri-apps/tauri#6322.)
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
+  const zoomAnchor = useRef<{ row: Element; offset: number } | null>(null);
+  // Capture the first visible message before a shared zoom update reflows
+  // either pane. A reader browsing history should keep the same message.
+  useLayoutEffect(() => useChat.subscribe((state, previous) => {
+    if (state.preferences.chatZoom === previous.preferences.chatZoom) return;
+    const element = scroller.current;
+    if (!element?.clientHeight || pinnedRef.current) return;
+    const top = element.getBoundingClientRect().top;
+    const row = Array.from(content.current?.children ?? [])
+      .find((child) => child.getBoundingClientRect().bottom > top);
+    zoomAnchor.current = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
+  }), []);
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current;
+    const element = scroller.current;
+    zoomAnchor.current = null;
+    if (!anchor?.row.isConnected || !element || pinnedRef.current) return;
+    element.scrollTop += anchor.row.getBoundingClientRect().top
+      - element.getBoundingClientRect().top - anchor.offset;
+  }, [chatZoom]);
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
@@ -802,7 +841,7 @@ export function ChatView({
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1">
+      <div ref={viewport} className="relative min-h-0 flex-1">
         <div
           ref={scroller}
           onScroll={onScroll}
@@ -827,7 +866,7 @@ export function ChatView({
             </div>
           )}
 
-          <div ref={content}>
+          <div ref={content} className="chat-transcript" style={{ zoom: chatZoom / 100 }}>
             {messages?.map((message) => {
               const match = searchMatchIndex.get(message.key);
               const mentionMarker = mentionMarkerIndex.get(message.key);
@@ -856,6 +895,8 @@ export function ChatView({
             })}
           </div>
         </div>
+
+        <ChatZoomControl viewport={viewport} capturesTyping={capturesTyping} />
 
         {mentionMarkerPositions.length > 0 && (
           <div

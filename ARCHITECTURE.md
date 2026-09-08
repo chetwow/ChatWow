@@ -1248,6 +1248,19 @@ Mock mode has no backend to write to and falls back to `localStorage`. The defau
 timeout is stored as seconds and normalized in the frontend to Twitch's one-second through
 two-week range.
 
+`chatZoom` is a separate, saved transcript scale shared by all tabs and panes: 50–200% in 10%
+steps, with 100% as the default. `ChatZoomControl` handles Ctrl/Cmd +/− and 0 in the focused
+chat, plus a non-passive Ctrl/Cmd wheel listener over each chat viewport. Its percentage,
+minus, plus and Reset pill stays visible for two seconds after the last action, then fades.
+CSS `zoom` applies only to the transcript, including timestamps, badges, emotes and message
+effects; the composer, tabs, search, pinned panel and floating controls keep their sizes.
+Keeping the scroll container outside zoom preserves window-pixel coordinates for search,
+mention markers and popups. A ResizeObserver bounds large media to the chat viewport's height
+divided by zoom, while width constraints follow the transcript's reflowed width.
+Zoom preserves the first visible message while browsing history and keeps live chat pinned.
+Inline video cards also limit their width by the available height and aspect ratio; Twitch's
+minimum-size iframe is fitted using layout pixels so transcript zoom is applied only once.
+
 The dialog is sized for the window's 420px minimum: the panel is `min(560px, 100%)`, setting rows
 wrap their control under the label when they have to, and the tab row scrolls sideways rather
 than wrapping to a second row that would push content off the bottom. Its height is fixed to the

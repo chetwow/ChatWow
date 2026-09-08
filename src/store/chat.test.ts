@@ -10,6 +10,20 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+describe("chat zoom preferences", () => {
+  it("saves bounded transcript zoom independently of font and media preferences", () => {
+    useChat.getState().updatePreferences({ chatFontSize: "large", gifScale: 2, chatZoom: 900 });
+    expect(useChat.getState().preferences.chatZoom).toBe(200);
+    useChat.getState().updatePreferences({ chatZoom: NaN });
+    const preferences = useChat.getState().preferences;
+    expect(preferences.chatZoom).toBe(100);
+    expect(preferences.chatFontSize).toBe("large");
+    expect(preferences.gifScale).toBe(2);
+    const calls = vi.mocked(localStorage.setItem).mock.calls;
+    expect(JSON.parse(calls[calls.length - 1][1]).chatZoom).toBe(100);
+  });
+});
+
 describe("Power-up preferences", () => {
   it("defaults to animated effects and remembers static mode independently of the other switches", () => {
     expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(false);

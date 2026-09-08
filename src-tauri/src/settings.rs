@@ -142,6 +142,8 @@ pub struct Preferences {
     /// A value the frontend doesn't know falls back to `medium` there rather
     /// than being rejected here, so a hand-edited file can't wedge the UI.
     pub chat_font_size: String,
+    /// Transcript-only zoom percentage; normalized in the frontend.
+    pub chat_zoom: f64,
     /// Ping when someone writes `@you`.
     pub notify_on_tag: bool,
     /// Ping when someone uses your name without the `@`.
@@ -286,6 +288,7 @@ impl Default for Preferences {
         Self {
             theme: "twitch".to_string(),
             chat_font_size: "medium".to_string(),
+            chat_zoom: 100.0,
             notify_on_tag: true,
             notify_on_name: true,
             show_mention_markers: true,
@@ -572,6 +575,14 @@ mod tests {
             serde_json::json!(["@alice", "#room"])
         );
         assert_eq!(json["mentionIgnores"], serde_json::json!(["@bob"]));
+    }
+
+    #[test]
+    fn chat_zoom_defaults_and_saved_preferences_round_trip() {
+        let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults.chat_zoom, 100.0);
+        let saved: super::Preferences = serde_json::from_str(r#"{"chatZoom":120}"#).unwrap();
+        assert_eq!(serde_json::to_value(saved).unwrap()["chatZoom"], 120.0);
     }
 
     #[test]

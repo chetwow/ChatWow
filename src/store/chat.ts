@@ -22,6 +22,7 @@ import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { isThemeId } from "../lib/themes";
+import { normalizeChatZoom } from "../lib/chatZoom";
 import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
 import { ANONYMOUS } from "../types";
 import type {
@@ -71,6 +72,7 @@ const MAX_CHATTERS = 1000;
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "twitch",
   chatFontSize: "medium",
+  chatZoom: 100,
   notifyOnTag: true,
   notifyOnName: true,
   showMentionMarkers: true,
@@ -174,6 +176,7 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   }
   if (!isThemeId(merged.theme)) merged.theme = DEFAULT_PREFERENCES.theme;
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
+  merged.chatZoom = normalizeChatZoom(merged.chatZoom);
   if (!COMPOSER_AVATAR_MODES.has(merged.composerAvatarMode)) {
     merged.composerAvatarMode = DEFAULT_PREFERENCES.composerAvatarMode;
   }

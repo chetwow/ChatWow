@@ -43,7 +43,7 @@ export function YoutubePlayer({ video, href, onClose }: {
   }, [video.id, video.start]);
 
   return (
-    <span className="my-2 block w-full max-w-[480px] rounded-md border border-line bg-surface-raised p-2 text-xs text-ink" onClick={(event) => event.stopPropagation()}>
+    <span className="chat-inline-youtube my-2 block w-full max-w-[480px] rounded-md border border-line bg-surface-raised p-2 text-xs text-ink" onClick={(event) => event.stopPropagation()}>
       <span className="mb-2 flex items-center justify-between gap-2">
         <span>YouTube{status === "loading" ? " · Loading…" : ""}</span>
         <InlinePlayerActions name="YouTube" onClose={onClose} onOpenBrowser={() => {
@@ -62,7 +62,7 @@ export function YoutubePlayer({ video, href, onClose }: {
           </span>
         </span>
       ) : null}
-      <span ref={host} className={status === "failed" ? "hidden" : "block aspect-video min-h-[200px] w-full"} />
+      <span ref={host} className={status === "failed" ? "hidden" : "block aspect-video w-full"} />
     </span>
   );
 }

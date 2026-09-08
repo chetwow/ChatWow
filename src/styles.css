@@ -109,16 +109,44 @@ body {
   font-size: var(--chat-font-size);
 }
 
-/* Twitch GIFs are message-sized media rather than emotes. The pane remains
-   the hard width limit; the preference scales the comfortable default box. */
+/* Only the transcript is zoomed, leaving scrolling and overlay coordinates
+   in window pixels. Media limits are measured in unzoomed transcript pixels. */
+.chat-transcript {
+  /* Room for an inline card's header, border and padding. */
+  --chat-inline-max-height: max(0px, calc(var(--chat-media-max-height) - 48px));
+}
+.chat-transcript .chat-inline-clip {
+  max-width: min(480px, 100%, calc(var(--chat-inline-max-height) * 4 / 3));
+}
+.chat-transcript .chat-inline-youtube {
+  max-width: min(480px, 100%, calc(var(--chat-inline-max-height) * 16 / 9));
+}
+.chat-zoom-control {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 180ms ease, visibility 0s;
+}
+.chat-zoom-control.chat-zoom-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease, visibility 0s 180ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-zoom-control,
+  .chat-zoom-control.chat-zoom-hidden {
+    transition: none;
+  }
+}
+
 .gigantified-emote > img {
-  height: calc(1.75rem * var(--gigantify-scale, 4));
+  height: min(calc(1.75rem * var(--gigantify-scale, 4)), var(--chat-media-max-height, 100vh));
   max-width: 100%;
   object-fit: contain;
 }
 
 .chat-gif {
-  max-height: calc(180px * var(--gif-scale));
+  max-height: min(calc(180px * var(--gif-scale)), var(--chat-media-max-height, 100vh));
   max-width: min(100%, calc(240px * var(--gif-scale)));
 }
 

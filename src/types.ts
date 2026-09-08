@@ -265,6 +265,8 @@ export type Preferences = {
   /** Color scheme applied to the whole window. */
   theme: ThemeId;
   chatFontSize: ChatFontSize;
+  /** Transcript-only zoom percentage, shared across tabs and panes. */
+  chatZoom: number;
   /** Ping when someone writes `@you`. */
   notifyOnTag: boolean;
   /** Ping when someone uses your name without the `@`. */

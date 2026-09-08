@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Zoom chat text and emotes with Ctrl/Cmd +/− or the scroll wheel, with bounded media and temporary zoom controls.
+
 ## [1.5.0] - 2026-09-06
 
 ### Added

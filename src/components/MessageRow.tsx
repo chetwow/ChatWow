@@ -198,7 +198,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
         data-emote-id={segment.id}
         data-emote-name={segment.name}
         data-emote-provider={segment.provider}
-        className={`relative mx-[1px] align-middle ${gigantified ? "gigantified-emote my-1 block w-fit max-w-full" : "inline-block"}`}
+        className={`relative mx-[1px] max-w-full align-middle ${gigantified ? "gigantified-emote my-1 block w-fit" : "inline-block"}`}
         onMouseEnter={(event) =>
           show(
             {
@@ -217,7 +217,7 @@ function EmoteView({ segment }: { segment: Extract<Segment, { kind: "emote" }> }
           provider={segment.provider}
           url={gigantified ? segment.url_large : segment.url}
           name={segment.name}
-          className="inline-block h-7 max-w-none align-middle"
+          className="inline-block h-7 max-w-full object-contain align-middle"
         />
         {segment.overlays
           .filter((overlay) => !off(overlay) && !isBlacklisted(overlay, blacklist))

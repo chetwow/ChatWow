@@ -17,7 +17,9 @@ export function TwitchClipPlayer({ clip, href, onClose }: {
     const element = viewport.current;
     if (!element) return;
     const measure = () => {
-      const available = element.getBoundingClientRect().width;
+      // CSS zoom already scales the whole transcript; measure layout pixels
+      // here so the embedded player doesn't apply that scale a second time.
+      const available = element.clientWidth;
       if (available > 0) setWidth(available);
     };
     measure();
@@ -34,7 +36,7 @@ export function TwitchClipPlayer({ clip, href, onClose }: {
     setPrompt(true);
   };
   return (
-    <span className="my-2 block w-full max-w-[480px] rounded-md border border-line bg-surface-raised p-2 text-xs text-ink" onClick={(event) => event.stopPropagation()}>
+    <span className="chat-inline-clip my-2 block w-full max-w-[480px] rounded-md border border-line bg-surface-raised p-2 text-xs text-ink" onClick={(event) => event.stopPropagation()}>
       <span className="mb-2 flex items-center justify-between gap-2">
         <span>Twitch clip{loading && !prompt ? " · Loading…" : ""}</span>
         <InlinePlayerActions name="Twitch clip" onClose={onClose} onOpenBrowser={() => {

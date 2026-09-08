@@ -28,7 +28,7 @@ export function InlineImage({ href, onClose }: { href: string; onClose: () => vo
       </span>
       {browserError && <span role="alert" className="mb-2 block">Couldn’t open the browser. Copy the link address from its context menu.</span>}
       {failed ? <span role="alert" className="block">Couldn’t load this image. You can open it in your browser.</span> : source && (
-        <img src={source} alt="Linked image" className="block max-h-[480px] max-w-full object-contain" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />
+        <img src={source} alt="Linked image" className="block max-h-[min(480px,var(--chat-inline-max-height,480px))] max-w-full object-contain" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />
       )}
     </span>
   );
