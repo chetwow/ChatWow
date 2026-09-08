@@ -144,6 +144,10 @@ pub struct Preferences {
     pub chat_font_size: String,
     /// Transcript-only zoom percentage; normalized in the frontend.
     pub chat_zoom: f64,
+    /// Share transcript zoom across every split; off by default.
+    pub zoom_all_splits: bool,
+    /// Frontend-owned zoom overrides keyed by stable pane identity.
+    pub pane_chat_zoom: serde_json::Value,
     /// Ping when someone writes `@you`.
     pub notify_on_tag: bool,
     /// Ping when someone uses your name without the `@`.
@@ -291,6 +295,8 @@ impl Default for Preferences {
             theme: "twitch".to_string(),
             chat_font_size: "medium".to_string(),
             chat_zoom: 100.0,
+            zoom_all_splits: false,
+            pane_chat_zoom: serde_json::json!({}),
             notify_on_tag: true,
             notify_on_name: true,
             show_mention_markers: true,
@@ -584,8 +590,19 @@ mod tests {
     fn chat_zoom_defaults_and_saved_preferences_round_trip() {
         let defaults: super::Preferences = serde_json::from_str("{}").unwrap();
         assert_eq!(defaults.chat_zoom, 100.0);
-        let saved: super::Preferences = serde_json::from_str(r#"{"chatZoom":120}"#).unwrap();
-        assert_eq!(serde_json::to_value(saved).unwrap()["chatZoom"], 120.0);
+        assert!(!defaults.zoom_all_splits);
+        assert_eq!(defaults.pane_chat_zoom, serde_json::json!({}));
+        let legacy: super::Preferences = serde_json::from_str(r#"{"chatZoom":120}"#).unwrap();
+        assert!(!legacy.zoom_all_splits);
+        assert_eq!(legacy.chat_zoom, 120.0);
+        let saved: super::Preferences = serde_json::from_str(
+            r#"{"chatZoom":120,"zoomAllSplits":true,"paneChatZoom":{"0":110,"2":140}}"#,
+        )
+        .unwrap();
+        let json = serde_json::to_value(saved).unwrap();
+        assert_eq!(json["chatZoom"], 120.0);
+        assert_eq!(json["zoomAllSplits"], true);
+        assert_eq!(json["paneChatZoom"], serde_json::json!({"0":110,"2":140}));
     }
 
     #[test]

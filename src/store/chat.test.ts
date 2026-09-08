@@ -2,15 +2,63 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/tauri", () => ({ IS_TAURI: false, MOCK_MODE: false, IS_MACOS: false, TITLE_BAR_PX: 32 }));
 
-import { DEFAULT_PREFERENCES, useChat } from "./chat";
+import { useChat } from "./chat";
+import { paneChatZoom } from "../lib/chatZoom";
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", { setItem: vi.fn() });
-  useChat.setState({ preferences: { ...DEFAULT_PREFERENCES } });
+  useChat.setState(useChat.getInitialState(), true);
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("chat zoom preferences", () => {
+  const zoom = (pane: number) => paneChatZoom(useChat.getState().preferences, pane);
+
+  it("zooms and resets only the working split by default, retaining the saved legacy scale", () => {
+    useChat.getState().updatePreferences({ chatZoom: 120 });
+    useChat.getState().split(0, "right");
+    expect(useChat.getState().preferences.zoomAllSplits).toBe(false);
+    useChat.getState().changeChatZoom(0, 1);
+    expect([zoom(0), zoom(1)]).toEqual([130, 120]);
+    useChat.getState().changeChatZoom(1, -1);
+    expect([zoom(0), zoom(1)]).toEqual([130, 110]);
+    expect(useChat.getState().focusedPane).toBe(1);
+    useChat.getState().changeChatZoom(0, "reset");
+    expect([zoom(0), zoom(1)]).toEqual([100, 110]);
+    const saved = JSON.parse(vi.mocked(localStorage.setItem).mock.lastCall![1]);
+    expect(saved.paneChatZoom).toEqual({ 0: 100, 1: 110 });
+  });
+
+  it("shares the focused scale when enabled and continues from it when disabled", () => {
+    useChat.getState().split(0, "down");
+    useChat.getState().changeChatZoom(1, -1);
+    useChat.getState().changeChatZoom(0, 1);
+    useChat.getState().updatePreferences({ zoomAllSplits: true });
+    expect([zoom(0), zoom(1)]).toEqual([110, 110]);
+    useChat.getState().changeChatZoom(1, 1);
+    expect([zoom(0), zoom(1)]).toEqual([120, 120]);
+    useChat.getState().updatePreferences({ zoomAllSplits: false });
+    useChat.getState().changeChatZoom(0, -1);
+    expect([zoom(0), zoom(1)]).toEqual([110, 120]);
+    useChat.getState().updatePreferences({ zoomAllSplits: true });
+    useChat.getState().changeChatZoom(0, "reset");
+    expect([zoom(0), zoom(1)]).toEqual([100, 100]);
+  });
+
+  it("discards removed pane zoom and normalizes malformed saved overrides", () => {
+    useChat.getState().split(0, "right");
+    useChat.getState().changeChatZoom(1, 1);
+    useChat.getState().removePane(1);
+    useChat.getState().split(0, "down");
+    expect(zoom(1)).toBe(100);
+    useChat.getState().updatePreferences({
+      zoomAllSplits: "true" as unknown as boolean,
+      paneChatZoom: { 0: 999, 1: NaN, 3: 150, bad: 120 } as unknown as Record<number, number>,
+    });
+    expect(useChat.getState().preferences.zoomAllSplits).toBe(false);
+    expect(useChat.getState().preferences.paneChatZoom).toEqual({ 0: 200, 1: 100 });
+  });
+
   it("saves bounded transcript zoom independently of font and media preferences", () => {
     useChat.getState().updatePreferences({ chatFontSize: "large", gifScale: 2, chatZoom: 900 });
     expect(useChat.getState().preferences.chatZoom).toBe(200);

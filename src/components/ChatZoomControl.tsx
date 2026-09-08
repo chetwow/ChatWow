@@ -1,42 +1,48 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import {
   CHAT_ZOOM_HIDE_MS, MAX_CHAT_ZOOM, MIN_CHAT_ZOOM,
-  bindChatZoomEvents, nextChatZoom, type ChatZoomAction,
+  bindChatZoomEvents, paneChatZoom, type ChatZoomAction,
 } from "../lib/chatZoom";
 import { useChat } from "../store/chat";
+import type { PaneIndex } from "../types";
 
-export function ChatZoomControl({ viewport, capturesTyping }: {
-  viewport: RefObject<HTMLDivElement | null>;
-  capturesTyping: boolean;
-}) {
-  const zoom = useChat((state) => state.preferences.chatZoom);
-  const [visible, setVisible] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const change = useCallback((action: ChatZoomAction) => {
-    const state = useChat.getState();
-    const chatZoom = nextChatZoom(state.preferences.chatZoom, action);
-    if (chatZoom !== state.preferences.chatZoom) state.updatePreferences({ chatZoom });
-    setVisible(true);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setVisible(false), CHAT_ZOOM_HIDE_MS);
-  }, []);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
+export function useChatZoomEvents(viewport: RefObject<HTMLDivElement | null>, pane: PaneIndex, capturesTyping: boolean) {
+  const change = useCallback((action: ChatZoomAction) => useChat.getState().changeChatZoom(pane, action), [pane]);
   useEffect(() => {
     const element = viewport.current;
     if (!element) return;
     return bindChatZoomEvents(element, capturesTyping, change);
   }, [viewport, capturesTyping, change]);
+}
+
+export function ChatZoomControl({ pane, global = false }: {
+  pane: PaneIndex;
+  global?: boolean;
+}) {
+  const zoom = useChat((state) => paneChatZoom(state.preferences, pane));
+  const request = useChat((state) => state.zoomControl);
+  const [visible, setVisible] = useState(false);
+  const change = useCallback((action: ChatZoomAction) => {
+    const state = useChat.getState();
+    state.changeChatZoom(global ? state.focusedPane : pane, action);
+  }, [pane, global]);
+
+  useEffect(() => {
+    const remaining = request ? Math.max(0, request.shownAt + CHAT_ZOOM_HIDE_MS - Date.now()) : 0;
+    setVisible(remaining > 0 && (global || request?.pane === pane));
+    const timer = setTimeout(() => setVisible(false), remaining);
+    return () => clearTimeout(timer);
+  }, [request, pane, global]);
 
   const buttonClass = "grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-full text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-30";
   return (
     <div
       role="group"
       aria-label="Chat zoom"
+      data-global-chat-zoom={global || undefined}
       aria-hidden={!visible}
       inert={!visible}
-      className={`chat-zoom-control absolute right-4 top-2 z-20 flex max-w-[calc(100%-24px)] flex-wrap items-center justify-end gap-0.5 rounded-3xl border border-line bg-surface-raised px-2 py-0.5 text-[12px] shadow-lg shadow-black/40 ${visible ? "" : "chat-zoom-hidden"}`}
+      className={`chat-zoom-control ${global ? "fixed mt-2" : "absolute top-2"} right-4 z-20 flex max-w-[calc(100%-24px)] flex-wrap items-center justify-end gap-0.5 rounded-3xl border border-line bg-surface-raised px-2 py-0.5 text-[12px] shadow-lg shadow-black/40 ${visible ? "" : "chat-zoom-hidden"}`}
     >
       <span role="status" aria-live="polite" aria-atomic="true" className="mr-0.5 min-w-[4ch] text-center font-semibold tabular-nums text-ink">{zoom}%</span>
       <button type="button" aria-label="Zoom out chat" disabled={zoom <= MIN_CHAT_ZOOM} onClick={() => change(-1)} className={buttonClass}>

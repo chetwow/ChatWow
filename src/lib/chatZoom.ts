@@ -1,9 +1,24 @@
+import type { PaneIndex, Preferences } from "../types";
+
 export const MIN_CHAT_ZOOM = 50;
 export const MAX_CHAT_ZOOM = 200;
 export const CHAT_ZOOM_STEP = 10;
 export const CHAT_ZOOM_HIDE_MS = 2_000;
 
 export type ChatZoomAction = -1 | 1 | "reset";
+
+export function paneChatZoom(preferences: Preferences, pane: PaneIndex): number {
+  return preferences.zoomAllSplits
+    ? preferences.chatZoom
+    : preferences.paneChatZoom[pane] ?? preferences.chatZoom;
+}
+
+export function normalizePaneChatZoom(raw: unknown): Record<PaneIndex, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw)
+    .filter(([id]) => Number.isSafeInteger(Number(id)) && Number(id) >= 0 && String(Number(id)) === id)
+    .map(([id, zoom]) => [id, normalizeChatZoom(zoom)]));
+}
 
 export function normalizeChatZoom(value: number): number {
   return Number.isFinite(value)

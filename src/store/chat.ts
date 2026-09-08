@@ -22,7 +22,7 @@ import { messageCleared } from "../lib/moderation";
 import { messageText } from "../lib/messageText";
 import { DEFAULT_TIMEOUT_SECONDS, validTimeout } from "../lib/timeout";
 import { isThemeId } from "../lib/themes";
-import { normalizeChatZoom } from "../lib/chatZoom";
+import { nextChatZoom, normalizeChatZoom, normalizePaneChatZoom, paneChatZoom, type ChatZoomAction } from "../lib/chatZoom";
 import { clampRatio, getPaneLayout, mapPaneNode, normalizePaneLayout, paneIds, siblingPane, withoutPane } from "../lib/panes";
 import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
 import { ANONYMOUS } from "../types";
@@ -76,6 +76,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: "twitch",
   chatFontSize: "medium",
   chatZoom: 100,
+  zoomAllSplits: false,
+  paneChatZoom: {},
   notifyOnTag: true,
   notifyOnName: true,
   showMentionMarkers: true,
@@ -181,6 +183,8 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!isThemeId(merged.theme)) merged.theme = DEFAULT_PREFERENCES.theme;
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
   merged.chatZoom = normalizeChatZoom(merged.chatZoom);
+  merged.zoomAllSplits = merged.zoomAllSplits === true;
+  merged.paneChatZoom = normalizePaneChatZoom(merged.paneChatZoom);
   if (!COMPOSER_AVATAR_MODES.has(merged.composerAvatarMode)) {
     merged.composerAvatarMode = DEFAULT_PREFERENCES.composerAvatarMode;
   }
@@ -220,6 +224,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
     merged.splitIndex = DEFAULT_PREFERENCES.splitIndex;
   }
   merged.paneLayout = normalizePaneLayout(merged.paneLayout);
+  const heldPanes = new Set(paneIds(getPaneLayout({ tabs: [], preferences: merged }).root));
+  merged.paneChatZoom = Object.fromEntries(Object.entries(merged.paneChatZoom)
+    .filter(([id]) => heldPanes.has(Number(id))));
   return merged;
 }
 
@@ -524,6 +531,9 @@ type ChatState = {
   active: Record<PaneIndex, string | null>;
   /** The pane you last clicked in. */
   focusedPane: PaneIndex;
+  /** A fresh object on each zoom gesture also reveals controls at the bounds. */
+  zoomControl: { pane: PaneIndex; shownAt: number } | null;
+  changeChatZoom: (pane: PaneIndex, action: ChatZoomAction) => void;
   /**
    * Messages per tab, not per channel. The same channel open under two
    * accounts is two streams -- each socket receives its own copy -- and each
@@ -902,6 +912,7 @@ export const useChat = create<ChatState>((set) => ({
   tabs: [],
   active: { 0: null },
   focusedPane: 0,
+  zoomControl: null,
   messages: {},
   unread: {},
   mentions: {},
@@ -1407,8 +1418,24 @@ export const useChat = create<ChatState>((set) => ({
       return { auth, roles, tabs, lastClosedTab };
     }),
 
+  changeChatZoom: (pane, action) => {
+    const state = useChat.getState();
+    const current = paneChatZoom(state.preferences, pane);
+    const zoom = nextChatZoom(current, action);
+    if (zoom !== current) state.updatePreferences(state.preferences.zoomAllSplits
+      ? { chatZoom: zoom, paneChatZoom: {} }
+      : { paneChatZoom: { ...state.preferences.paneChatZoom, [pane]: zoom } });
+    state.focusPane(pane);
+    set({ zoomControl: { pane, shownAt: Date.now() } });
+  },
+
   updatePreferences: (patch) => {
-    const preferences = normalize({ ...useChat.getState().preferences, ...patch });
+    const state = useChat.getState();
+    const preferences = normalize({ ...state.preferences, ...patch });
+    if (preferences.zoomAllSplits && !state.preferences.zoomAllSplits) {
+      preferences.chatZoom = paneChatZoom(state.preferences, state.focusedPane);
+      preferences.paneChatZoom = {};
+    }
     // Applied optimistically -- the dialog's controls should feel instant, and
     // there's nothing to roll back to if the write fails.
     set({ preferences });

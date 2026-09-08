@@ -12,7 +12,8 @@ import {
 } from "react";
 import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
-import { ChatZoomControl } from "./ChatZoomControl";
+import { ChatZoomControl, useChatZoomEvents } from "./ChatZoomControl";
+import { paneChatZoom } from "../lib/chatZoom";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
 import {
@@ -33,7 +34,7 @@ import { isAboutYou } from "../lib/mentions";
 import { markerUnderScrollbarThumb, mentionMarkerLayout } from "../lib/mentionMarkers";
 import { formatTimeout } from "../lib/timeout";
 import { useTooltip } from "../store/tooltip";
-import type { EmoteRule, StoredMessage } from "../types";
+import type { EmoteRule, PaneIndex, StoredMessage } from "../types";
 
 /** How close to the bottom still counts as "pinned". */
 const PIN_THRESHOLD = 40;
@@ -80,12 +81,14 @@ function searchableText(message: StoredMessage, includeChannel: boolean): string
 
 export function ChatView({
   id,
+  pane,
   capturesTyping = true,
   searchRequest = null,
   onCloseSearch,
 }: {
   /** The tab this view is of. Two tabs can be of one channel, so it's not the name. */
   id: string;
+  pane: PaneIndex;
   /**
    * Whether this view's composer answers to typing anywhere in the window.
    * False in the pane you aren't working in: two composers both reclaiming
@@ -123,7 +126,9 @@ export function ChatView({
   const scroller = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const chatZoom = useChat((state) => state.preferences.chatZoom);
+  const chatZoom = useChat((state) => paneChatZoom(state.preferences, pane));
+  const zoomAllSplits = useChat((state) => state.preferences.zoomAllSplits);
+  useChatZoomEvents(viewport, pane, capturesTyping);
   const mentionRail = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   const [menu, setMenu] = useState<{
@@ -311,17 +316,17 @@ export function ChatView({
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
   const zoomAnchor = useRef<{ row: Element; offset: number } | null>(null);
-  // Capture the first visible message before a shared zoom update reflows
-  // either pane. A reader browsing history should keep the same message.
+  // Capture the first visible message before this pane's zoom reflows it.
+  // A reader browsing history should keep the same message.
   useLayoutEffect(() => useChat.subscribe((state, previous) => {
-    if (state.preferences.chatZoom === previous.preferences.chatZoom) return;
+    if (paneChatZoom(state.preferences, pane) === paneChatZoom(previous.preferences, pane)) return;
     const element = scroller.current;
     if (!element?.clientHeight || pinnedRef.current) return;
     const top = element.getBoundingClientRect().top;
     const row = Array.from(content.current?.children ?? [])
       .find((child) => child.getBoundingClientRect().bottom > top);
     zoomAnchor.current = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
-  }), []);
+  }), [pane]);
   useLayoutEffect(() => {
     const anchor = zoomAnchor.current;
     const element = scroller.current;
@@ -896,7 +901,7 @@ export function ChatView({
           </div>
         </div>
 
-        <ChatZoomControl viewport={viewport} capturesTyping={capturesTyping} />
+        {!zoomAllSplits && <ChatZoomControl pane={pane} />}
 
         {mentionMarkerPositions.length > 0 && (
           <div

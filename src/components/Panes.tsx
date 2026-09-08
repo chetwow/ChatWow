@@ -3,9 +3,10 @@ import { useInlineVideo } from "../store/inlineVideo";
 import { VideoTabContext } from "./VideoTabContext";
 import { TabBar } from "./TabBar";
 import { ChatView } from "./ChatView";
+import { ChatZoomControl } from "./ChatZoomControl";
 import { PinnedMessagePanel } from "./PinnedMessagePanel";
 import { paneTabs, useChat } from "../store/chat";
-import { clampRatio, getPaneLayout } from "../lib/panes";
+import { clampRatio, getPaneLayout, topRightPane } from "../lib/panes";
 import { useTabDrag } from "../store/tabDrag";
 import type { PaneIndex, PaneNode } from "../types";
 
@@ -45,8 +46,8 @@ function EmptyPane({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => voi
 /**
  * One leaf of the layout: a row of tabs and
  * whichever of them is open. All panes read the same store -- a channel is
- * joined, resolved and stored once however many panes are on screen -- so all
- * that's per-pane here is which tab is showing.
+ * joined, resolved and stored once however many panes are on screen.
+ * The visible tab and transcript zoom belong to each pane.
  */
 function Pane({
   pane,
@@ -66,6 +67,7 @@ function Pane({
   const keepInactive = useChat((state) => state.preferences.keepVideoPlayersInactive);
   const tabs = useChat((state) => state.tabs);
   const preferences = useChat((state) => state.preferences);
+  const globalZoomHost = preferences.zoomAllSplits && topRightPane(getPaneLayout({ tabs, preferences }).root) === pane;
   const visibleTabs = paneTabs({ tabs, preferences }, pane)
     .filter((tab) => tab.id === active || (keepInactive && tab.id === playerTab));
   const focusPane = useChat((state) => state.focusPane);
@@ -99,8 +101,12 @@ function Pane({
       // Capture, so a click lands the focus here before whatever it was a
       // click *on* runs -- joining a channel from this pane's add button has
       // to know this is the pane it's joining into.
-      onPointerDownCapture={() => focusPane(pane)}
-      onFocusCapture={() => focusPane(pane)}
+      onPointerDownCapture={(event) => {
+        if (!(event.target as Element).closest("[data-global-chat-zoom]")) focusPane(pane);
+      }}
+      onFocusCapture={(event) => {
+        if (!event.target.closest("[data-global-chat-zoom]")) focusPane(pane);
+      }}
       onDragEnter={acceptDrop}
       onDragOver={acceptDrop}
       onDrop={(event) => {
@@ -111,12 +117,20 @@ function Pane({
       }}
     >
       <TabBar pane={pane} onAdd={onAdd} />
+      {globalZoomHost && (
+        // The pill's static vertical position follows this tab bar. Fixed
+        // positioning gives it the window's width even in a narrow split.
+        <div className="relative z-20 shrink-0">
+          <ChatZoomControl pane={pane} global />
+        </div>
+      )}
       {visibleTabs.map((tab) => (
         <VideoTabContext.Provider key={tab.id} value={{ tabId: tab.id, active: tab.id === active }}>
           <div className={tab.id === active ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "hidden"}>
             <PinnedMessagePanel tabId={tab.id} />
             <ChatView
               id={tab.id}
+              pane={pane}
               capturesTyping={tab.id === active && typingPane === pane}
               searchRequest={tab.id === active && search?.tabId === tab.id ? search.request : null}
               onCloseSearch={onCloseSearch}

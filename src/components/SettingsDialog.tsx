@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
-import { IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
+import { IS_MACOS, IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { MAX_GIF_SCALE, MIN_GIF_SCALE, MAX_GIGANTIFY_SCALE, MIN_GIGANTIFY_SCALE, useChat, type BlacklistKind } from "../store/chat";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
@@ -36,6 +36,8 @@ const FONT_SIZES: { id: ChatFontSize; label: string }[] = [
   { id: "large", label: "Large" },
   { id: "larger", label: "Larger" },
 ];
+
+const ZOOM_ALL_SPLITS_LABEL = `Zoom (${IS_MACOS ? "Cmd" : "Ctrl"} +/-/scroll) affects all splits`;
 
 const COMPOSER_AVATAR_MODES: { id: ComposerAvatarMode; label: string }[] = [
   { id: "twitch", label: "Twitch avatar" },
@@ -971,6 +973,13 @@ export function SettingsDialog({
                   <SegmentedFontSize
                     value={preferences.chatFontSize}
                     onChange={(chatFontSize) => updatePreferences({ chatFontSize })}
+                  />
+                </Row>
+                <Row label={ZOOM_ALL_SPLITS_LABEL}>
+                  <Toggle
+                    checked={preferences.zoomAllSplits}
+                    onChange={(zoomAllSplits) => updatePreferences({ zoomAllSplits })}
+                    label={ZOOM_ALL_SPLITS_LABEL}
                   />
                 </Row>
                 <Row label="Display /me messages in italics">

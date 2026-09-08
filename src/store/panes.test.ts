@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/tauri", () => ({ IS_TAURI: false, MOCK_MODE: false, IS_MACOS: false, TITLE_BAR_PX: 32 }));
-import { getPaneLayout, paneIds } from "../lib/panes";
+import { getPaneLayout, paneIds, topRightPane } from "../lib/panes";
+import { paneChatZoom } from "../lib/chatZoom";
 import { DEFAULT_PREFERENCES, paneOf, panes, paneTabs, useChat } from "./chat";
 import type { SplitDirection, Tab } from "../types";
 
@@ -18,6 +19,31 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("nested panels", () => {
+  it("keeps zoom with the pane when switching and moving tabs", () => {
+    useChat.getState().split(0, "right");
+    useChat.getState().changeChatZoom(0, 1);
+    useChat.getState().setActive("bravo", 0);
+    expect(paneChatZoom(useChat.getState().preferences, 0)).toBe(110);
+    useChat.getState().moveTab("bravo", 1, 0);
+    expect(paneChatZoom(useChat.getState().preferences, 1)).toBe(100);
+    expect(paneChatZoom(useChat.getState().preferences, 0)).toBe(110);
+  });
+
+  it("anchors shared zoom to the upper-right pane through nested splits and removals", () => {
+    const corner = () => topRightPane(getPaneLayout(useChat.getState()).root);
+    expect(corner()).toBe(0);
+    useChat.getState().split(0, "right");
+    expect(corner()).toBe(1);
+    useChat.getState().split(1, "down");
+    expect(corner()).toBe(1);
+    useChat.getState().split(1, "up");
+    expect(corner()).toBe(3);
+    useChat.getState().split(0, "right");
+    expect(corner()).toBe(3);
+    useChat.getState().removePane(3);
+    expect(corner()).toBe(1);
+  });
+
   it.each(["left", "right", "up", "down"] as SplitDirection[])("splits %s repeatedly without moving existing tabs", (direction) => {
     useChat.getState().split(0, direction);
     useChat.getState().split(0, direction);

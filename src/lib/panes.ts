@@ -7,6 +7,11 @@ export function paneIds(root: PaneNode): PaneIndex[] {
   return root.kind === "pane" ? [root.id] : [...paneIds(root.first), ...paneIds(root.second)];
 }
 
+/** The window's upper-right corner follows right branches and upper branches. */
+export function topRightPane(root: PaneNode): PaneIndex {
+  return root.kind === "pane" ? root.id : topRightPane(root.axis === "row" ? root.second : root.first);
+}
+
 /** Reject malformed trees as a whole; discard stale memberships individually. */
 export function normalizePaneLayout(raw: unknown): PaneLayout | null {
   if (!raw || typeof raw !== "object" || !("root" in raw)) return null;

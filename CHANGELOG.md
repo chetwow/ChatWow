@@ -13,7 +13,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Zoom chat text and emotes with Ctrl/Cmd +/− or the scroll wheel, with bounded media and temporary zoom controls.
+- Zoom chat text and emotes per split with Ctrl/Cmd +/− or the scroll wheel, with bounded media and temporary controls. Optionally zoom all splits with controls at the window's upper right.
 
 ## [1.5.0] - 2026-09-06
 

@@ -272,8 +272,12 @@ export type Preferences = {
   /** Color scheme applied to the whole window. */
   theme: ThemeId;
   chatFontSize: ChatFontSize;
-  /** Transcript-only zoom percentage, shared across tabs and panes. */
+  /** Shared transcript zoom and fallback for panes without an override. */
   chatZoom: number;
+  /** Apply zoom changes to every split instead of only the working pane. */
+  zoomAllSplits: boolean;
+  /** Saved transcript zoom overrides, keyed by stable pane identity. */
+  paneChatZoom: Record<PaneIndex, number>;
   /** Ping when someone writes `@you`. */
   notifyOnTag: boolean;
   /** Ping when someone uses your name without the `@`. */

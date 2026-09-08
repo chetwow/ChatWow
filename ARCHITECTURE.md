@@ -1251,10 +1251,17 @@ Mock mode has no backend to write to and falls back to `localStorage`. The defau
 timeout is stored as seconds and normalized in the frontend to Twitch's one-second through
 two-week range.
 
-`chatZoom` is a separate, saved transcript scale shared by all tabs and panes: 50–200% in 10%
-steps, with 100% as the default. `ChatZoomControl` handles Ctrl/Cmd +/− and 0 in the focused
-chat, plus a non-passive Ctrl/Cmd wheel listener over each chat viewport. Its percentage,
-minus, plus and Reset pill stays visible for two seconds after the last action, then fades.
+Transcript zoom is saved per pane in `paneChatZoom`: 50–200% in 10% steps, with `chatZoom`
+as the fallback (100% by default, retaining older saved zoom). Tabs in a pane share its scale;
+moving a tab uses the destination pane's scale, and removed panes lose their overrides.
+The default-off `zoomAllSplits` preference makes every pane share `chatZoom`. Enabling it
+uses the focused pane's scale and clears overrides; disabling it leaves all panes at that
+shared scale until individually adjusted. Ctrl/Cmd +/− and 0 target the focused chat;
+non-passive Ctrl/Cmd wheel listeners focus and zoom the pane under the pointer.
+`ChatZoomControl` shows percentage, minus, plus and Reset for two seconds after the last
+action, then fades. Normally the pill belongs to the zoomed chat viewport. With shared zoom,
+one pill sits immediately below the top-right pane's tab bar, even for nested/stacked layouts
+or an empty pane. Its buttons preserve the working pane's focus.
 CSS `zoom` applies only to the transcript, including timestamps, badges, emotes and message
 effects; the composer, tabs, search, pinned panel and floating controls keep their sizes.
 Keeping the scroll container outside zoom preserves window-pixel coordinates for search,
