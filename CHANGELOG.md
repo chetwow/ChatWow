@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-08
+
 ### Added
 
 - Create nested chat splits and navigate panels with keyboard shortcuts.
