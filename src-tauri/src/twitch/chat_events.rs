@@ -347,6 +347,7 @@ pub(super) mod tests {
             avatar_url: String::new(),
         });
         state.tabs.write().push(Tab {
+            window_label: crate::settings::main_window(),
             id: "tab".into(),
             kind: "channel".into(),
             channel: "room".into(),

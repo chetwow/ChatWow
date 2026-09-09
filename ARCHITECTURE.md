@@ -26,7 +26,12 @@ Rust rather than the webview:
   and to unit-test in one place.
 
 Messages are batched every 80ms before crossing the IPC bridge, which is what keeps a
-high-traffic channel from swamping the UI.
+high-traffic channel from swamping the UI. The window coordinator wraps backend events in a
+sequenced `window://event` stream. When opening a window, the source supplies its retained
+frontend data and the last applied sequence. Rust retains the intervening events until the new
+webview subscribes and claims the snapshot; the receiver replays that gap before releasing newer
+queued events. This preserves messages and moderation during a tab transfer without reconnecting.
+The recent journal is bounded outside pending transfers, and stale source cursors fail visibly.
 
 The IPC types in `src/types.ts` are hand-mirrored from Rust structs, not generated. A payload
 change therefore needs matching definitions on both sides; either compiler alone can miss drift
@@ -600,8 +605,8 @@ it marks -- and positions come from `getBoundingClientRect`, since a tab's `offs
 outside the scroller and its offsets don't move as the row does. The check is keyed on which
 channels have mentions rather than on the mentions map, which is a fresh object on every batch.
 
-Keyboard tab selection follows the same single `tabs` order that persistence and the pane
-layout use. The platform primary modifier plus 1–8 selects that numbered tab, while 9 selects
+Keyboard tab selection follows the current window's subset of the single `tabs` order that
+persistence and the pane layout use. The platform primary modifier plus 1–8 selects that numbered tab, while 9 selects
 the final one; Ctrl+Tab/Ctrl+Shift+Tab on Windows and Linux or Cmd+Option+Left/Right on macOS
 cycles with wraparound. `setActive` derives the selected tab's pane and focuses it, so a shortcut
 crossing the split boundary also makes that pane the owner of subsequent focused-pane actions.
@@ -689,7 +694,8 @@ in `Preferences` persists that tree and a tab-ID-to-pane-ID membership map. Rust
 frontend-owned value unchanged; the frontend validates it before rendering. Older settings
 without a tree import `splitLayout`, `splitRatio` and `splitIndex` on their first layout edit.
 
-`tabs` remains the backend's single record of which tabs exist and their order. Membership
+`tabs` remains the backend's single record of which tabs exist and their order across windows.
+Pane helpers filter by `Tab::window_label`, and reorder requests affect only the caller's tabs. Membership
 never opens or duplicates a tab; stale assignments are ignored, and newly appended tabs fall
 back to the final leaf until `placeNewTab` moves them into the focused pane. `paneTabs` and
 `paneOf` ([src/store/chat.ts](src/store/chat.ts)) derive each panel's contents. `commitTabs`
@@ -709,8 +715,11 @@ other panel must not steal focus.
 Each split branch in [Panes.tsx](src/components/Panes.tsx) measures its own rectangle and owns
 its draggable divider. Drag ratios stay local until pointer release or cancellation, avoiding
 repeated settings writes. Tabs can be dragged within a bar or between any panels, including
-onto an empty panel's body. The shared [tab drag store](src/store/tabDrag.ts) keeps the dragged
-identity available before HTML5 permits reading the drop payload.
+onto an empty panel's body and into existing windows. The [tab drag store](src/store/tabDrag.ts)
+keeps the identity available within the source webview. Other windows recognize the custom
+drag MIME type during hover and read the tab ID and source window from `DataTransfer` on drop.
+The backend validates that the source still owns the tab before transferring ownership; the
+destination then places and activates it in the target pane without closing or duplicating it.
 
 The title-bar split button always offers left, right, up and down. Opening its menu selects
 the focused panel; a transient [selection store](src/store/splitTarget.ts) highlights that
@@ -942,8 +951,10 @@ Clicking a name opens [UserCard.tsx](src/components/UserCard.tsx). Its top half 
 bottom half is free -- that chatter's retained messages gathered from every tab on the clicked
 message's channel, deduplicated by message ID and sorted chronologically. This also lets a card
 opened from a listener show the channel's retained conversation beyond the listener's matches.
-The ear action in its header creates the same current-channel user listener as the chatter-name
-context menu, including its one-time backfill and notifications-off default.
+The ear action opens an **Open Listener** menu with **New window**, **New split**, and **New tab**.
+All three create the same current-channel user listener as the chatter-name context menu,
+including its one-time backfill and notifications-off default. New split opens a right-hand pane
+beside the focused pane; New window transfers the seeded listener into a separate native window.
 
 The fetched half needs two services, because Twitch only answers one of it.
 
@@ -1233,7 +1244,11 @@ kind. BTTV needs no such care: it serves png, gif and webp from the same path.
 
 Preferences live in `settings.json` next to the accounts and the tab list -- `Preferences` in
 [src-tauri/src/settings.rs](src-tauri/src/settings.rs), mirrored by the `Preferences` type in
-[src/types.ts](src/types.ts), read at startup and written whole on every change. Saves are
+[src/types.ts](src/types.ts), read at startup. The frontend sends only changed fields; Rust merges
+those under a serialized update lock and broadcasts the result to every window. Pane trees, zoom,
+pin and mute are local to each window. The main window's values and secondary windows' local
+overrides persist in settings. Shared appearance and account changes reach all
+windows. The complete settings file is written on each change. Saves are
 serialized, written to a private temporary file in the same directory, synced, then atomically
 renamed over the old snapshot. Missing files mean first run; malformed or unreadable files are
 logged before defaults are used, and a malformed file is moved to a timestamped
@@ -1296,6 +1311,28 @@ explains, and a section heading's small caps were being inherited into whole sen
 
 ## The window
 
+`Ctrl/Cmd+N` opens an empty native chat window. **Move to new window** in a tab's context menu
+transfers the same tab ID and its retained chat/listener history. All windows share accounts,
+connections and the backend tab list; a listener can consume channel tabs in any window.
+Each webview renders only its own tabs and owns its focus, split layout and notification controls.
+Settings, Info and Accounts stay on the main window's title bar. Secondary title bars contain
+Search, Pin, Mute and Split, plus platform window controls. New windows start at the configured
+minimum width (420 CSS pixels) and 75% of the main window's current content height, with a 320px
+minimum height. Menu actions anchor the window below the selected menu button, converting from
+the creating webview's coordinates to physical desktop pixels. Hotkeys center the new outer
+frame over main even when invoked from a secondary window. Placement is applied before showing
+the webview and clamped to the destination display's work area.
+
+The configured `main` window controls app lifetime: closing it quits the app and all secondary
+windows. Closing a secondary window closes only its tabs, first warning if this would stop a
+listener in another window. Windows still open when the app quits reopen on the next launch,
+including empty child windows. Settings retain their tab ownership, split layouts, zoom, pin and
+mute controls; explicitly closing a child removes it from the saved session. Window IDs are not
+reused, so new windows do not inherit a closed window's saved bounds. Restored webviews replay
+startup events retained before their listeners attach, including channel readiness and history.
+[src-tauri/src/windows.rs](src-tauri/src/windows.rs) creates windows from the merged platform
+config and coordinates tab ownership, preference overrides, transfer snapshots and close events.
+
 macOS gets its native frame and every other platform doesn't. `decorations: false` buys a custom
 title bar at the cost of square corners and no system shadow, which on macOS reads as a window
 from somewhere else; [src-tauri/tauri.macos.conf.json](src-tauri/tauri.macos.conf.json) turns
@@ -1318,7 +1355,7 @@ any other height has to place them by hand. `trafficLightPosition` does that, an
 a distance from the top -- tao resizes the title bar container to `buttonHeight + y` and leaves
 the buttons at their own offset inside it, so the value is calibration rather than arithmetic.
 
-Size and position are remembered by `tauri-plugin-window-state`, on three flags rather than its
+Every chat window's size, position and maximization are remembered by `tauri-plugin-window-state`, on three flags rather than its
 default `all()`. `DECORATIONS` would let a saved value argue with the config that gives this app
 its title bar, and `VISIBLE` can restore a window hidden -- an app that starts invisible and is
 only fixable by deleting a file the user has never heard of. The plugin is worth the dependency
@@ -1328,7 +1365,7 @@ opening somewhere you can see.
 
 Keeping the window above the others is a preference like any other, so both the title bar's pin
 and the appearance tab write `alwaysOnTop` and the window is told in one place, in
-`set_preferences`. It's restored at launch and off by default: a window that won't go behind
+`set_preferences`. Each window has its own pin; the main window's is restored at launch and off by default: a window that won't go behind
 anything is an unpleasant thing to inherit from a session you'd forgotten about.
 
 ## Updating itself
@@ -1468,6 +1505,7 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/twitch/links.rs` | Twitch clips, VODs and channels, out of Helix |
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/state.rs` | Accounts, connections, per-room data and per-session state |
+| `src-tauri/src/windows.rs` | Native chat windows, scoped preferences, event replay and app lifetime |
 | `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
 | `src/store/chat.ts` | Zustand store, per-tab message arrays trimmed to 500 when exceeding 600, pane layout |
 | `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |

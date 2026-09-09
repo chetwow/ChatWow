@@ -11,7 +11,8 @@ import {
 import { createPortal } from "react-dom";
 import { mentionTabName, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
-import { useTabDrag } from "../store/tabDrag";
+import { acceptsTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "../store/tabDrag";
+import { WINDOW_LABEL } from "../lib/windows";
 import { useSplitTarget } from "../store/splitTarget";
 import { AccountMenu } from "./AccountMenu";
 import { ContextMenu } from "./ContextMenu";
@@ -77,7 +78,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   const requestCloseTab = useChat((state) => state.requestCloseTab);
   const canReopenClosedTab = useChat((state) => state.lastClosedTab !== null);
   const reopenLastClosedTab = useChat((state) => state.reopenLastClosedTab);
-  const moveTab = useChat((state) => state.moveTab);
+  const dropTab = useChat((state) => state.dropTab);
   /** Which tab's account menu is open, and where it was opened. */
   const [accountMenu, setAccountMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const canViewPin = useChat((state) => {
@@ -308,6 +309,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // element where the "not allowed" cursor flashes before the next dragover
   // catches up. Cancel both, everywhere a drop should be accepted.
   const allowDrop = (event: { preventDefault(): void; dataTransfer: DataTransfer | null }) => {
+    if (!acceptsTabDrag(event.dataTransfer)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   };
@@ -316,14 +318,13 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // strays a pixel above into the title bar or below into the chat view, so
   // accept the drop everywhere while a tab drag is in progress.
   useEffect(() => {
-    if (!drag) return;
     window.addEventListener("dragenter", allowDrop);
     window.addEventListener("dragover", allowDrop);
     return () => {
       window.removeEventListener("dragenter", allowDrop);
       window.removeEventListener("dragover", allowDrop);
     };
-  }, [drag]);
+  }, []);
 
   /**
    * Take the drop: the store works out what moving this tab here means for
@@ -331,10 +332,12 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
    * index of `tabList.length` is the drop on the bar's own background, which
    * is how a tab is dragged into a pane with no tabs to aim at.
    */
-  const dropAt = (event: { preventDefault(): void; stopPropagation(): void }, index: number) => {
+  const dropAt = (event: DragEvent<HTMLDivElement>, index: number) => {
+    const dropped = readTabDrag(event.dataTransfer);
+    if (!dropped) return;
     event.preventDefault();
     event.stopPropagation();
-    if (drag) moveTab(drag.tab, pane, index);
+    void dropTab(dropped, pane, index);
     endDrag();
   };
 
@@ -383,8 +386,9 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           onPointerDown={dismissStream}
           onDragStart={(event) => {
             dismissStream();
-            startDrag({ tab: tab.id, pane });
-            event.dataTransfer.effectAllowed = "move";
+            const dragging = { tab: tab.id, pane, windowLabel: WINDOW_LABEL };
+            writeTabDrag(event.dataTransfer, dragging);
+            startDrag(dragging);
           }}
           onDragEnter={allowDrop}
           onDragOver={allowDrop}
@@ -495,10 +499,10 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // themselves otherwise accept a drop.
   const dragHandlers = {
     onDragEnter: (event: DragEvent<HTMLDivElement>) => {
-      if (drag) allowDrop(event);
+      allowDrop(event);
     },
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (drag) allowDrop(event);
+      allowDrop(event);
     },
     // Anywhere in the bar that isn't a tab means the end of the row -- which
     // is the only target an empty pane's bar has.

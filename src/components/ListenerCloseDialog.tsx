@@ -38,11 +38,13 @@ export function ListenerCloseDialog() {
         className="w-[min(420px,100%)] rounded-xl border border-line bg-surface-raised p-4 shadow-2xl shadow-black/60"
       >
         <h2 id="listener-close-title" className="text-[14px] font-semibold text-ink">
-          Stop listening to #{warning.channel}?
+          {warning.closingWindow ? "Close this window?" : `Stop listening to #${warning.channel}?`}
         </h2>
         <p className="mt-2 text-[12px] leading-relaxed text-ink-dim">
-          Closing this tab stops {labels} from receiving messages from #{warning.channel}. The
-          mentions {plural ? "tabs" : "tab"} will stay open.
+          {warning.closingWindow
+            ? `Closing this window stops ${labels} from receiving messages from its channels.`
+            : `Closing this tab stops ${labels} from receiving messages from #${warning.channel}.`}
+          {` The mentions ${plural ? "tabs" : "tab"} will stay open.`}
         </p>
 
         <label className="mt-4 flex cursor-pointer items-center gap-2 text-[11px] text-ink-dim">
@@ -69,7 +71,7 @@ export function ListenerCloseDialog() {
             onClick={() => void confirm(dontShowAgain)}
             className="rounded-md bg-rose-500 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-rose-400"
           >
-            Close tab
+            {warning.closingWindow ? "Close window" : "Close tab"}
           </button>
         </div>
       </div>

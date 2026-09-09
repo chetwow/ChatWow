@@ -91,6 +91,9 @@ pub struct Tab {
     /// it opens one, so the view it just created has a key immediately rather
     /// than after a round trip.
     pub id: String,
+    /// Native window ownership, retained across launches. Older tabs belong to main.
+    #[serde(default = "main_window")]
+    pub window_label: String,
     /// `channel` or `mentions`.
     pub kind: String,
     /// Empty for a mentions tab, which belongs to an account rather than a room.
@@ -110,6 +113,10 @@ pub struct Tab {
     /// mentions tabs, whose old behavior is preserved by the frontend.
     #[serde(default)]
     pub mention: Option<MentionFilter>,
+}
+
+pub fn main_window() -> String {
+    "main".to_string()
 }
 
 impl Tab {
@@ -358,6 +365,8 @@ pub struct Settings {
     /// The open tabs, in bar order. Supersedes `channels`, which is read once
     /// on the way past to migrate a file written before accounts existed.
     pub tabs: Vec<Tab>,
+    /// Open child windows and their local layout/notification preferences.
+    pub windows: crate::windows::Session,
     /// Which optional `auth::PermissionGroup`s the next sign-in asks for, on
     /// top of the required ones. Empty by default: the moderator and
     /// broadcaster commands are off until someone asks for them.
@@ -452,6 +461,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
         .channels
         .iter()
         .map(|channel| Tab {
+            window_label: main_window(),
             id: format!("tab-{channel}"),
             kind: "channel".to_string(),
             channel: channel.clone(),
@@ -482,6 +492,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
     settings.tabs.insert(
         at,
         Tab {
+            window_label: main_window(),
             id: "tab-mentions".to_string(),
             kind: "mentions".to_string(),
             channel: String::new(),

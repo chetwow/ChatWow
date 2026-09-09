@@ -1,3 +1,5 @@
+import { ContextMenu } from "./ContextMenu";
+import { windowAnchor, type WindowAnchor, type ListenerDestination } from "../lib/windows";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MessageBody } from "./MessageRow";
 import { useChat } from "../store/chat";
@@ -122,9 +124,10 @@ export function UserCard({
 }: {
   target: UserCardTarget;
   onClose: () => void;
-  onCreateListener?: () => void;
+  onCreateListener?: (destination: ListenerDestination, anchor?: WindowAnchor) => void;
 }) {
   const { login, displayName, color, channel, anchor } = target;
+  const [listenerMenu, setListenerMenu] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const log = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<UserCardData | null>(
@@ -238,7 +241,7 @@ export function UserCard({
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
@@ -256,6 +259,16 @@ export function UserCard({
       style={{ left: style.left, top: style.top, visibility: style.visibility, width, maxHeight }}
       className="fixed z-50 flex flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-2xl shadow-black/60"
     >
+      {listenerMenu && onCreateListener && <ContextMenu
+        x={listenerMenu.x} y={listenerMenu.y} label="Open Listener" autoFocus
+        options={[
+          { heading: "Open Listener" },
+          { label: "New window", onSelect: (event) => onCreateListener("window", windowAnchor(event.currentTarget)) },
+          { label: "New split", onSelect: () => onCreateListener("split") },
+          { label: "New tab", onSelect: () => onCreateListener("tab") },
+        ]}
+        onClose={() => setListenerMenu(null)}
+      />}
       <div className="flex shrink-0 items-center gap-2.5 p-3">
         {card?.avatarUrl ? (
           <img
@@ -282,9 +295,13 @@ export function UserCard({
         {onCreateListener && (
           <button
             type="button"
-            title="Create a listener tab for this user"
-            aria-label="Create a listener tab for this user"
-            onClick={onCreateListener}
+            aria-label="Open Listener"
+            aria-haspopup="menu"
+            aria-expanded={listenerMenu !== null}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setListenerMenu(listenerMenu ? null : { x: box.left, y: box.bottom + 4 });
+            }}
             className="grid h-8 w-8 shrink-0 place-items-center self-start rounded-md text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
             <svg

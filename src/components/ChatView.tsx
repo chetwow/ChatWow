@@ -1,3 +1,4 @@
+import type { ListenerDestination, WindowAnchor } from "../lib/windows";
 import { useInlineVideo } from "../store/inlineVideo";
 import { twitchClip } from "../lib/twitchClips";
 import { openLink, youtubeVideo } from "../lib/youtube";
@@ -476,7 +477,7 @@ export function ChatView({
   // Both entry points deliberately share this path so the user-card action
   // keeps the context menu's current-channel seed and notification defaults.
   const createUserListener = useCallback(
-    (login: string, name: string, sourceChannel: string) => {
+    (login: string, name: string, sourceChannel: string, destination: ListenerDestination = "tab", anchor?: WindowAnchor) => {
       void openMentionsTab(
         {
           name,
@@ -486,7 +487,7 @@ export function ChatView({
           phrases: [],
           notify: false,
         },
-        { seedCurrentMatches: true },
+        { seedCurrentMatches: true, destination, anchor },
       );
     },
     [openMentionsTab],
@@ -1009,7 +1010,7 @@ export function ChatView({
             onClose={closeCard}
             onCreateListener={
               card.channel && (!myLogin || card.login.toLowerCase() !== myLogin.toLowerCase())
-                ? () => createUserListener(card.login.toLowerCase(), card.displayName, card.channel)
+                ? (destination, anchor) => createUserListener(card.login.toLowerCase(), card.displayName, card.channel, destination, anchor)
                 : undefined
             }
           />

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for ChatWow chat windows",
+  "windows": ["main", "chat-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

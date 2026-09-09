@@ -1,3 +1,4 @@
+import { windowAnchor } from "../lib/windows";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { useChat } from "../store/chat";
 import { TAB_AVATAR_MODES } from "../lib/tabAvatar";
@@ -72,6 +73,7 @@ export function AccountMenu({
   });
 
   const tabActions: ContextMenuOption[] = [
+    { label: "Move to new window", onSelect: (event) => void useChat.getState().newWindow(tabId, windowAnchor(event.currentTarget)) },
     { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
     ...(canReopenClosedTab
       ? [

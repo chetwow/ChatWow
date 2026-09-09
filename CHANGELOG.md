@@ -7,13 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- Split any panel left, right, up or down, with tab-bar highlighting and arrow-key panel selection.
-
 ### Added
 
-- Zoom chat text and emotes per split with Ctrl/Cmd +/− or the scroll wheel, with bounded media and temporary controls. Optionally zoom all splits with controls at the window's upper right.
+- Create nested chat splits and navigate panels with keyboard shortcuts.
+- Open child windows with Ctrl/Cmd+N, move or drag tabs between windows, and restore open windows on launch.
+- Choose New window, New split, or New tab when opening a listener from a user popup.
+- Zoom chat text and emotes per panel or across all splits with Ctrl/Cmd +/− or Ctrl/Cmd+scroll.
 
 ## [1.5.0] - 2026-09-06
 

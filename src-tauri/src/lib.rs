@@ -17,6 +17,7 @@ mod token_tests;
 mod twitch;
 mod updater;
 mod usercard;
+mod windows;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -104,6 +105,7 @@ fn persist(app: &AppHandle, state: &AppState) {
         default_account: auth.default_account.clone(),
         permission_groups: auth.permission_groups.clone(),
         tabs: state.tabs.read().clone(),
+        windows: state.windows.session(),
         emote_uses: state.emote_uses.read().clone(),
         last_seen_version: state.last_seen_version.read().clone(),
         preferences: state.preferences.read().clone(),
@@ -123,7 +125,9 @@ fn tabs_changed(app: &AppHandle, state: &Shared) -> Vec<Tab> {
     // A channel that has just appeared should get its live dot now rather than
     // up to a poll period later.
     state.live_poll.notify_one();
-    state.tabs.read().clone()
+    let tabs = state.tabs.read().clone();
+    let _ = app.emit("chat://tabs", &tabs);
+    tabs
 }
 
 /// How often to look at every stored token.
@@ -437,8 +441,8 @@ fn auth_status(state: State<'_, Shared>) -> AuthStatus {
 }
 
 #[tauri::command]
-fn preferences(state: State<'_, Shared>) -> settings::Preferences {
-    state.preferences.read().clone()
+fn preferences(window: tauri::WebviewWindow, state: State<'_, Shared>) -> settings::Preferences {
+    windows::preferences_for(&state, window.label())
 }
 
 /// Undo WebKit's hide-until-mouse-moves behavior after split-menu navigation.
@@ -478,28 +482,25 @@ fn acknowledge_whats_new(app: AppHandle, state: State<'_, Shared>) {
     persist(&app, &state);
 }
 
-/// Replace the stored preferences wholesale -- the dialog always sends the
-/// full set, so there's nothing to merge, and writing the file here means a
-/// toggle is durable the moment it's flipped.
+/// Merge edited fields, preserving other windows' settings and pane layouts.
 #[tauri::command]
 fn set_preferences(
     app: AppHandle,
     state: State<'_, Shared>,
-    preferences: settings::Preferences,
-) -> settings::Preferences {
+    window: tauri::WebviewWindow,
+    preferences: Value,
+) -> Result<settings::Preferences, String> {
+    let _update = state.windows.preference_updates.lock();
     let before = emotes::Providers::from(&*state.preferences.read());
+    let preferences = windows::patch_preferences(&state, window.label(), preferences)?;
     let after = emotes::Providers::from(&preferences);
     let badges_before = state.preferences.read().show_seventv_badges;
-    let pinned_before = state.preferences.read().always_on_top;
     *state.preferences.write() = preferences;
     persist(&app, &state);
 
     // The title bar's pin and the settings toggle both arrive here, so this is
     // the only place the window has to be told.
-    let pinned = state.preferences.read().always_on_top;
-    if pinned_before != pinned {
-        apply_always_on_top(&app, pinned);
-    }
+    apply_always_on_top(&app);
 
     // Switching a provider on has to go and fetch it -- nothing else will, the
     // sets being loaded on join. Switching one off goes through the same path,
@@ -518,7 +519,8 @@ fn set_preferences(
         state.seventv_badges_asked.write().clear();
     }
 
-    state.preferences.read().clone()
+    windows::emit_preferences(&app, &state);
+    Ok(windows::preferences_for(&state, window.label()))
 }
 
 /// Put the window above every other one, or let it back down.
@@ -527,12 +529,14 @@ fn set_preferences(
 /// ones on Linux simply don't) is not a reason to refuse the preference or
 /// unset it, since the setting is still what the user asked for and every
 /// other window manager will do it.
-fn apply_always_on_top(app: &AppHandle, pinned: bool) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    if let Err(error) = window.set_always_on_top(pinned) {
-        log::warn!("couldn't put the window on top: {error}");
+fn apply_always_on_top(app: &AppHandle) {
+    let state = app.state::<Shared>();
+    for (label, window) in app.webview_windows() {
+        if let Err(error) =
+            window.set_always_on_top(windows::preferences_for(&state, &label).always_on_top)
+        {
+            log::warn!("couldn't put the window on top: {error}");
+        }
     }
 }
 
@@ -647,7 +651,10 @@ fn set_client_id_override(
     persist(&app, &state);
     client::sync(&app, &state);
     client::reconnect_all(&state);
-    state.auth_status()
+    let auth = state.auth_status();
+    let _ = app.emit("chat://auth", &auth);
+    let _ = app.emit("chat://tabs", state.tabs.read().clone());
+    auth
 }
 
 /// Choose which optional permission groups the next sign-in asks Twitch for.
@@ -677,7 +684,10 @@ fn set_permission_groups(
 
     state.auth.write().permission_groups = known;
     persist(&app, &state);
-    state.auth_status()
+    let auth = state.auth_status();
+    let _ = app.emit("chat://auth", &auth);
+    let _ = app.emit("chat://tabs", state.tabs.read().clone());
+    auth
 }
 
 /// Run a slash command in a channel.
@@ -1061,7 +1071,10 @@ fn remove_account(app: AppHandle, state: State<'_, Shared>, id: String) -> AuthS
     client::sync(&app, &state);
     state.live_poll.notify_one();
     state.eventsub_restart.notify_one();
-    state.auth_status()
+    let auth = state.auth_status();
+    let _ = app.emit("chat://auth", &auth);
+    let _ = app.emit("chat://tabs", state.tabs.read().clone());
+    auth
 }
 
 /// Which account a newly opened tab reads as. Anonymous is a legitimate
@@ -1071,7 +1084,10 @@ fn set_default_account(app: AppHandle, state: State<'_, Shared>, id: String) -> 
     let resolved = resolve_account(&state, &id);
     state.auth.write().default_account = resolved;
     persist(&app, &state);
-    state.auth_status()
+    let auth = state.auth_status();
+    let _ = app.emit("chat://auth", &auth);
+    let _ = app.emit("chat://tabs", state.tabs.read().clone());
+    auth
 }
 
 /// Everything the composer and the emote picker need. The entries arrive
@@ -1220,6 +1236,7 @@ fn normalize_mention_filter(
 // shape preserves the hand-mirrored frontend contract.
 #[allow(clippy::too_many_arguments)]
 fn add_tab(
+    window: tauri::WebviewWindow,
     app: AppHandle,
     state: State<'_, Shared>,
     id: String,
@@ -1244,6 +1261,7 @@ fn add_tab(
                 .and_then(|listener| listener.accounts.first().cloned())
                 .unwrap_or_else(|| resolve_account(&state, &account));
             Tab {
+                window_label: window.label().to_string(),
                 id,
                 kind,
                 channel: String::new(),
@@ -1257,6 +1275,7 @@ fn add_tab(
             let account = resolve_account(&state, &account);
             let avatar_mode = Some(stamped_avatar_mode(&state, &account));
             Tab {
+                window_label: window.label().to_string(),
                 id,
                 kind: "channel".to_string(),
                 channel,
@@ -1272,6 +1291,7 @@ fn add_tab(
         let duplicate = tabs.iter().any(|open| {
             open.id == tab.id
                 || (tab.is_channel()
+                    && open.window_label == tab.window_label
                     && open.kind == tab.kind
                     && open.channel == tab.channel
                     && open.account == tab.account)
@@ -1403,6 +1423,7 @@ fn set_tab_account(
         // make the duplicate `add_tab` refuses, so it's refused here too.
         let taken = tabs.iter().any(|tab| {
             tab.id != id
+                && tab.window_label == moving.window_label
                 && tab.account == account
                 && tab.kind == moving.kind
                 && tab.channel == moving.channel
@@ -1461,27 +1482,19 @@ fn set_tab_avatar_mode(
     tabs_changed(&app, &state)
 }
 
-/// Apply a drag-to-reorder from the tab bar. `ids` is the full requested order;
-/// anything not actually open is dropped, and any open tab the caller's list
-/// left out is appended, so a stale or partial list can never lose a tab.
+/// Reorder only the caller's tabs; stale state must not undo another window's order.
 #[tauri::command]
-fn reorder_tabs(app: AppHandle, state: State<'_, Shared>, ids: Vec<String>) -> Vec<Tab> {
-    {
-        let mut tabs = state.tabs.write();
-        let mut next: Vec<Tab> = ids
-            .iter()
-            .filter_map(|id| tabs.iter().find(|tab| &tab.id == id).cloned())
-            .collect();
-        for tab in tabs.iter() {
-            if !next.iter().any(|kept| kept.id == tab.id) {
-                next.push(tab.clone());
-            }
-        }
-        *tabs = next;
-    }
-    // Order alone changes no connection, but it does change the file.
+fn reorder_tabs(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    state: State<'_, Shared>,
+    ids: Vec<String>,
+) -> Vec<Tab> {
+    windows::reorder(&mut state.tabs.write(), window.label(), &ids);
     persist(&app, &state);
-    state.tabs.read().clone()
+    let tabs = state.tabs.read().clone();
+    let _ = app.emit("chat://tabs", &tabs);
+    tabs
 }
 
 /// An account id we actually hold, or anonymous. Anything else -- a removed
@@ -1628,6 +1641,7 @@ pub fn run() {
         // position are what was asked for.
         .plugin(
             tauri_plugin_window_state::Builder::default()
+                .with_filter(|label| label == "main" || label.starts_with("chat-"))
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::SIZE
                         | tauri_plugin_window_state::StateFlags::POSITION
@@ -1674,6 +1688,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev::install(&handle);
             let shared: Shared = Arc::new(AppState::new());
+            windows::install(&handle, &shared);
 
             // Restore the previous session.
             let saved = settings::load(&handle);
@@ -1704,13 +1719,16 @@ pub fn run() {
                 for tab in tabs.iter_mut().filter(|tab| tab.avatar_mode.is_none()) {
                     tab.avatar_mode = Some(stamped_avatar_mode(&shared, &tab.account));
                 }
+                shared
+                    .windows
+                    .load_session(saved.windows, &mut tabs, &shared.preferences.read());
                 *shared.tabs.write() = tabs;
             }
 
             // Restored rather than reset: a window pinned when the app was
             // closed is pinned when it comes back.
-            if shared.preferences.read().always_on_top {
-                apply_always_on_top(&handle, true);
+            if let Some(window) = handle.get_webview_window("main") {
+                let _ = window.set_always_on_top(shared.preferences.read().always_on_top);
             }
 
             // After the plugin above, which is what these write into.
@@ -1767,12 +1785,19 @@ pub fn run() {
                 );
             }
 
-            app.manage(shared);
+            app.manage(Arc::clone(&shared));
+            windows::restore(&handle, &shared);
             Ok(())
         })
+        .on_window_event(windows::on_window_event)
         .invoke_handler(tauri::generate_handler![
             #[cfg(debug_assertions)]
             dev::dev_chat_snapshot,
+            windows::new_window,
+            windows::window_bootstrap,
+            windows::close_chat_window,
+            windows::focus_tab_window,
+            windows::move_tab_to_window,
             auth_status,
             set_client_id_override,
             set_permission_groups,
@@ -1818,7 +1843,10 @@ pub fn run() {
         // because the app was closed and one that ends because the app was
         // killed -- a terminal window shutting under `tauri dev` takes the
         // whole process group with it, and leaves no other trace at all.
-        .run(|_app, event| {
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                windows::begin_shutdown(app, &app.state::<Shared>());
+            }
             if let tauri::RunEvent::Exit = event {
                 log::info!("shutting down");
             }

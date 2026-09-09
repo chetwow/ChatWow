@@ -7,7 +7,8 @@ import { ChatZoomControl } from "./ChatZoomControl";
 import { PinnedMessagePanel } from "./PinnedMessagePanel";
 import { paneTabs, useChat } from "../store/chat";
 import { clampRatio, getPaneLayout, topRightPane } from "../lib/panes";
-import { useTabDrag } from "../store/tabDrag";
+import { acceptsTabDrag, readTabDrag, useTabDrag } from "../store/tabDrag";
+import { WINDOW_LABEL } from "../lib/windows";
 import type { PaneIndex, PaneNode } from "../types";
 
 /** The divider's own thickness, and the whole of its grab area. */
@@ -71,7 +72,7 @@ function Pane({
   const visibleTabs = paneTabs({ tabs, preferences }, pane)
     .filter((tab) => tab.id === active || (keepInactive && tab.id === playerTab));
   const focusPane = useChat((state) => state.focusPane);
-  const moveTab = useChat((state) => state.moveTab);
+  const dropTab = useChat((state) => state.dropTab);
   /**
    * Which pane's composer answers to typing anywhere in the window. Both
    * composers reclaim focus the moment you type (chat should feel
@@ -85,11 +86,10 @@ function Pane({
   );
   // A tab dragged from the *other* pane can be dropped anywhere in this one,
   // not just on its tab bar -- there may be no tabs there to aim at.
-  const foreignDrag = useTabDrag((state) => (state.drag?.pane === pane ? null : state.drag));
   const endDrag = useTabDrag((state) => state.end);
 
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!foreignDrag) return;
+    if (!acceptsTabDrag(event.dataTransfer, pane)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   };
@@ -110,9 +110,11 @@ function Pane({
       onDragEnter={acceptDrop}
       onDragOver={acceptDrop}
       onDrop={(event) => {
-        if (!foreignDrag) return;
+        const dropped = readTabDrag(event.dataTransfer);
+        if (!dropped || (dropped.windowLabel === WINDOW_LABEL && dropped.pane === pane)) return;
         event.preventDefault();
-        moveTab(foreignDrag.tab, pane, paneTabs(useChat.getState(), pane).length);
+        event.stopPropagation();
+        void dropTab(dropped, pane, paneTabs(useChat.getState(), pane).length);
         endDrag();
       }}
     >

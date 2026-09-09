@@ -14,16 +14,19 @@ import {
 import type { ReleaseNotes } from "./lib/releaseNotes";
 import {
   isMacSettingsShortcut,
+  isNewWindowShortcut,
   isReopenClosedTabShortcut,
   tabForShortcut,
   tabShortcut,
 } from "./lib/tabShortcuts";
 import { themeStyle } from "./lib/themes";
+import { IS_MAIN_WINDOW, windowTabs } from "./lib/windows";
 import { IS_MACOS, IS_TAURI } from "./lib/tauri";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
   const bootstrap = useChat((state) => state.bootstrap);
+  const windowError = useChat((state) => state.windowError);
 
   const [showAdd, setShowAdd] = useState(false);
   // Which tab the settings dialog is open on, or null when it's closed.
@@ -86,6 +89,7 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
+    if (!IS_MAIN_WINDOW) return;
     let active = true;
     void unseenReleaseNotes()
       .then((notes) => {
@@ -119,8 +123,14 @@ export default function App() {
         event.preventDefault();
         const state = useChat.getState();
         const current = state.active[state.focusedPane];
-        const target = tabForShortcut(state.tabs, current, tabs);
+        const target = tabForShortcut(windowTabs(state.tabs), current, tabs);
         if (target) state.setActive(target.id);
+        return;
+      }
+
+      if (isNewWindowShortcut(event, IS_MACOS)) {
+        event.preventDefault();
+        if (!event.repeat && !document.querySelector("[data-modal]")) void useChat.getState().newWindow();
         return;
       }
 
@@ -128,7 +138,7 @@ export default function App() {
         event.preventDefault();
         // If Settings itself is open, preserve the section being viewed. If
         // another modal is open, it remains the window's active context.
-        if (!document.querySelector("[data-modal]")) setSettingsTab("general");
+        if (IS_MAIN_WINDOW && !document.querySelector("[data-modal]")) setSettingsTab("general");
         return;
       }
 
@@ -256,6 +266,10 @@ export default function App() {
         onSearch={toggleSearch}
         searchActive={search?.tabId === focusedTab}
       />
+      {windowError && <div role="alert" className="flex items-center justify-between bg-surface-raised px-3 py-2 text-sm text-rose-400">
+        {windowError}
+        <button aria-label="Dismiss window error" onClick={() => useChat.setState({ windowError: null })}>×</button>
+      </div>}
       <Panes
         onAdd={() => setShowAdd(true)}
         onSignIn={() => setSettingsTab("account")}

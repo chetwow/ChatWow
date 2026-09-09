@@ -1,3 +1,4 @@
+import { IS_MAIN_WINDOW } from "../lib/windows";
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -341,12 +342,12 @@ export function TitleBar({
     >
       <div data-tauri-drag-region className="flex-1" />
 
-      <button
+      {IS_MAIN_WINDOW && <button
         onClick={() => onOpenSettings("account")}
         className={`mr-1 shrink-0 whitespace-nowrap rounded px-2 py-1 text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink ${TEXT}`}
       >
         {accountLabel(auth)}
-      </button>
+      </button>}
 
       <button
         onClick={onSearch}
@@ -377,7 +378,7 @@ export function TitleBar({
       <MuteButton />
       <SplitButton />
 
-      <button
+      {IS_MAIN_WINDOW && <button
         onClick={() => onOpenSettings("general")}
         aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
         title={updatePending ? "An update is waiting" : "Settings"}
@@ -397,9 +398,9 @@ export function TitleBar({
         {updatePending && (
           <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-accent" />
         )}
-      </button>
+      </button>}
 
-      <AppInfoButton />
+      {IS_MAIN_WINDOW && <AppInfoButton />}
 
       {!IS_MACOS && (
         <>

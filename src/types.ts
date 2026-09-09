@@ -186,6 +186,8 @@ export type AuthStatus = {
  */
 export type Tab = {
   id: string;
+  /** Session-only native window ownership; older/mock tabs belong to main. */
+  windowLabel?: string;
   kind: "channel" | "mentions";
   /** Empty for a mentions tab, which belongs to an account rather than a room. */
   channel: string;

@@ -19,6 +19,12 @@ export function isMacSettingsShortcut(event: KeyModifiers, isMac: boolean): bool
   );
 }
 
+/** Open a separate chat window with the platform primary modifier. */
+export function isNewWindowShortcut(event: KeyModifiers, isMac: boolean): boolean {
+  const primary = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return primary && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "n";
+}
+
 /** Chrome's reopen-closed-tab shortcut on the platform primary modifier. */
 export function isReopenClosedTabShortcut(event: KeyModifiers, isMac: boolean): boolean {
   const primary = isMac

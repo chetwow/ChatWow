@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 
 export type ContextMenuOption =
-  | { label: string; onSelect: () => void }
+  | { label: string; onSelect: (event: MouseEvent<HTMLButtonElement>) => void }
   /** A hairline rule, for grouping what the click landed *on* apart from the message. */
   | { separator: true }
   /**
@@ -108,8 +108,8 @@ export function ContextMenu({
           <button
             key={index}
             role="menuitem"
-            onClick={() => {
-              option.onSelect();
+            onClick={(event) => {
+              option.onSelect(event);
               onClose();
             }}
             className={`block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim transition-colors ${

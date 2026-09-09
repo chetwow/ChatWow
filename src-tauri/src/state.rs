@@ -222,6 +222,7 @@ pub struct ChannelData {
 pub const MAX_PENDING: usize = 300;
 
 pub struct AppState {
+    pub windows: crate::windows::Windows,
     pub http: reqwest::Client,
     /// One socket per account with a tab open, keyed by account id
     /// (`ANONYMOUS` for the signed-out one). IRC authenticates per connection,
@@ -318,6 +319,7 @@ impl AppState {
             .expect("failed to build HTTP client");
 
         Self {
+            windows: Default::default(),
             http,
             connections: RwLock::new(HashMap::new()),
             next_connection_generation: AtomicU64::new(1),
@@ -717,6 +719,7 @@ mod tests {
 
     fn channel_tab(id: &str, channel: &str, account: &str) -> Tab {
         Tab {
+            window_label: crate::settings::main_window(),
             id: id.to_string(),
             kind: "channel".to_string(),
             channel: channel.to_string(),
@@ -864,6 +867,7 @@ mod tests {
         state.tabs.write().push(channel_tab("2", "forsen", "222"));
         state.tabs.write().push(channel_tab("3", "nymn", "111"));
         state.tabs.write().push(Tab {
+            window_label: crate::settings::main_window(),
             id: "4".to_string(),
             kind: "mentions".to_string(),
             channel: String::new(),

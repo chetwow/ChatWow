@@ -1,3 +1,4 @@
+import type { WindowAnchor } from "./windows";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   StreamInfo,
@@ -17,6 +18,12 @@ import type {
 } from "../types";
 
 export const api = {
+  newWindow: (tabId: string | undefined, snapshot: { data: unknown; cursor: number }, anchor?: WindowAnchor) =>
+    invoke<string>("new_window", { tabId: tabId ?? null, snapshot, anchor: anchor ?? null }),
+  windowBootstrap: () => invoke<import("./backendEvents").WindowBootstrap>("window_bootstrap"),
+  closeChatWindow: () => invoke<void>("close_chat_window"),
+  focusTabWindow: (id: string) => invoke<void>("focus_tab_window", { id }),
+  moveTabToWindow: (id: string, source: string) => invoke<Tab>("move_tab_to_window", { id, source }),
   authStatus: () => invoke<AuthStatus>("auth_status"),
   /** Empty string clears the override and goes back to the compiled-in ID. */
   setClientIdOverride: (clientId: string) =>
@@ -78,7 +85,7 @@ export const api = {
     invoke<void>("record_emote_uses", { account, channel, names }),
   preferences: () => invoke<Preferences>("preferences"),
   showMenuCursor: () => invoke<void>("show_menu_cursor"),
-  setPreferences: (preferences: Preferences) =>
+  setPreferences: (preferences: Partial<Preferences>) =>
     invoke<Preferences>("set_preferences", { preferences }),
   lastSeenVersion: () => invoke<string>("last_seen_version"),
   acknowledgeWhatsNew: () => invoke<void>("acknowledge_whats_new"),

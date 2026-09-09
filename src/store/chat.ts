@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { listen } from "@tauri-apps/api/event";
+import { backendListen as listen, backendCursor, backendHydrating, startBackendEvents, finishBackendBootstrap } from "../lib/backendEvents";
+import { ownsTab, windowTabs, WINDOW_LABEL, type WindowAnchor, type ListenerDestination } from "../lib/windows";
+import { useTabDrag, type TabDrag } from "./tabDrag";
 import { api } from "../lib/api";
 import { IS_TAURI, MOCK_MODE } from "../lib/tauri";
 import { emotesIn } from "../lib/emoteComplete";
@@ -234,7 +236,7 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
  * Mock mode has no backend to persist to, so it falls back to the webview's
  * own storage -- enough to keep a toggle across a reload while iterating.
  */
-const MOCK_KEY = "chatwow.preferences";
+const MOCK_KEY = WINDOW_LABEL === "main" ? "chatwow.preferences" : `chatwow.preferences.${WINDOW_LABEL}`;
 
 function readMockPreferences(): Preferences {
   try {
@@ -273,11 +275,11 @@ export function paneTabs(layout: Layout, pane: PaneIndex): Tab[] {
   const ids = paneIds(root);
   if (!ids.includes(pane)) return [];
   const fallback = ids[ids.length - 1];
-  return layout.tabs.filter((tab) => (ids.includes(tabPanes[tab.id]) ? tabPanes[tab.id] : fallback) === pane);
+  return windowTabs(layout.tabs).filter((tab) => (ids.includes(tabPanes[tab.id]) ? tabPanes[tab.id] : fallback) === pane);
 }
 
 export function paneOf(layout: Layout, id: string): PaneIndex | null {
-  if (!layout.tabs.some((tab) => tab.id === id)) return null;
+  if (!windowTabs(layout.tabs).some((tab) => tab.id === id)) return null;
   const { root, tabPanes } = getPaneLayout(layout);
   const ids = paneIds(root);
   return ids.includes(tabPanes[id]) ? tabPanes[id] : ids[ids.length - 1];
@@ -447,6 +449,7 @@ function heldListenerMessages(state: ChatState, tab: Tab): StoredMessage[] {
 
 export type ListenerCloseWarning = {
   tabId: string;
+  closingWindow?: boolean;
   channel: string;
   listeners: string[];
 };
@@ -522,6 +525,10 @@ type ChatState = {
   expirePinnedMessages: () => void;
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];
+  receiveTabs: (tabs: Tab[]) => void;
+  newWindow: (tabId?: string, anchor?: WindowAnchor) => Promise<void>;
+  requestCloseWindow: () => void;
+  windowError: string | null;
   /**
    * The tab each pane is showing, by id. All are "what you're reading" -- a
    * message arriving in any visible tab does not count as unread
@@ -625,6 +632,8 @@ type ChatState = {
    * what a drop onto a given tab means.
    */
   moveTab: (id: string, pane: PaneIndex, index: number) => void;
+  /** Accept a drop from a pane or another native window. */
+  dropTab: (drag: TabDrag, pane: PaneIndex, index: number) => Promise<void>;
   /** Divide one pane, leaving its tabs in place and focusing the new empty pane. */
   split: (pane: PaneIndex, direction: SplitDirection) => void;
   /** Merge a pane's tabs into its sibling and remove that pane. */
@@ -639,7 +648,7 @@ type ChatState = {
   /** Create and persist a listener, optionally seeding its current matches. */
   openMentionsTab: (
     mention: MentionFilter,
-    options?: { seedCurrentMatches?: boolean },
+    options?: { seedCurrentMatches?: boolean; destination?: ListenerDestination; anchor?: WindowAnchor },
   ) => Promise<void>;
   /** Change a custom listener's visible name without replacing its log. */
   renameMentionsTab: (id: string, name: string) => Promise<void>;
@@ -778,7 +787,8 @@ function targetsFor(state: ChatState, message: ChatMessage): string[] {
 function commitTabs(lists: Record<PaneIndex, Tab[]>, layout = getPaneLayout(useChat.getState())) {
   const state = useChat.getState();
   const ids = paneIds(layout.root);
-  const tabs = ids.flatMap((pane) => lists[pane] ?? []);
+  const localTabs = ids.flatMap((pane) => lists[pane] ?? []);
+  const tabs = [...localTabs, ...state.tabs.filter((tab) => !ownsTab(tab))];
   const paneLayout: PaneLayout = {
     root: layout.root,
     tabPanes: Object.fromEntries(ids.flatMap((pane) => (lists[pane] ?? []).map((tab) => [tab.id, pane]))),
@@ -787,7 +797,7 @@ function commitTabs(lists: Record<PaneIndex, Tab[]>, layout = getPaneLayout(useC
   useChat.setState({ tabs, preferences });
   if (IS_TAURI) {
     if (tabs.some((tab, at) => tab.id !== state.tabs[at]?.id)) void api.reorderTabs(tabs.map((tab) => tab.id));
-    void api.setPreferences(preferences);
+    void api.setPreferences({ paneLayout });
   } else writeMockPreferences(preferences);
 }
 
@@ -910,6 +920,63 @@ export const useChat = create<ChatState>((set) => ({
       ? state : { pinnedMessages: pins };
   }),
   tabs: [],
+  windowError: null,
+  receiveTabs: (tabs) => {
+    const before = useChat.getState();
+    if (!before.preferences.paneLayout && before.tabs.some((tab) => ownsTab(tab) &&
+      tabs.some((next) => next.id === tab.id && !ownsTab(next)))) {
+      before.updatePreferences({ paneLayout: getPaneLayout(before) });
+    }
+    set((state) => {
+      const next = { ...state, tabs };
+      const inherited = { ready: { ...state.ready }, roles: { ...state.roles }, messages: { ...state.messages },
+        emoteEntries: { ...state.emoteEntries }, chatters: { ...state.chatters } };
+      for (const tab of tabs) {
+        if (tab.kind !== "channel" || state.tabs.some((held) => held.id === tab.id && held.account === tab.account)) continue;
+        const source = state.tabs.find((held) => held.kind === "channel" && held.channel === tab.channel && held.account === tab.account);
+        if (!source) continue;
+        inherited.ready[tab.id] = state.ready[source.id] ?? false;
+        inherited.roles[tab.id] = state.roles[source.id] ?? "viewer";
+        inherited.messages[tab.id] = state.messages[tab.id] ?? state.messages[source.id] ?? [];
+        if (state.emoteEntries[source.id]) inherited.emoteEntries[tab.id] = state.emoteEntries[source.id];
+        if (state.chatters[source.id]) inherited.chatters[tab.id] = state.chatters[source.id];
+      }
+      const removed = state.tabs.filter((tab) => !tabs.some((held) => held.id === tab.id));
+      let cleaned: Partial<ChatState> = {};
+      for (const tab of removed) cleaned = { ...cleaned, ...forgetTab({ ...state, ...cleaned }, tab.id) };
+      return { ...inherited, ...cleaned, tabs, active: settleActive(next, state.active) };
+    });
+    // WebKit can lose dragend when transferring ownership unmounts its source.
+    const dragging = useTabDrag.getState().drag;
+    if (dragging && !tabs.some((tab) => tab.id === dragging.tab && ownsTab(tab))) useTabDrag.getState().end();
+  },
+  newWindow: async (tabId, anchor) => {
+    const state = useChat.getState();
+    // Preserve legacy split membership before ownership changes the local list.
+    if (tabId && !state.preferences.paneLayout) state.updatePreferences({ paneLayout: getPaneLayout(state) });
+    set({ windowError: null });
+    try {
+      if (IS_TAURI) await api.newWindow(tabId, { data: windowSnapshot(), cursor: backendCursor() }, anchor);
+      else if (__CHATWOW_MOCKS__ && MOCK_MODE) {
+        const { openMockWindow } = await import("../dev/mockWindows");
+        openMockWindow(tabId, anchor);
+      }
+    } catch (error) {
+      set({ windowError: `Couldn't open a window: ${String(error)}` });
+    }
+  },
+  requestCloseWindow: () => {
+    const state = useChat.getState();
+    const closing = windowTabs(state.tabs);
+    const remaining = state.tabs.filter((tab) => !ownsTab(tab));
+    const listeners = state.preferences.warnOnListenerClose ? [...new Set(closing.flatMap((tab) =>
+      listenersStoppedByClosing({ ...state, tabs: [...remaining, tab] }, tab),
+    ))] : [];
+    if (listeners.length) {
+      set({ listenerCloseWarning: { tabId: "", closingWindow: true, channel: "this window", listeners } });
+    } else if (IS_TAURI) void api.closeChatWindow();
+    else window.close();
+  },
   active: { 0: null },
   focusedPane: 0,
   zoomControl: null,
@@ -944,7 +1011,12 @@ export const useChat = create<ChatState>((set) => ({
   },
   globalEmotes: 0,
 
-  setActive: (id, pane) =>
+  setActive: (id, pane) => {
+    const tab = useChat.getState().tabs.find((tab) => tab.id === id);
+    if (tab && !ownsTab(tab)) {
+      if (IS_TAURI) void api.focusTabWindow(id);
+      return;
+    }
     set((state) => {
       const target = pane ?? paneOf(state, id) ?? state.focusedPane;
       if (!paneTabs(state, target).some((tab) => tab.id === id)) return {};
@@ -956,7 +1028,8 @@ export const useChat = create<ChatState>((set) => ({
         unread: { ...state.unread, [id]: 0 },
         mentions: { ...state.mentions, [id]: 0 },
       };
-    }),
+    });
+  },
 
   focusPane: (pane) =>
     set((state) => {
@@ -971,6 +1044,30 @@ export const useChat = create<ChatState>((set) => ({
         mentions: { ...state.mentions, [id]: 0 },
       };
     }),
+
+  dropTab: async (drag, pane, index) => {
+    const state = useChat.getState();
+    const tab = state.tabs.find((tab) => tab.id === drag.tab);
+    if (!tab || (tab.windowLabel ?? "main") !== drag.windowLabel || !panes(state).includes(pane)) return;
+    if (drag.windowLabel === WINDOW_LABEL) {
+      state.moveTab(drag.tab, pane, index);
+      return;
+    }
+    set({ windowError: null });
+    try {
+      // Freeze legacy pane membership before the incoming tab changes its boundary.
+      if (!state.preferences.paneLayout) state.updatePreferences({ paneLayout: getPaneLayout(state) });
+      const moved = IS_TAURI ? await api.moveTabToWindow(drag.tab, drag.windowLabel)
+        : { ...tab, windowLabel: WINDOW_LABEL };
+      const current = useChat.getState();
+      current.receiveTabs(current.tabs.map((tab) => tab.id === moved.id ? moved : tab));
+      const target = panes(useChat.getState()).includes(pane) ? pane : useChat.getState().focusedPane;
+      useChat.getState().moveTab(moved.id, target, index);
+      useChat.getState().setActive(moved.id, target);
+    } catch (error) {
+      set({ windowError: `Couldn't move the tab: ${String(error)}` });
+    }
+  },
 
   moveTab: (id, pane, index) => {
     const state = useChat.getState();
@@ -1049,6 +1146,7 @@ export const useChat = create<ChatState>((set) => ({
 
     const tab: Tab = {
       id: newTabId(),
+      windowLabel: WINDOW_LABEL,
       kind,
       channel: name,
       account: account ?? state.auth.defaultAccount,
@@ -1061,7 +1159,7 @@ export const useChat = create<ChatState>((set) => ({
 
     // The same channel twice as the same account would be two identical views
     // of one stream. Switch to the one already open instead.
-    const existing = state.tabs.find(
+    const existing = windowTabs(state.tabs).find(
       (open) =>
         open.kind === tab.kind && open.channel === tab.channel && open.account === tab.account,
     );
@@ -1100,6 +1198,7 @@ export const useChat = create<ChatState>((set) => ({
     };
     const tab: Tab = {
       id: newTabId(),
+      windowLabel: WINDOW_LABEL,
       kind: "mentions",
       channel: "",
       account: listener.accounts[0] ?? ANONYMOUS,
@@ -1124,7 +1223,17 @@ export const useChat = create<ChatState>((set) => ({
           : [],
       },
     }));
-    placeNewTab(opened.id);
+    if (options?.destination === "window") {
+      await useChat.getState().newWindow(opened.id, options.anchor);
+      // Keep a failed pop-out accessible in the source window.
+      if (useChat.getState().windowError) placeNewTab(opened.id);
+    } else {
+      if (options?.destination === "split") {
+        const current = useChat.getState();
+        current.split(current.focusedPane, "right");
+      }
+      placeNewTab(opened.id);
+    }
   },
 
   renameMentionsTab: async (id, name) => {
@@ -1212,7 +1321,7 @@ export const useChat = create<ChatState>((set) => ({
     // Consume it before crossing IPC so key repeat cannot launch two opens.
     set({ lastClosedTab: null });
     try {
-      const duplicate = state.tabs.find(
+      const duplicate = windowTabs(state.tabs).find(
         (open) =>
           closed.tab.kind === "channel" &&
           open.kind === "channel" &&
@@ -1228,7 +1337,7 @@ export const useChat = create<ChatState>((set) => ({
       let opened = tabs.find((tab) => tab.id === closed.tab.id);
       if (!opened) {
         // The backend can still spot a duplicate opened during the round trip.
-        const existing = tabs.find(
+        const existing = windowTabs(tabs).find(
           (tab) =>
             closed.tab.kind === "channel" &&
             tab.kind === "channel" &&
@@ -1273,7 +1382,10 @@ export const useChat = create<ChatState>((set) => ({
     if (!pending) return;
     if (dontShowAgain) state.updatePreferences({ warnOnListenerClose: false });
     set({ listenerCloseWarning: null });
-    await closeTabNow(pending.tabId);
+    if (pending.closingWindow) {
+      if (IS_TAURI) await api.closeChatWindow();
+      else window.close();
+    } else await closeTabNow(pending.tabId);
   },
 
   setTabAvatarMode: async (id, mode) => {
@@ -1306,10 +1418,12 @@ export const useChat = create<ChatState>((set) => ({
     // read as anyone, so they stay. What doesn't: which of Twitch's emotes are
     // completable, and what this login may do in this room -- both belonged to
     // the account that just left.
+    const source = tabs.find((other) => other.id !== id && other.kind === "channel" && other.channel === tab.channel && other.account === account);
+    const held = useChat.getState();
     set({
-      roles: { ...state.roles, [id]: "viewer" },
-      emoteEntries: { ...state.emoteEntries, [id]: [] },
-      ready: { ...state.ready, [id]: !IS_TAURI },
+      roles: { ...held.roles, [id]: source ? held.roles[source.id] ?? "viewer" : "viewer" },
+      emoteEntries: { ...held.emoteEntries, [id]: source ? held.emoteEntries[source.id] ?? [] : [] },
+      ready: { ...held.ready, [id]: source ? held.ready[source.id] ?? false : !IS_TAURI },
     });
     void useChat.getState().loadEmoteIndex(id);
   },
@@ -1318,7 +1432,7 @@ export const useChat = create<ChatState>((set) => ({
     const tab = tabById(useChat.getState(), id);
     if (!tab) return;
 
-    if (MOCK_MODE) {
+    if (__CHATWOW_MOCKS__ && MOCK_MODE) {
       const { buildOwnMockMessage, mockBlockedMessage } = await import("../dev/mockData");
       const blocked = mockBlockedMessage(tab, text);
       if (blocked) {
@@ -1439,7 +1553,8 @@ export const useChat = create<ChatState>((set) => ({
     // Applied optimistically -- the dialog's controls should feel instant, and
     // there's nothing to roll back to if the write fails.
     set({ preferences });
-    if (IS_TAURI) void api.setPreferences(preferences);
+    if (IS_TAURI) void api.setPreferences(Object.fromEntries(Object.entries(preferences)
+      .filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(state.preferences[key as keyof Preferences]))));
     else writeMockPreferences(preferences);
   },
 
@@ -1501,7 +1616,7 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   installUpdate: async () => {
-    if (MOCK_MODE) {
+    if (__CHATWOW_MOCKS__ && MOCK_MODE) {
       const { mockInstall } = await import("../dev/mockUpdates");
       await mockInstall((update) => set({ update }));
       return;
@@ -1513,7 +1628,7 @@ export const useChat = create<ChatState>((set) => ({
   },
 
   restartForUpdate: async () => {
-    if (MOCK_MODE) {
+    if (__CHATWOW_MOCKS__ && MOCK_MODE) {
       console.info("mock: restarting");
       set({ update: IDLE_UPDATE });
       return;
@@ -1606,6 +1721,7 @@ export const useChat = create<ChatState>((set) => ({
         // already reading: it arrived from outside the room, so there's no
         // reason to assume you were watching for it. Muting still silences it.
         if (
+          tab && ownsTab(tab) &&
           notificationSoundAllowed(state.preferences, windowActive, watching, true) &&
           fresh.some((message) => message.kind === "whisper" && heard(message) && soundEnabledFor(message))
         ) {
@@ -1613,7 +1729,7 @@ export const useChat = create<ChatState>((set) => ({
         }
         // The tab you're looking at stays silent unless you ask for it: you
         // can already see the mention land.
-        const audible = notificationSoundAllowed(state.preferences, windowActive, watching);
+        const audible = tab && ownsTab(tab) && notificationSoundAllowed(state.preferences, windowActive, watching);
         const naming = fresh.filter((message) => {
           if (!heard(message)) return false;
           const kind = mentionKind(message, login);
@@ -1670,7 +1786,7 @@ export const useChat = create<ChatState>((set) => ({
         );
         const watching = Object.values(state.active).includes(tab.id) || sourceVisible;
         if (
-          listenerNotifies(tab) &&
+          ownsTab(tab) && listenerNotifies(tab) &&
           notificationSoundAllowed(state.preferences, windowActive, watching) &&
           addressed.some((message) => soundEnabledFor(message) && listenerWouldSound(state, tab, message))
         ) {
@@ -1694,7 +1810,7 @@ export const useChat = create<ChatState>((set) => ({
     // Global and situational mute controls only take the sound. A listener's
     // own notification switch also gates its rose badge, while its ordinary
     // unread count and highlighted rows remain.
-    if (mentioned) playMentionSound();
+    if (mentioned && (!IS_TAURI || !backendHydrating())) playMentionSound();
   },
 
   clear: ({ account, channel, login, messageId, duration }) => {
@@ -1746,7 +1862,9 @@ export const useChat = create<ChatState>((set) => ({
     }),
 
   bootstrap: async () => {
-    if (MOCK_MODE) {
+    if (__CHATWOW_MOCKS__ && MOCK_MODE) {
+      const { restoreMockWindow } = await import("../dev/mockWindows");
+      if (restoreMockWindow()) return;
       const {
         mockTabs,
         buildInitialMessages,
@@ -1791,6 +1909,8 @@ export const useChat = create<ChatState>((set) => ({
       api.updateState(),
       api.pinnedMessages(),
     ]);
+    const transfer = await api.windowBootstrap();
+    if (transfer.data) hydrateWindowSnapshot(transfer.data);
     const settings = normalize(preferences);
     set((state) => ({
       tabs,
@@ -1806,6 +1926,12 @@ export const useChat = create<ChatState>((set) => ({
       active: settleActive({ tabs, preferences: settings }, state.active),
       focusedPane: paneIds(getPaneLayout({ tabs, preferences: settings }).root)[0],
     }));
+    finishBackendBootstrap(transfer);
+    const current = useChat.getState();
+    set({ active: settleActive(current, current.active) });
+    for (const tab of windowTabs(current.tabs)) {
+      if (current.ready[tab.id]) void current.loadEmoteIndex(tab.id);
+    }
   },
 }));
 
@@ -1818,19 +1944,22 @@ export const useChat = create<ChatState>((set) => ({
  * on design with `npm run dev`.
  */
 export async function subscribeToBackend(): Promise<() => void> {
-  if (MOCK_MODE) {
-    const { randomMockMessage } = await import("../dev/mockData");
-    const interval = window.setInterval(() => {
-      useChat.getState().expirePinnedMessages();
-      const tabs = useChat.getState().tabs.filter((tab) => tab.kind === "channel");
-      if (tabs.length === 0) return;
-      const tab = tabs[Math.floor(Math.random() * tabs.length)];
-      useChat.getState().ingest([randomMockMessage(tab)]);
-    }, 1400);
-    return () => window.clearInterval(interval);
+  if (__CHATWOW_MOCKS__ && MOCK_MODE) {
+    const { subscribeMockWindows } = await import("../dev/mockWindows");
+    return subscribeMockWindows();
   }
 
   const unlisteners = await Promise.all([
+    listen<Tab[]>("chat://tabs", ({ payload }) => useChat.getState().receiveTabs(payload)),
+    listen<Record<string, Preferences>>("chat://preferences", ({ payload }) => {
+      if (payload[WINDOW_LABEL]) useChat.setState({ preferences: normalize(payload[WINDOW_LABEL]) });
+    }),
+    listen<{ windowLabel: string; id: string }>("window://activate-tab", ({ payload }) => {
+      if (payload.windowLabel === WINDOW_LABEL) useChat.getState().setActive(payload.id);
+    }),
+    listen<string>("window://close-request", ({ payload }) => {
+      if (payload === WINDOW_LABEL) useChat.getState().requestCloseWindow();
+    }),
     listen<Record<string, PinnedMessage>>("chat://pins", (event) => {
       useChat.getState().receivePinnedMessages(event.payload);
     }),
@@ -1941,9 +2070,31 @@ export async function subscribeToBackend(): Promise<() => void> {
     }),
   ]);
 
+  const stopEvents = await startBackendEvents();
   const expiry = window.setInterval(() => useChat.getState().expirePinnedMessages(), 1000);
   return () => {
     window.clearInterval(expiry);
+    stopEvents();
     unlisteners.forEach((off) => off());
   };
+}
+
+/** Data needed by a newly created webview; UI focus and pane layout remain local. */
+export function windowSnapshot(): Record<string, unknown> {
+  const state = useChat.getState();
+  const keys = ["tabs", "messages", "mentionLog", "ready", "roles", "emoteCounts", "emoteEntries",
+    "chatters", "unread", "mentions", "sentHistory", "emoteUses", "connections", "connectionDetail",
+    "globalEmotes", "seventvBadges", "moderations", "pinnedMessages", "dismissedPins",
+    "auth", "live", "channelAvatars", "update"] as const;
+  return Object.fromEntries(keys.map((key) => [key, state[key]]));
+}
+
+export function hydrateWindowSnapshot(data: Record<string, unknown>) {
+  // Accept only the same data fields we export; never replace store actions.
+  const allowed = new Set(Object.keys(windowSnapshot()));
+  useChat.setState(Object.fromEntries(Object.entries(data).filter(([key]) => allowed.has(key))));
+  const state = useChat.getState();
+  for (const log of [...Object.values(state.messages), ...Object.values(state.mentionLog)]) {
+    for (const message of log) nextKey = Math.max(nextKey, message.key + 1);
+  }
 }

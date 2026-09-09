@@ -1,3 +1,4 @@
+import { ownsTab } from "../lib/windows";
 import { useEffect, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { useChat } from "../store/chat";
 import { api } from "../lib/api";
@@ -163,7 +164,7 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
    * you already have open -- as somebody else.
    */
   const [account, setAccount] = useState(defaultAccount);
-  const openTabs = tabs.filter((tab) => tab.kind === "channel" && tab.account === account);
+  const openTabs = tabs.filter((tab) => ownsTab(tab) && tab.kind === "channel" && tab.account === account);
   const joinedChannels = openTabs.map((tab) => tab.channel);
   const listenerChannels = [...new Set(
     tabs.filter((tab) => tab.kind === "channel").map((tab) => tab.channel),

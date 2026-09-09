@@ -1,3 +1,4 @@
+import { windowTabs } from "./windows";
 import type { PaneIndex, PaneLayout, PaneNode, Preferences, SplitDirection, Tab } from "../types";
 
 export const clampRatio = (ratio: number): number =>
@@ -51,7 +52,7 @@ export function getPaneLayout({ tabs, preferences }: { tabs: Tab[]; preferences:
       kind: "split", id: "legacy", axis: preferences.splitLayout, ratio: preferences.splitRatio,
       first: { kind: "pane", id: 0 }, second: { kind: "pane", id: 1 },
     },
-    tabPanes: Object.fromEntries(tabs.map((tab, index) => [tab.id, index < preferences.splitIndex ? 0 : 1])),
+    tabPanes: Object.fromEntries(windowTabs(tabs).map((tab, index) => [tab.id, index < preferences.splitIndex ? 0 : 1])),
   };
 }
 
