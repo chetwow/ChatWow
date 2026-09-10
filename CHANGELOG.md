@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Close empty split panels directly from their tab bar.
+
 ### Changed
 
 - Group tab settings into submenus and move a tab into a new split from its context menu.

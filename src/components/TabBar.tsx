@@ -9,7 +9,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { mentionTabName, paneTabs, tabPin, useChat } from "../store/chat";
+import { mentionTabName, panes, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { acceptsTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "../store/tabDrag";
 import { WINDOW_LABEL } from "../lib/windows";
@@ -528,6 +528,23 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     </button>
   );
 
+  const closeEmptyPane = tabList.length === 0 && panes({ tabs: tabs_, preferences }).length > 1 && (
+    <button
+      type="button"
+      aria-label="Close split"
+      title="Close split"
+      onClick={() => {
+        const state = useChat.getState();
+        if (paneTabs(state, pane).length === 0) state.removePane(pane);
+      }}
+      className="my-1 ml-auto grid h-6 w-5 shrink-0 self-start place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="m3 3 6 6M9 3 3 9" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    </button>
+  );
+
   const menu = accountMenu && (
     <AccountMenu
       tabId={accountMenu.id}
@@ -608,6 +625,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           </div>
         </div>
         {addButton}
+        {closeEmptyPane}
         {/* Anchored to the bar itself, outside its padding and past the add
             button -- an absolute child of the scroller would be part of what
             scrolls and slide off the very edge it marks, and one anchored to
@@ -634,6 +652,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       {tabs}
       {breakBeforeAdd && <div className="h-1 basis-full" />}
       {addButton}
+      {closeEmptyPane}
       {menu}
       {barContextMenu}
       {optionsDialog}
