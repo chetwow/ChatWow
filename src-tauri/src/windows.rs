@@ -254,6 +254,8 @@ pub fn preferences_for(state: &Shared, label: &str) -> Preferences {
     let mut value =
         serde_json::to_value(&*state.preferences.read()).expect("preferences serialize");
     if label != "main" {
+        // Legacy sessions can lack a local pin. Never follow main's later toggles.
+        value["alwaysOnTop"] = json!(false);
         if let Some(local) = state.windows.layouts.lock().get(label) {
             for key in LOCAL_PREFERENCES {
                 if let Some(v) = local.get(*key) {
@@ -263,6 +265,16 @@ pub fn preferences_for(state: &Shared, label: &str) -> Preferences {
         }
     }
     serde_json::from_value(value).expect("validated preferences")
+}
+
+fn new_window_preferences(state: &Shared, source: &str) -> Value {
+    let mut local =
+        serde_json::to_value(preferences_for(state, source)).expect("preferences serialize");
+    local["paneLayout"] = json!({"root": {"kind": "pane", "id": 0}, "tabPanes": {}});
+    local["paneChatZoom"] = json!({});
+    local["splitLayout"] = json!("none");
+    local["alwaysOnTop"] = json!(state.preferences.read().always_on_top);
+    local
 }
 
 /// Merge only edited fields, so another window cannot overwrite newer settings
@@ -476,11 +488,7 @@ pub async fn new_window(
         }
         journal.pending.insert(label.clone(), snapshot);
     }
-    let mut local =
-        serde_json::to_value(preferences_for(&state, window.label())).map_err(|e| e.to_string())?;
-    local["paneLayout"] = json!({"root": {"kind": "pane", "id": 0}, "tabPanes": {}});
-    local["paneChatZoom"] = json!({});
-    local["splitLayout"] = json!("none");
+    let local = new_window_preferences(&state, window.label());
     state.windows.layouts.lock().insert(label.clone(), local);
 
     // Clone the merged platform config so secondary windows get the same macOS
@@ -642,6 +650,53 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use std::sync::Arc;
+
+    #[test]
+    fn new_windows_copy_main_pin_even_when_opened_from_a_differently_pinned_child() {
+        let state = Arc::new(AppState::new());
+        for main_pin in [true, false] {
+            state.preferences.write().always_on_top = main_pin;
+            state
+                .windows
+                .layouts
+                .lock()
+                .insert("chat-0".into(), json!({"alwaysOnTop": !main_pin}));
+            let local = new_window_preferences(&state, "chat-0");
+            assert_eq!(local["alwaysOnTop"], main_pin);
+            state.windows.layouts.lock().insert("chat-1".into(), local);
+            state.preferences.write().always_on_top = !main_pin;
+            assert_eq!(preferences_for(&state, "chat-1").always_on_top, main_pin);
+        }
+    }
+
+    #[test]
+    fn window_pins_are_independent_even_when_legacy_sessions_omit_them() {
+        let state = Arc::new(AppState::new());
+        state
+            .windows
+            .layouts
+            .lock()
+            .insert("chat-0".into(), json!({}));
+        for (label, pinned) in [("main", true), ("chat-1", true), ("main", false)] {
+            let merged = patch_preferences(&state, label, json!({"alwaysOnTop": pinned})).unwrap();
+            *state.preferences.write() = merged;
+            assert!(!preferences_for(&state, "chat-0").always_on_top);
+        }
+        assert!(!preferences_for(&state, "main").always_on_top);
+        assert!(preferences_for(&state, "chat-1").always_on_top);
+        let saved = state.windows.session();
+        let restored = Arc::new(AppState::new());
+        restored.preferences.write().always_on_top = true;
+        restored
+            .windows
+            .load_session(saved, &mut [], &Preferences::default());
+        assert!(!preferences_for(&restored, "chat-0").always_on_top);
+        assert!(preferences_for(&restored, "chat-1").always_on_top);
+        let merged = patch_preferences(&restored, "chat-1", json!({"alwaysOnTop":false})).unwrap();
+        *restored.preferences.write() = merged;
+        assert!(preferences_for(&restored, "main").always_on_top);
+        assert!(!preferences_for(&restored, "chat-1").always_on_top);
+    }
 
     #[test]
     fn secondary_preferences_preserve_main_layout_and_merge_shared_fields() {

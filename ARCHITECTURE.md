@@ -1391,10 +1391,11 @@ for one behaviour that is easy to get wrong alone: it restores a saved position 
 currently attached intersects it, so unplugging the screen the window was last on leaves the app
 opening somewhere you can see.
 
-Keeping the window above the others is a preference like any other, so both the title bar's pin
-and the appearance tab write `alwaysOnTop` and the window is told in one place, in
-`set_preferences`. Each window has its own pin; the main window's is restored at launch and off by default: a window that won't go behind
-anything is an unpleasant thing to inherit from a session you'd forgotten about.
+Each window's title-bar pin independently controls whether it stays above other windows.
+`set_preferences` applies each window's own `alwaysOnTop` value. New windows initially copy
+the main window's pin, then retain their own value across changes and restarts. Older
+saved child windows without a pin value default to unpinned rather than following main.
+The main window's pin is restored at launch and defaults to off. Appearance has no pin toggle.
 
 ## Updating itself
 

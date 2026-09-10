@@ -1149,13 +1149,6 @@ export function SettingsDialog({
                 />
               </Section>
               <Section title="Miscellaneous">
-                <Row label="Keep window on top">
-                  <Toggle
-                    checked={preferences.alwaysOnTop}
-                    onChange={(alwaysOnTop) => updatePreferences({ alwaysOnTop })}
-                    label="Keep window on top"
-                  />
-                </Row>
                 <Row label="Avatar displayed in composer">
                   <SegmentedComposerAvatar
                     value={preferences.composerAvatarMode}

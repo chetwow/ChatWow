@@ -28,8 +28,11 @@ export function openMockWindow(tabId?: string, anchor?: WindowAnchor) {
   if (!child) throw new Error("The browser blocked the popup");
   const tabs = useChat.getState().tabs.map((tab) => tab.id === tabId ? { ...tab, windowLabel: label } : tab);
   const snapshot = { ...windowSnapshot(), tabs };
+  const mainPin = IS_MAIN_WINDOW ? useChat.getState().preferences.alwaysOnTop
+    : JSON.parse(localStorage.getItem("chatwow.preferences") ?? "null")?.alwaysOnTop ?? false;
   localStorage.setItem(KEY + label, JSON.stringify({ data: snapshot, preferences: {
     ...useChat.getState().preferences, paneLayout: null, splitLayout: "none", paneChatZoom: {},
+    alwaysOnTop: mainPin,
   } }));
   useChat.getState().receiveTabs(tabs);
   children.push(child);

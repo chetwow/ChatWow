@@ -76,7 +76,7 @@ function MuteButton() {
 /**
  * Keep the window above the others. Beside the mute button for the same
  * reason: it's reached for while a stream is running, not while settings are
- * open. The appearance tab has the same switch.
+ * open. Each window owns its pin independently.
  */
 function PinButton() {
   const pinned = useChat((state) => state.preferences.alwaysOnTop);

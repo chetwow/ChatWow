@@ -498,8 +498,7 @@ fn set_preferences(
     *state.preferences.write() = preferences;
     persist(&app, &state);
 
-    // The title bar's pin and the settings toggle both arrive here, so this is
-    // the only place the window has to be told.
+    // Apply each window's own title-bar pin preference.
     apply_always_on_top(&app);
 
     // Switching a provider on has to go and fetch it -- nothing else will, the
