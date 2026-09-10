@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { backendListen as listen, backendCursor, backendHydrating, startBackendEvents, finishBackendBootstrap } from "../lib/backendEvents";
-import { ownsTab, windowTabs, WINDOW_LABEL, type WindowAnchor, type ListenerDestination } from "../lib/windows";
+import { ownsTab, windowTabs, WINDOW_LABEL, IS_MAIN_WINDOW, type WindowAnchor, type ListenerDestination } from "../lib/windows";
 import { useTabDrag, type TabDrag } from "./tabDrag";
 import { api } from "../lib/api";
 import { IS_TAURI, MOCK_MODE } from "../lib/tauri";
@@ -102,6 +102,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
+  autoCloseEmptyChildWindows: true,
+  autoCloseEmptySplits: false,
   composerAvatarMode: "twitch",
   newTabAvatarMode: "owner",
   tabAvatarOpacity: 0.4,
@@ -896,6 +898,16 @@ async function closeTabNow(id: string) {
   commitTabs(Object.fromEntries(panes(current).map((id) => [id, paneTabs(current, id)])));
   const settled = useChat.getState();
   useChat.setState({ active: settleActive(settled, settled.active) });
+  // Only the pane whose tab was explicitly closed is eligible. New empty
+  // panes/windows and panes emptied by a move must remain available.
+  if (ownsTab(tab) && settled.preferences.autoCloseEmptySplits && paneTabs(settled, pane).length === 0) {
+    settled.removePane(pane);
+  }
+  const after = useChat.getState();
+  if (ownsTab(tab) && !IS_MAIN_WINDOW && after.preferences.autoCloseEmptyChildWindows
+    && windowTabs(after.tabs).length === 0) {
+    after.requestCloseWindow();
+  }
 }
 
 export const useChat = create<ChatState>((set) => ({

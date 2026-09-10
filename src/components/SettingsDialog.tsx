@@ -907,6 +907,22 @@ export function SettingsDialog({
                   />
                 </Row>
               </Section>
+              <Section title="Window/Tab Behavior">
+                <Row label="Automatically close empty child windows">
+                  <Toggle
+                    checked={preferences.autoCloseEmptyChildWindows}
+                    onChange={(autoCloseEmptyChildWindows) => updatePreferences({ autoCloseEmptyChildWindows })}
+                    label="Automatically close empty child windows"
+                  />
+                </Row>
+                <Row label="Automatically close empty splits">
+                  <Toggle
+                    checked={preferences.autoCloseEmptySplits}
+                    onChange={(autoCloseEmptySplits) => updatePreferences({ autoCloseEmptySplits })}
+                    label="Automatically close empty splits"
+                  />
+                </Row>
+              </Section>
               <Section title="Moderation">
                 <Row label="Default timeout duration">
                   <select

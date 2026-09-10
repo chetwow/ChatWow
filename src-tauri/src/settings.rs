@@ -216,6 +216,8 @@ pub struct Preferences {
     /// go behind anything is a nuisance to inherit on a restart you'd
     /// forgotten about.
     pub always_on_top: bool,
+    pub auto_close_empty_child_windows: bool,
+    pub auto_close_empty_splits: bool,
     /// What occupies the account slot beside the message box: the sending
     /// account's `twitch` picture, a `generic` silhouette or `none`. The
     /// frontend validates this like the other visual presets.
@@ -326,6 +328,8 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
+            auto_close_empty_child_windows: true,
+            auto_close_empty_splits: false,
             composer_avatar_mode: "twitch".to_string(),
             new_tab_avatar_mode: "owner".to_string(),
             tab_avatar_opacity: 0.4,

@@ -714,6 +714,13 @@ panels retain their tabs. Reopening restores the original panel if it still exis
 uses the focused panel. Removing a panel merges its tabs into its sibling subtree and promotes
 that sibling, preserving the remaining dividers.
 
+General's Window/Tab Behavior preferences act only after an explicit tab close completes
+(including listener-close confirmation). Automatically close empty splits defaults off and
+removes only the just-emptied pane, retaining the final pane. Automatically close empty child
+windows defaults on and closes only a child whose last owned tab was just closed. The main
+window, newly created empty windows/panes, and sources emptied by moving tabs remain open.
+Both preferences are shared across windows and persisted with the other settings.
+
 `active` maps pane IDs to their visible tab. Every visible tab counts as read; `focusedPane`
 identifies where new tabs and whispers go and what `Ctrl/Cmd+W` closes. `settleActive` repairs
 that map after layout changes, falling back to the first remaining tab in each panel.

@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configure automatic closing of child windows and splits when their last tab is closed.
+
 - Close empty split panels directly from their tab bar.
 
 ### Changed

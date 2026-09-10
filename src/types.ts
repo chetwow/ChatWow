@@ -325,6 +325,8 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Keep the window above every other one. */
   alwaysOnTop: boolean;
+  autoCloseEmptyChildWindows: boolean;
+  autoCloseEmptySplits: boolean;
   /** What occupies the account slot beside the message box. */
   composerAvatarMode: ComposerAvatarMode;
   /** What a newly opened tab draws behind its name. Only new ones. */
