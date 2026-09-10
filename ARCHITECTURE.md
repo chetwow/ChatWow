@@ -738,6 +738,11 @@ state on the main thread, only while this window is focused.
 
 ## Message history
 
+The transcript follows incoming messages only while pinned to the live edge. Upward wheel
+intent unpins immediately, including fractional trackpad gestures; scrolling back to within
+one pixel of the bottom restores following. Resize corrections recheck pinning when their
+animation frame runs so a queued correction cannot override a reader scrolling away.
+
 `↑` in the composer walks back through what you've sent in the current tab, `↓` comes
 forward again; stepping past the newest entry restores whatever you'd half-typed when the walk
 started, and typing over a recalled message ends the walk so the next `↑` starts from the top.

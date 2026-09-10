@@ -14,6 +14,7 @@ import {
 import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ChatZoomControl, useChatZoomEvents } from "./ChatZoomControl";
+import { bindChatScroll, CHAT_BOTTOM_TOLERANCE } from "../lib/chatScroll";
 import { paneChatZoom } from "../lib/chatZoom";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
@@ -37,8 +38,6 @@ import { formatTimeout } from "../lib/timeout";
 import { useTooltip } from "../store/tooltip";
 import type { EmoteRule, PaneIndex, StoredMessage } from "../types";
 
-/** How close to the bottom still counts as "pinned". */
-const PIN_THRESHOLD = 40;
 /** Visual markers are smaller; this is the clickable track footprint. */
 const MENTION_MARKER_HEIGHT = 8;
 
@@ -131,7 +130,12 @@ export function ChatView({
   const zoomAllSplits = useChat((state) => state.preferences.zoomAllSplits);
   useChatZoomEvents(viewport, pane, capturesTyping);
   const mentionRail = useRef<HTMLDivElement>(null);
-  const [pinned, setPinned] = useState(true);
+  const [pinned, setPinnedState] = useState(true);
+  const pinnedRef = useRef(true);
+  const setPinned = useCallback((value: boolean) => {
+    pinnedRef.current = value;
+    setPinnedState(value);
+  }, []);
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -264,7 +268,7 @@ export function ChatView({
 
   useLayoutEffect(() => {
     const element = scroller.current;
-    if (element && pinned) {
+    if (element && pinnedRef.current) {
       element.scrollTop = element.scrollHeight;
     }
   }, [messages, pinned, channel, chatZoom]);
@@ -314,8 +318,6 @@ export function ChatView({
   // single notification. (Separately, live-resizing this window also shows a
   // brief stale/clipped frame -- that's an upstream Chromium/WebView2 resize
   // limitation on Windows, not related to this effect: tauri-apps/tauri#6322.)
-  const pinnedRef = useRef(pinned);
-  pinnedRef.current = pinned;
   const zoomAnchor = useRef<{ row: Element; offset: number } | null>(null);
   // Capture the first visible message before this pane's zoom reflows it.
   // A reader browsing history should keep the same message.
@@ -344,7 +346,7 @@ export function ChatView({
       if (!pinnedRef.current || frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        element.scrollTop = element.scrollHeight;
+        if (pinnedRef.current) element.scrollTop = element.scrollHeight;
       });
     });
     observer.observe(element);
@@ -418,13 +420,13 @@ export function ChatView({
     if (element) syncMentionMarkerOverlap(element, mentionRail.current);
   }, [mentionMarkerPositions]);
 
-  const onScroll = () => {
+  useEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    setPinned(distance < PIN_THRESHOLD);
-    syncMentionMarkerOverlap(element, mentionRail.current);
-  };
+    return bindChatScroll(element, setPinned, () => {
+      syncMentionMarkerOverlap(element, mentionRail.current);
+    }, () => pinnedRef.current);
+  }, [setPinned]);
 
   const jumpToPresent = () => {
     const element = scroller.current;
@@ -850,7 +852,6 @@ export function ChatView({
       <div ref={viewport} className="relative min-h-0 flex-1">
         <div
           ref={scroller}
-          onScroll={onScroll}
           className="scroller h-full overflow-y-auto overflow-x-hidden py-2"
         >
           {!messages?.length && (
@@ -941,7 +942,7 @@ export function ChatView({
                   if (!element) return;
                   element.scrollTop = marker.scrollTop;
                   const distance = element.scrollHeight - marker.scrollTop - element.clientHeight;
-                  setPinned(distance < PIN_THRESHOLD);
+                  setPinned(distance <= CHAT_BOTTOM_TOLERANCE);
                 }}
                 className="pointer-events-auto absolute right-0 grid h-2 w-[10px] cursor-pointer place-items-center transition-opacity data-[thumb-overlap=true]:pointer-events-none data-[thumb-overlap=true]:opacity-20"
                 style={{ top: marker.top }}

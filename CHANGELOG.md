@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Prevent chat from snapping back to the bottom when scrolling up slowly with a trackpad.
+
 ## [1.6.0] - 2026-09-08
 
 ### Added
