@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TOOLTIP_FADE_STYLE } from "../lib/tooltipFade";
 import { TEXT_TOOLTIP_STYLE } from "../lib/textTooltip";
 
 /**
@@ -44,7 +45,7 @@ export function Hinted({
           prose wherever it's used. */}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] group-hover/hint:block group-focus/hint:block ${TEXT_TOOLTIP_STYLE}`}
+        className={`pointer-events-none absolute left-0 top-full z-10 mt-1 invisible w-[min(260px,60vw)] opacity-0 group-hover/hint:visible group-hover/hint:opacity-100 group-focus/hint:visible group-focus/hint:opacity-100 ${TEXT_TOOLTIP_STYLE} ${TOOLTIP_FADE_STYLE}`}
       >
         {hint}
       </span>

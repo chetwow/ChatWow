@@ -15,3 +15,10 @@ export function textTooltipPosition(
     )),
   };
 }
+
+/** Ancestors can override the standard hover delay; keyboard focus bypasses it. */
+export function textTooltipDelay(value?: string): number {
+  if (value === undefined || value.trim() === "") return 400;
+  const delay = Number(value);
+  return Number.isFinite(delay) && delay >= 0 ? delay : 400;
+}

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useTooltipFade } from "../lib/useTooltipFade";
+import { TOOLTIP_FADE_STYLE } from "../lib/tooltipFade";
 import { useTooltip } from "../store/tooltip";
 import { loadPreviewImage } from "../lib/linkPreviews";
 import type { LinkPreview } from "../types";
@@ -195,7 +197,8 @@ function PageCard({
  * top.
  */
 export function HoverPreview() {
-  const preview = useTooltip((state) => state.preview);
+  const currentPreview = useTooltip((state) => state.preview);
+  const { rendered: preview, visible } = useTooltipFade(currentPreview);
   const anchor = useTooltip((state) => state.anchor);
   const holdUntilInput = useTooltip((state) => state.holdUntilInput);
   const heldSource = useTooltip((state) => state.heldSource);
@@ -289,9 +292,10 @@ export function HoverPreview() {
   return (
     <div
       ref={box}
-      className="pointer-events-none fixed z-[60]"
+      className={`pointer-events-none fixed z-[60] ${TOOLTIP_FADE_STYLE}`}
+      aria-hidden={!currentPreview}
       // Hidden until measured: one frame at the top-left corner otherwise.
-      style={{ left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? "visible" : "hidden" }}
+      style={{ left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? "visible" : "hidden", opacity: visible ? 1 : 0 }}
     >
       <div className="flex flex-col items-center gap-1 rounded-lg border border-line bg-surface-raised p-2 shadow-xl shadow-black/50">
         {preview.kind === "emote" ? (

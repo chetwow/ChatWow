@@ -337,6 +337,7 @@ export function TitleBar({
   return (
     <div
       data-tauri-drag-region
+      data-tooltip-delay="800"
       style={{ height: TITLE_BAR_PX }}
       className={`flex shrink-0 items-center border-b border-line bg-surface-raised ${BAR}`}
     >

@@ -1,14 +1,16 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { TEXT_TOOLTIP_STYLE, textTooltipPosition } from "../lib/textTooltip";
+import { useTooltipFade } from "../lib/useTooltipFade";
+import { TOOLTIP_FADE_STYLE } from "../lib/tooltipFade";
+import { TEXT_TOOLTIP_STYLE, textTooltipDelay, textTooltipPosition } from "../lib/textTooltip";
 
 /** One delegated tooltip for text hints, including disabled controls and dynamic chat badges. */
 export function TextTooltip() {
-  const [source, setSource] = useState<HTMLElement | null>(null);
+  const [source, setSource] = useState<{ element: HTMLElement; text: string } | null>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const popup = useRef<HTMLDivElement>(null);
   const id = useId();
-  const text = source?.dataset.tooltip;
+  const { rendered, visible } = useTooltipFade(source);
 
   useEffect(() => {
     let pending: HTMLElement | null = null;
@@ -26,10 +28,10 @@ export function TextTooltip() {
       hide();
       pending = element;
       const reveal = () => {
-        if (element.isConnected && element.getClientRects().length) setSource(element);
+        if (element.isConnected && element.getClientRects().length) setSource({ element, text: element.dataset.tooltip! });
       };
       if (immediate) reveal();
-      else timer = setTimeout(reveal, 400);
+      else timer = setTimeout(reveal, textTooltipDelay(element.closest<HTMLElement>("[data-tooltip-delay]")?.dataset.tooltipDelay));
     };
     const over = (event: PointerEvent) => {
       if (event.pointerType !== "touch") show(find(event.target));
@@ -65,28 +67,33 @@ export function TextTooltip() {
   }, []);
 
   useLayoutEffect(() => {
-    if (!source || !popup.current) return;
+    if (!rendered || !popup.current) return;
     const rect = popup.current.getBoundingClientRect();
-    setPosition(textTooltipPosition(source.getBoundingClientRect(), rect.width, rect.height, window.innerWidth, window.innerHeight));
-    const describedBy = source.getAttribute("aria-describedby");
-    source.setAttribute("aria-describedby", [describedBy, id].filter(Boolean).join(" "));
+    setPosition(textTooltipPosition(rendered.element.getBoundingClientRect(), rect.width, rect.height, window.innerWidth, window.innerHeight));
+  }, [rendered]);
+
+  useLayoutEffect(() => {
+    if (!source) return;
+    const { element, text } = source;
+    const describedBy = element.getAttribute("aria-describedby");
+    element.setAttribute("aria-describedby", [describedBy, id].filter(Boolean).join(" "));
     // A control or message can disappear without a pointerout event.
     const observer = new MutationObserver(() => {
-      if (!source.isConnected || !source.getClientRects().length || source.dataset.tooltip !== text) setSource(null);
+      if (!element.isConnected || !element.getClientRects().length || element.dataset.tooltip !== text) setSource(null);
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-tooltip", "hidden", "class", "style"] });
     return () => {
       observer.disconnect();
-      const remaining = (source.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((value) => value && value !== id).join(" ");
-      if (remaining) source.setAttribute("aria-describedby", remaining);
-      else source.removeAttribute("aria-describedby");
+      const remaining = (element.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((value) => value && value !== id).join(" ");
+      if (remaining) element.setAttribute("aria-describedby", remaining);
+      else element.removeAttribute("aria-describedby");
     };
-  }, [source, text, id]);
+  }, [source, id]);
 
-  return source && text ? createPortal(
-    <div ref={popup} id={id} role="tooltip" style={position}
-      className={`pointer-events-none fixed z-[100] max-h-[calc(100vh-16px)] w-max max-w-[min(260px,calc(100vw-16px))] overflow-hidden break-words whitespace-pre-wrap ${TEXT_TOOLTIP_STYLE}`}>
-      {text}
-    </div>, document.body,
+  return rendered ? createPortal(
+    <div ref={popup} id={id} role="tooltip" aria-hidden={!source} style={{ ...position, opacity: visible ? 1 : 0 }}
+      className={`pointer-events-none fixed z-[100] max-h-[calc(100vh-16px)] w-max max-w-[min(260px,calc(100vw-16px))] overflow-hidden break-words whitespace-pre-wrap ${TEXT_TOOLTIP_STYLE} ${TOOLTIP_FADE_STYLE}`}>
+      {rendered.text}
+    </div>, document.querySelector("[data-theme]") ?? document.body,
   ) : null;
 }

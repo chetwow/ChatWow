@@ -1271,7 +1271,11 @@ kind. BTTV needs no such care: it serves png, gif and webp from the same path.
 
 Text hints use `data-tooltip` and the root `TextTooltip`, sharing typography and colors with
 Settings info dots. Delegated pointer/focus listeners cover dynamic and disabled controls;
-the popup renders above dialogs, clamps to the viewport, and dismisses on interaction or scroll.
+the popup renders above dialogs in the app theme root, clamps to the viewport, and dismisses on interaction or scroll.
+Text hints, Settings info dots, and hover previews fade over 400 ms, respecting reduced motion.
+Title-bar hints wait 800 ms on hover; other text hints wait 400 ms, and keyboard focus has no delay.
+Shared tooltip fade state retains dismissed content only through the exit transition and cancels
+pending animation/removal when a new tooltip arrives.
 Embedded player `title` attributes remain accessible frame names, not app text hints.
 
 Settings single-choice controls use `Dropdown`, a themed combobox with keyboard navigation.

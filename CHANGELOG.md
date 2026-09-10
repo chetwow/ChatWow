@@ -23,7 +23,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Start chat messages at the bottom of the panel, growing upward as messages arrive.
 
-- Use styled tooltips throughout the app to match Settings hints.
+- Use styled tooltips throughout the app, with smooth fades and a longer hover delay for title-bar buttons.
 
 - Group tab settings into submenus and move a tab into a new split from its context menu.
 

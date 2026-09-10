@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { textTooltipPosition } from "./textTooltip";
+import { textTooltipDelay, textTooltipPosition } from "./textTooltip";
 
 describe("text tooltip placement", () => {
   it("places a title-bar hint below its control", () => {
@@ -16,5 +16,18 @@ describe("text tooltip placement", () => {
   });
   it("clamps tall hints in short windows", () => {
     expect(textTooltipPosition({ left: 0, right: 20, top: 10, bottom: 30 }, 200, 304, 420, 320).top).toBe(8);
+  });
+});
+
+describe("text tooltip hover delays", () => {
+  it("uses the title bar override and retains the standard delay elsewhere", () => {
+    expect(textTooltipDelay("800")).toBe(800);
+    expect(textTooltipDelay()).toBe(400);
+  });
+  it("accepts zero delay and rejects invalid overrides", () => {
+    expect(textTooltipDelay("0")).toBe(0);
+    for (const value of ["", " ", "-1", "invalid", "Infinity"]) {
+      expect(textTooltipDelay(value)).toBe(400);
+    }
   });
 });
