@@ -14,7 +14,7 @@ import {
 import { MessageRow, chatterNameAt, emoteAt, type EmoteTarget } from "./MessageRow";
 import { Composer } from "./Composer";
 import { ChatZoomControl, useChatZoomEvents } from "./ChatZoomControl";
-import { bindChatScroll, CHAT_BOTTOM_TOLERANCE } from "../lib/chatScroll";
+import { bindChatScroll, CHAT_BOTTOM_TOLERANCE, hasMessagesBelow } from "../lib/chatScroll";
 import { paneChatZoom } from "../lib/chatZoom";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
 import { UserCard, type UserCardTarget } from "./UserCard";
@@ -131,6 +131,7 @@ export function ChatView({
   useChatZoomEvents(viewport, pane, capturesTyping);
   const mentionRail = useRef<HTMLDivElement>(null);
   const [pinned, setPinnedState] = useState(true);
+  const [showJumpToPresent, setShowJumpToPresent] = useState(false);
   const pinnedRef = useRef(true);
   const setPinned = useCallback((value: boolean) => {
     pinnedRef.current = value;
@@ -427,6 +428,32 @@ export function ChatView({
       syncMentionMarkerOverlap(element, mentionRail.current);
     }, () => pinnedRef.current);
   }, [setPinned]);
+
+  // Button visibility is independent of pinning: even a tiny upward gesture
+  // pauses following, but only three fully hidden newer messages show the button.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    const transcript = content.current;
+    if (!element || !transcript) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setShowJumpToPresent(!pinnedRef.current && hasMessagesBelow(element, transcript));
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    element.addEventListener("scroll", schedule, { passive: true });
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    observer.observe(transcript);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      element.removeEventListener("scroll", schedule);
+      observer.disconnect();
+    };
+  }, [messages, pinned, chatZoom, blockedUsers, id]);
 
   const jumpToPresent = () => {
     const element = scroller.current;
@@ -970,14 +997,14 @@ export function ChatView({
           </button>
         )}
 
-        {!pinned && (
-          <button
-            onClick={jumpToPresent}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg shadow-black/40 transition hover:bg-accent-dim"
-          >
-            Jump to present
-          </button>
-        )}
+        <button
+          onClick={jumpToPresent}
+          disabled={pinned || !showJumpToPresent}
+          aria-hidden={pinned || !showJumpToPresent}
+          className={`absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg shadow-black/40 transition duration-400 ease-in-out hover:bg-accent-dim motion-reduce:transition-none ${!pinned && showJumpToPresent ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        >
+          Jump to present
+        </button>
 
         {menu && (
           <ContextMenu x={menu.x} y={menu.y} options={menuOptions} onClose={() => setMenu(null)} />

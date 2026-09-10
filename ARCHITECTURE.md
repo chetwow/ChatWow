@@ -754,6 +754,9 @@ The transcript follows incoming messages only while pinned to the live edge. Upw
 intent unpins immediately, including fractional trackpad gestures; scrolling back to within
 one pixel of the bottom restores following. Resize corrections recheck pinning when their
 animation frame runs so a queued correction cannot override a reader scrolling away.
+The Jump to present button appears only with at least three fully hidden newer message rows
+below the viewport; this visibility threshold does not change live-edge pinning. Collapsed
+blocked rows do not count, and scrolling, incoming messages, resizing, and zoom update the count.
 
 `↑` in the composer walks back through what you've sent in the current tab, `↓` comes
 forward again; stepping past the newest entry restores whatever you'd half-typed when the walk
