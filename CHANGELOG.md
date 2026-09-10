@@ -9,6 +9,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Keep the split-panel selection highlight visible over the active tab.
 - Prevent chat from snapping back to the bottom when scrolling up slowly with a trackpad.
 
 ## [1.6.0] - 2026-09-08

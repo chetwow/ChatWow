@@ -32,7 +32,10 @@ const ROUNDING_SLOP = 2;
  */
 export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) {
   const splitTarget = useSplitTarget((state) => state.pane === pane);
-  const splitHighlight = splitTarget ? "ring-2 ring-inset ring-accent bg-accent/20" : "bg-surface-raised";
+  // Paint above opaque active tabs without intercepting tab or drag input.
+  const splitHighlight = `relative bg-surface-raised ${splitTarget
+    ? "after:pointer-events-none after:absolute after:inset-0 after:z-10 after:bg-accent/20 after:ring-2 after:ring-inset after:ring-accent"
+    : ""}`;
   const tabs_ = useChat((state) => state.tabs);
   const preferences = useChat((state) => state.preferences);
   const active = useChat((state) => state.active[pane]);
