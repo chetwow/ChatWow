@@ -214,6 +214,13 @@ neither IRC nor EventSub performs its own refresh exchange.
 
 ## Sending messages
 
+The composer has its own context menu, separate from tab management. Either avatar click
+opens only an **Active account** submenu; the input's context menu adds Cut, Copy and Paste.
+The input captures the caret or selection before secondary-click defaults can change it, and
+desktop clipboard text goes through the Tauri clipboard
+plugin. Cut removes text only after a successful copy; Paste replaces the captured selection.
+Clipboard failures leave the draft intact. Browser mock mode uses the browser clipboard API.
+
 Outgoing messages go through Twitch's Helix `POST /helix/chat/messages` API rather than a raw
 IRC `PRIVMSG` (requires the `user:write:chat` scope). Helix is the only place Twitch hands back
 the real id it assigns a sent message, which a reply needs to reference via

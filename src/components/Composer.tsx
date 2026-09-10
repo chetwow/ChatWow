@@ -19,8 +19,10 @@ import {
 import { EmotePicker } from "./EmotePicker";
 import { CommandHint, CommandPicker } from "./CommandPicker";
 import { ChatterPicker } from "./ChatterPicker";
-import { AccountMenu } from "./AccountMenu";
-import { IS_TAURI } from "../lib/tauri";
+import { ComposerContextMenu, type ComposerMenuState } from "./ComposerContextMenu";
+import { readClipboardText } from "../lib/clipboard";
+import type { ComposerSelection } from "../lib/composerEditing";
+import { IS_MACOS, IS_TAURI } from "../lib/tauri";
 import { messageText } from "../lib/messageText";
 import { loadEmoji, searchEmoji, type Emoji } from "../lib/emoji";
 import {
@@ -107,8 +109,9 @@ export function Composer({
   // Absent until this tab's USERSTATE lands, which is the safe default: the
   // picker offers fewer commands rather than ones Twitch would refuse.
   const role = useChat((state) => state.roles[id] ?? "viewer");
-  /** Where the account picker is open, from a right-click on the input. */
-  const [accountMenu, setAccountMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Avatar menus only switch accounts; input menus also edit the selection. */
+  const [accountMenu, setAccountMenu] = useState<ComposerMenuState | null>(null);
+  useEffect(() => setAccountMenu(null), [id]);
   const loadEmoteIndex = useChat((state) => state.loadEmoteIndex);
   const [value, setValue] = useState("");
   /** Mirrors the input's caret, so the `:` search knows which word it's in. */
@@ -131,6 +134,7 @@ export function Composer({
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const input = useRef<HTMLInputElement>(null);
+  const contextSelection = useRef<ComposerSelection | null>(null);
   /** The run of Tab presses currently cycling one half-typed word. */
   const completion = useRef<Completion | null>(null);
   /** Caret position to restore once React has rendered a completion. */
@@ -485,6 +489,7 @@ export function Composer({
    * picker -- an in-progress reply survives).
    */
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    contextSelection.current = null;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     // The command picker takes these keys first when it's open. It only ever
@@ -679,8 +684,8 @@ export function Composer({
           {/* Who this line will be sent as. The placeholder says it too, but
               that's gone the moment you start typing, and with two accounts on
               one channel the tabs look alike -- this is the half of the answer
-              that's still there while you type. Clicking it is the same menu
-              the right-click opens; `onMouseDown` is swallowed so the caret and
+              that's still there while you type. Both clicks open the account
+              submenu; `onMouseDown` is swallowed so the caret and
               any selection stay where they were. */}
           {showAvatar && (
             <button
@@ -689,6 +694,11 @@ export function Composer({
               onClick={(event) => {
                 const box = event.currentTarget.getBoundingClientRect();
                 setAccountMenu({ x: box.left, y: box.bottom });
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setAccountMenu({ x: event.clientX, y: event.clientY });
               }}
               title={login ? `Sending as ${login}` : "Reading anonymously"}
               aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
@@ -729,11 +739,33 @@ export function Composer({
             // search always knows which word the caret is actually in.
             onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
             onKeyDown={onKeyDown}
-            // The other half of the tab's right-click: this is the tab speaking,
-            // so it's a place you'd reasonably ask "as whom?" and change it.
+            // WebKit can select the word under a secondary click before
+            // contextmenu fires. Preserve the user's caret/selection first.
+            onPointerDown={(event) => {
+              contextSelection.current = null;
+              if (event.button !== 2 && !(IS_MACOS && event.button === 0 && event.ctrlKey)) return;
+              const element = event.currentTarget;
+              contextSelection.current = {
+                value: element.value,
+                start: element.selectionStart ?? 0,
+                end: element.selectionEnd ?? 0,
+              };
+              event.preventDefault();
+            }}
             onContextMenu={(event) => {
               event.preventDefault();
-              setAccountMenu({ x: event.clientX, y: event.clientY });
+              event.stopPropagation();
+              const element = event.currentTarget;
+              // Start reading during the user gesture (also needed by browser mock mode).
+              const clipboard = readClipboardText().catch(() => "");
+              const selection = contextSelection.current ?? {
+                value: element.value,
+                start: element.selectionStart ?? 0,
+                end: element.selectionEnd ?? 0,
+              };
+              contextSelection.current = null;
+              element.setSelectionRange(selection.start, selection.end);
+              setAccountMenu({ x: event.clientX, y: event.clientY, clipboard, selection });
             }}
             disabled={disabled}
             placeholder={
@@ -763,11 +795,34 @@ export function Composer({
       </div>
 
       {accountMenu && (
-        <AccountMenu
+        <ComposerContextMenu
           tabId={id}
-          x={accountMenu.x}
-          y={accountMenu.y}
-          onClose={() => setAccountMenu(null)}
+          menu={accountMenu}
+          onEdit={(next, nextCaret) => {
+            // A clipboard operation may finish after the user resumes typing.
+            const element = input.current;
+            if (!element || element.value !== accountMenu.selection?.value) return;
+            setHistoryIndex(null);
+            completion.current = null;
+            if (next === element.value) {
+              // Replacing selected text with identical clipboard text still
+              // collapses the selection, even though React's value is unchanged.
+              element.setSelectionRange(nextCaret, nextCaret);
+            } else {
+              pendingCaret.current = nextCaret;
+            }
+            applyText(next, nextCaret);
+          }}
+          onError={setError}
+          onClose={() => {
+            setAccountMenu(null);
+            const element = input.current;
+            element?.focus({ preventScroll: true });
+            const selection = accountMenu.selection;
+            if (element && selection && element.value === selection.value) {
+              element.setSelectionRange(selection.start, selection.end);
+            }
+          }}
         />
       )}
     </div>

@@ -8,8 +8,8 @@ import { ignoreForChannel } from "../lib/ignores";
 /**
  * Which account a tab reads and sends as, picked from every account signed in.
  *
- * Opened by right-clicking the tab or the composer -- the two places that
- * *are* the tab, one naming it and one speaking as it. Anonymous is always on
+ * Opened by right-clicking the tab. The composer has its own smaller menu.
+ * Anonymous is always on
  * the list: a tab that only reads is a legitimate thing to want, and it's the
  * state every tab falls back to when an account is signed out from under it.
  *

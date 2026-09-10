@@ -34,6 +34,7 @@ rand = "0.8"
 parking_lot = "0.12"
 filetime = "0.2"
 time = { version = "0.3", features = ["parsing"] }
+tauri-plugin-clipboard-manager = "2"
 
 # In-app updates. Desktop-only: the plugin has no mobile implementation, and
 # this is the target filter the Tauri docs prescribe. Everything it needs to

@@ -1,7 +1,14 @@
 import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 
+type ContextMenuAction = {
+  label: string;
+  disabled?: boolean;
+  onSelect: (event: MouseEvent<HTMLButtonElement>) => void;
+};
+
 export type ContextMenuOption =
-  | { label: string; onSelect: (event: MouseEvent<HTMLButtonElement>) => void }
+  | ContextMenuAction
+  | { label: string; submenu: ContextMenuAction[] }
   /** A hairline rule, for grouping what the click landed *on* apart from the message. */
   | { separator: true }
   /**
@@ -64,7 +71,7 @@ export function ContextMenu({
         setKeyboardNavigation(false);
         ref.current?.focus({ preventScroll: true });
       }
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !(event.target instanceof Element && event.target.closest("[data-submenu]"))) {
         event.preventDefault();
         onClose();
       }
@@ -104,15 +111,18 @@ export function ContextMenu({
           >
             {option.heading}
           </div>
+        ) : "submenu" in option ? (
+          <SubmenuRow key={index} label={option.label} options={option.submenu} onClose={onClose} />
         ) : (
           <button
             key={index}
             role="menuitem"
+            disabled={option.disabled}
             onClick={(event) => {
               option.onSelect(event);
               onClose();
             }}
-            className={`block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim transition-colors ${
+            className={`block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim transition-colors disabled:opacity-40 disabled:pointer-events-none ${
               autoFocus ? `outline-none ${keyboardNavigation ? "focus:bg-surface-hover focus:text-ink" : "hover:bg-surface-hover hover:text-ink"}`
                 : "hover:bg-surface-hover hover:text-ink"
             }`}
@@ -121,6 +131,74 @@ export function ContextMenu({
           </button>
         ),
       )}
+    </div>
+  );
+}
+
+/** Kept inside the parent menu's DOM so outside-click dismissal includes the submenu. */
+function SubmenuRow({ label, options, onClose }: {
+  label: string;
+  options: ContextMenuAction[];
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  useLayoutEffect(() => {
+    if (!open || !trigger.current || !popup.current) return;
+    const anchor = trigger.current.getBoundingClientRect();
+    const box = popup.current.getBoundingClientRect();
+    setPosition({
+      left: Math.max(8, anchor.right + box.width <= window.innerWidth - 8
+        ? anchor.right : anchor.left - box.width),
+      top: Math.max(8, Math.min(anchor.top, window.innerHeight - box.height - 8)),
+    });
+    if (focusOnOpen.current) {
+      popup.current.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+      focusOnOpen.current = false;
+    }
+  }, [open]);
+  const openAndFocus = () => {
+    if (open) popup.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    else {
+      focusOnOpen.current = true;
+      setOpen(true);
+    }
+  };
+  return (
+    <div onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button ref={trigger} role="menuitem" aria-haspopup="menu" aria-expanded={open}
+        className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-[12px] text-ink-dim outline-none hover:bg-surface-hover hover:text-ink focus-visible:bg-surface-hover"
+        onClick={openAndFocus}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            openAndFocus();
+          }
+        }}>
+        {label}<span aria-hidden="true">›</span>
+      </button>
+      {open && <div ref={popup} role="menu" aria-label={label} data-submenu=""
+        style={position}
+        className="scroller fixed z-50 max-h-[calc(100vh-1rem)] min-w-[140px] overflow-y-auto rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60"
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft" || event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            trigger.current?.focus();
+          }
+        }}>
+        {options.map((option, index) => (
+          <button key={index} role="menuitem" disabled={option.disabled}
+            className="block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim outline-none hover:bg-surface-hover hover:text-ink focus-visible:bg-surface-hover disabled:opacity-40"
+            onClick={(event) => { option.onSelect(event); onClose(); }}>
+            {option.label}
+          </button>
+        ))}
+      </div>}
     </div>
   );
 }

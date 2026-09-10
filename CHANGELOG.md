@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Simplify composer menus to an Active account submenu, with Cut, Copy and Paste in the input menu.
+
 ### Fixed
 
 - Keep the split-panel selection highlight visible over the active tab.
