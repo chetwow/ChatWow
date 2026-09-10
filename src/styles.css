@@ -68,9 +68,8 @@ body {
   background: transparent;
 }
 
-/* A row that scrolls sideways and keeps quiet about it: the channel tabs in
-   single-row mode, and the settings dialog's own tab row. Both are chrome
-   rather than content, so the scrollbar stays out of the way until you're
+/* The settings dialog's tab row keeps its native gutter. These tabs are
+   chrome rather than content, so the scrollbar stays out of the way until you're
    actually pointing at the row -- but the track's height is reserved whether
    or not a thumb is drawn in it, since a row that changed height on hover
    would shove what's under it around.
@@ -93,6 +92,41 @@ body {
 }
 .quiet-scroller::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Channel tabs use an overlay: native scrollbars would add height to the pane. */
+.tab-scroller {
+  scrollbar-width: none;
+}
+.tab-scroller::-webkit-scrollbar {
+  display: none;
+}
+.tab-scrollbar {
+  position: absolute;
+  inset: auto 0 1px;
+  height: 6px;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  transition: opacity 160ms ease;
+}
+.tab-scrollbar[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tab-scrollbar-thumb {
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-line) 65%, var(--color-ink-dim));
+  opacity: 0.65;
+}
+.tab-scrollbar:focus-visible {
+  outline: 1px solid var(--color-accent);
+  border-radius: 999px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-scrollbar { transition: none; }
 }
 
 /* Keeps long backlogs cheap without pulling in a virtualization dependency. */

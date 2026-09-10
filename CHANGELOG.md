@@ -21,6 +21,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Make the tab scrollbar translucent, overlay the tabs without adding height, and reliably hide when idle.
 - Keep the split-panel selection highlight visible over the active tab.
 - Prevent chat from snapping back to the bottom when scrolling up slowly with a trackpad.
 

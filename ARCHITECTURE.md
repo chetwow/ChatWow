@@ -598,12 +598,14 @@ click, Escape, window blur, or when the caller replaces them with another menu.
 The single-row mode ([src/components/TabBar.tsx](src/components/TabBar.tsx), behind the
 `singleRowTabs` preference, and the default) skips that measurement entirely and clears any
 breaks left from wrap mode, and its observer is rebuilt on the toggle -- switching back mounts a
-row element the original observer never saw. Its scrollbar (`.quiet-scroller`, shared with the
-settings dialog's own tab row) is styled through `::-webkit-scrollbar` alone: the
-standard `scrollbar-width`/`scrollbar-color` pair has no hover state to hook, and setting either
-makes Chromium ignore the pseudo-element rules entirely (`scrollbar-width: none` hides the bar
-outright). The 6px gutter is reserved whether or not a thumb is drawn, since a bar that grew on
-hover would shift the whole chat pane.
+row element the original observer never saw. Its native scrollbar is hidden; a translucent
+[TabScrollbar](src/components/TabScrollbar.tsx) sits over the bottom of the tabs as a sibling
+of the scrolling row, so it adds no gutter and cannot scroll out of view. Its thumb follows
+the viewport and tab widths, including renames and panel resizing. Scroll and pointer activity
+reveal it for one second; merely hovering the row cannot keep it visible indefinitely.
+Pointer capture keeps dragging usable outside the row, and keyboard focus keeps it visible
+for arrow, page, Home and End navigation. Blur, cancellation and unmount release interaction
+state. The settings dialog retains its native `.quiet-scroller` styling.
 
 A rose mention badge that scrolls out of the row is the one thing the bar can't otherwise show
 you, so the edge it's past gets a marker. It's anchored to the tab bar rather than the scroller

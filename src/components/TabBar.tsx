@@ -1,6 +1,7 @@
 import {
   Fragment,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -19,6 +20,7 @@ import { AccountMenu } from "./AccountMenu";
 import { ContextMenu } from "./ContextMenu";
 import { MentionOptionsDialog } from "./MentionOptionsDialog";
 import { RenameListenerDialog } from "./RenameListenerDialog";
+import { TabScrollbar } from "./TabScrollbar";
 import type { PaneIndex, Tab } from "../types";
 
 /** Matches the row's gap-x-1. */
@@ -122,6 +124,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
 
   const rowRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollerId = useId();
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const addRef = useRef<HTMLButtonElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -606,8 +609,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
 
   if (singleRow) {
     // The button sits outside the scroller so it stays pinned to the right
-    // edge rather than riding away with the last tab. `self-start` keeps it
-    // level with the tabs instead of centred against the scrollbar's gutter.
+    // edge rather than riding away with the last tab.
     return (
       <div
         data-split-target={splitTarget || undefined}
@@ -615,15 +617,17 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
         onContextMenu={openBarMenu}
         {...dragHandlers}
       >
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <div
             ref={scrollerRef}
+            id={scrollerId}
             onScroll={() => checkRef.current()}
-            className="quiet-scroller flex items-start gap-x-1 overflow-x-auto"
+            className="tab-scroller flex items-start gap-x-1 overflow-x-auto"
             {...dragHandlers}
           >
             {tabs}
           </div>
+          <TabScrollbar scrollerRef={scrollerRef} contentKey={tabKey} controls={scrollerId} />
         </div>
         {addButton}
         {closeEmptyPane}
