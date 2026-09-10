@@ -18,12 +18,12 @@ export function PinnedMessagePanel({ tabId }: { tabId: string }) {
           <path d="m5 2 7 7M6 3 3 7l3 1 2 3 4-3M6 8l-4 6"
             stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span title={pin.pinnedBy ? `Pinned by ${pin.pinnedBy}` : undefined}>Pinned message</span>
+        <span data-tooltip={pin.pinnedBy ? `Pinned by ${pin.pinnedBy}` : undefined}>Pinned message</span>
       </div>
       <button
         type="button"
         aria-label="Dismiss pinned message"
-        title="Dismiss pinned message"
+        data-tooltip="Dismiss pinned message"
         onClick={() => dismiss(tabId)}
         className="absolute right-1.5 top-1 grid h-6 w-6 place-items-center rounded text-ink-dim hover:bg-surface-hover hover:text-ink focus-visible:outline-accent"
       >

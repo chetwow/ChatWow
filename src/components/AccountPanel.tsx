@@ -243,7 +243,7 @@ function AccountRow({
               event.stopPropagation();
               onMakeDefault();
             }}
-            title="New tabs will use this account"
+            data-tooltip="New tabs will use this account"
             className="rounded-md border border-line px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
           >
             Use for new tabs
@@ -254,7 +254,7 @@ function AccountRow({
             event.stopPropagation();
             onSignOut();
           }}
-          title="Sign out. Its tabs stay open and keep reading."
+          data-tooltip="Sign out. Its tabs stay open and keep reading."
           className="rounded-md border border-line px-2 py-1 text-[11px] text-ink-dim transition-colors hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
         >
           Sign out

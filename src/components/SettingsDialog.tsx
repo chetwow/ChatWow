@@ -358,7 +358,7 @@ function RuleRow({
         )}
       </span>
       <KindChip kind={rule.kind} />
-      <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={rule.value}>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-ink" data-tooltip={rule.value}>
         {rule.value}
       </span>
       {emote && rule.kind === "id" && (
@@ -445,7 +445,7 @@ function LogFolderButton() {
           className={`selectable max-w-[260px] truncate text-[10px] ${
             failed ? "text-rose-400" : "text-ink-faint"
           }`}
-          title={path ?? undefined}
+          data-tooltip={path ?? undefined}
         >
           {failed ? "Couldn't open it" : path}
         </span>
@@ -539,7 +539,7 @@ function UpdateButton() {
         className={`selectable max-w-[260px] truncate text-[10px] ${
           update.stage === "failed" ? "text-rose-400" : "text-ink-faint"
         }`}
-        title={update.notes ?? undefined}
+        data-tooltip={update.notes ?? undefined}
       >
         {line}
       </span>

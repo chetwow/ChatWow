@@ -26,7 +26,7 @@ function ControlButton({
     <button
       onClick={onClick}
       aria-label={label}
-      title={label}
+      data-tooltip={label}
       // Full bar height, so the hover fill reads as part of the title bar --
       // it's the width that carries the padding around the 10px glyph.
       className={`grid h-8 w-9 place-items-center text-ink-dim transition-colors hover:text-ink ${
@@ -53,7 +53,7 @@ function MuteButton() {
       onClick={toggleMuted}
       aria-label={label}
       aria-pressed={muted}
-      title={label}
+      data-tooltip={label}
       className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         muted ? "text-rose-400/80 hover:text-rose-300" : "text-ink-dim hover:text-ink"
       }`}
@@ -88,7 +88,7 @@ function PinButton() {
       onClick={toggleAlwaysOnTop}
       aria-label={label}
       aria-pressed={pinned}
-      title={label}
+      data-tooltip={label}
       className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
         pinned ? "text-accent" : "text-ink-dim hover:text-ink"
       }`}
@@ -185,7 +185,7 @@ function SplitButton() {
         aria-label="Split view"
         aria-haspopup="menu"
         aria-expanded={menu !== null}
-        title="Split view"
+        data-tooltip="Split view"
         className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
           menu ? "text-accent" : "text-ink-dim hover:text-ink"
         }`}
@@ -280,7 +280,7 @@ function AppInfoButton() {
           if (event.button === 0) event.preventDefault();
         }}
         onClick={() => setOpen((current) => !current)}
-        aria-label="About ChatWow" title="About ChatWow"
+        aria-label="About ChatWow" data-tooltip="About ChatWow"
         aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? "app-info" : undefined}
         className={`grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}>
         <svg aria-hidden="true" viewBox="0 0 16 16" width={GLYPH} height={GLYPH}
@@ -354,7 +354,7 @@ export function TitleBar({
         disabled={!hasActiveTab}
         aria-label="Search active tab"
         aria-pressed={searchActive}
-        title={`Search active tab (${IS_MACOS ? "⌘F" : "Ctrl+F"})`}
+        data-tooltip={`Search active tab (${IS_MACOS ? "⌘F" : "Ctrl+F"})`}
         className={`${ICON_GAP} grid ${ICON_BOX} place-items-center rounded transition-colors disabled:opacity-35 ${
           searchActive
             ? "bg-surface-hover text-accent"
@@ -381,7 +381,7 @@ export function TitleBar({
       {IS_MAIN_WINDOW && <button
         onClick={() => onOpenSettings("general")}
         aria-label={updatePending ? "Settings, an update is waiting" : "Settings"}
-        title={updatePending ? "An update is waiting" : "Settings"}
+        data-tooltip={updatePending ? "An update is waiting" : "Settings"}
         className={`relative ml-3 ${ICON_GAP} grid ${ICON_BOX} place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink`}
       >
         {/* A cog, not a sun: the teeth are a heavy dashed ring around the

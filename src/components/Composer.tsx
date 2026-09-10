@@ -700,7 +700,7 @@ export function Composer({
                 event.stopPropagation();
                 setAccountMenu({ x: event.clientX, y: event.clientY });
               }}
-              title={login ? `Sending as ${login}` : "Reading anonymously"}
+              data-tooltip={login ? `Sending as ${login}` : "Reading anonymously"}
               aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
               className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
             >

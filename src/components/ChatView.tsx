@@ -818,7 +818,7 @@ export function ChatView({
             onClick={() => moveSearch(-1)}
             disabled={searchMatches.length === 0}
             aria-label="Previous match"
-            title="Previous match (Shift+Enter)"
+            data-tooltip="Previous match (Shift+Enter)"
             className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-30"
           >
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -829,7 +829,7 @@ export function ChatView({
             onClick={() => moveSearch(1)}
             disabled={searchMatches.length === 0}
             aria-label="Next match"
-            title="Next match (Enter)"
+            data-tooltip="Next match (Enter)"
             className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink disabled:opacity-30"
           >
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -839,7 +839,7 @@ export function ChatView({
           <button
             onClick={onCloseSearch}
             aria-label="Close search"
-            title="Close search (Escape)"
+            data-tooltip="Close search (Escape)"
             className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink"
           >
             <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -957,7 +957,7 @@ export function ChatView({
           <button
             type="button"
             aria-label="Close off-screen video player"
-            title="Close off-screen video player"
+            data-tooltip="Close off-screen video player"
             onClick={() => useInlineVideo.getState().close(offscreenPlayer)}
             className="absolute left-1/2 top-2 z-10 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-line bg-surface-raised text-ink shadow-lg shadow-black/40 transition-colors hover:bg-surface-hover hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
           >

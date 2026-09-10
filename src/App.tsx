@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { TextTooltip } from "./components/TextTooltip";
 import { LinkContextMenu } from "./components/LinkContextMenu";
 import { TitleBar } from "./components/TitleBar";
 import { Panes, type TabSearchSession } from "./components/Panes";
@@ -289,6 +290,7 @@ export default function App() {
       )}
       <ListenerCloseDialog />
       {whatsNew && <WhatsNewDialog notes={whatsNew} onClose={closeWhatsNew} />}
+      <TextTooltip />
       <HoverPreview />
       <LinkContextMenu />
     </div>

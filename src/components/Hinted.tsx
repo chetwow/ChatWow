@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TEXT_TOOLTIP_STYLE } from "../lib/textTooltip";
 
 /**
  * A label with its explanation behind an info dot, shown on hover -- or on
@@ -43,7 +44,7 @@ export function Hinted({
           prose wherever it's used. */}
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] font-normal normal-case leading-relaxed tracking-normal text-ink-dim shadow-lg shadow-black/50 group-hover/hint:block group-focus/hint:block"
+        className={`pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-[min(260px,60vw)] group-hover/hint:block group-focus/hint:block ${TEXT_TOOLTIP_STYLE}`}
       >
         {hint}
       </span>

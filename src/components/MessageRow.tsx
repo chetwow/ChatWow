@@ -28,7 +28,7 @@ function BadgeView({ badge }: { badge: Badge }) {
     // No art available (signed out) -- fall back to a compact text chip.
     return (
       <span
-        title={badge.title}
+        data-tooltip={badge.title}
         className="mr-1 rounded-[3px] bg-line px-1 text-[9px] font-semibold uppercase tracking-wide text-ink-dim"
       >
         {badge.title.slice(0, 3)}
@@ -39,7 +39,7 @@ function BadgeView({ badge }: { badge: Badge }) {
     <img
       src={failed === cached ? badge.url : cached}
       alt={badge.title}
-      title={badge.title}
+      data-tooltip={badge.title}
       loading="lazy"
       onError={() => {
         if (cached !== badge.url) setFailed(cached);
@@ -709,7 +709,7 @@ function MessageRowInner({
             <button
               type="button"
               onClick={() => onChannelClick(message.channel)}
-              title={`Go to #${message.channel}`}
+              data-tooltip={`Go to #${message.channel}`}
               className="mr-1 cursor-pointer rounded bg-line/70 px-1 align-[1px] text-[10px] font-semibold text-ink-faint transition-colors hover:text-ink"
             >
               #{message.channel}

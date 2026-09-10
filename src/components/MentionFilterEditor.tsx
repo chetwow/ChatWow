@@ -312,7 +312,7 @@ export function MentionFilterEditor({
                   key={login}
                   type="button"
                   onClick={() => setUsers((held) => held.filter((value) => value !== login))}
-                  title="Remove user"
+                  data-tooltip="Remove user"
                   className="rounded-full bg-line px-2 py-0.5 text-[11px] text-ink-dim hover:text-ink"
                 >
                   @{login} ×
@@ -355,7 +355,7 @@ export function MentionFilterEditor({
                   key={item.toLocaleLowerCase()}
                   type="button"
                   onClick={() => setPhrases((held) => held.filter((value) => value !== item))}
-                  title="Remove phrase"
+                  data-tooltip="Remove phrase"
                   className="rounded-full bg-line px-2 py-0.5 text-[11px] text-ink-dim hover:text-ink"
                 >
                   {item} ×

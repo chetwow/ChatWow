@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { mentionTabName, panes, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
 import { acceptsTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "../store/tabDrag";
+import { IS_MACOS } from "../lib/tauri";
 import { WINDOW_LABEL } from "../lib/windows";
 import { useSplitTarget } from "../store/splitTarget";
 import { AccountMenu } from "./AccountMenu";
@@ -517,7 +518,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
       ref={addRef}
       onClick={onAdd}
       aria-label="Join a channel"
-      title="Join a channel (Ctrl+K)"
+      data-tooltip={`New tab (${IS_MACOS ? "Cmd" : "Ctrl"}-T)`}
       className={`my-1 grid h-6 w-5 shrink-0 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink ${
         singleRow ? "ml-1 self-start" : "-ml-0.5"
       }`}
@@ -532,7 +533,7 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
     <button
       type="button"
       aria-label="Close split"
-      title="Close split"
+      data-tooltip="Close split"
       onClick={() => {
         const state = useChat.getState();
         if (paneTabs(state, pane).length === 0) state.removePane(pane);
