@@ -1,8 +1,9 @@
+import { openAccountSettings } from "../store/settings";
 import { windowAnchor } from "../lib/windows";
-import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
-import { useChat } from "../store/chat";
+import { ContextMenu, type ContextMenuOption, type ContextMenuAction } from "./ContextMenu";
+import { mentionTabName, paneOf, useChat } from "../store/chat";
 import { TAB_AVATAR_MODES } from "../lib/tabAvatar";
-import { ANONYMOUS, type TabAvatarMode } from "../types";
+import { ANONYMOUS, type TabAvatarMode, type SplitDirection } from "../types";
 import { ignoreForChannel } from "../lib/ignores";
 
 /**
@@ -50,7 +51,7 @@ export function AccountMenu({
   const ignoring = mentionIgnores.includes(channelRule);
   const muted = notificationMutes.includes(channelRule);
 
-  const choose = (account: string): ContextMenuOption => {
+  const choose = (account: string): ContextMenuAction => {
     const name =
       account === ANONYMOUS
         ? "Anonymous"
@@ -67,12 +68,23 @@ export function AccountMenu({
   };
 
   // The tick trails the label here for the same reason it does above.
-  const background = (mode: TabAvatarMode, label: string): ContextMenuOption => ({
+  const background = (mode: TabAvatarMode, label: string): ContextMenuAction => ({
     label: tab.avatarMode === mode ? `${label} \u2713` : label,
     onSelect: () => void setTabAvatarMode(tabId, mode),
   });
 
   const tabActions: ContextMenuOption[] = [
+    {
+      label: "Split",
+      submenu: (["right", "left", "up", "down"] as SplitDirection[]).map((direction) => ({
+        label: `Split ${direction}`,
+        onSelect: () => {
+          const state = useChat.getState();
+          const pane = paneOf(state, tabId);
+          if (pane !== null) state.split(pane, direction, tabId);
+        },
+      })),
+    },
     { label: "Move to new window", onSelect: (event) => void useChat.getState().newWindow(tabId, windowAnchor(event.currentTarget)) },
     { label: "Close tab", onSelect: () => requestCloseTab(tabId) },
     ...(canReopenClosedTab
@@ -91,39 +103,42 @@ export function AccountMenu({
           { label: "Options", onSelect: onOptions } satisfies ContextMenuOption,
           { label: "Rename tab", onSelect: onRename } satisfies ContextMenuOption,
           {
-            label: tab.mention.notify ? "Notify for matches ✓" : "Notify for matches",
-            onSelect: () => void setMentionsTabNotify(tabId, !tab.mention!.notify),
+            label: "Notifications",
+            submenu: [{
+              label: tab.mention.notify ? "Notify for matches ✓" : "Notify for matches",
+              onSelect: () => void setMentionsTabNotify(tabId, !tab.mention!.notify),
+            }],
           } satisfies ContextMenuOption,
           { separator: true } satisfies ContextMenuOption,
         ]
       : []),
     ...tabActions,
   ] : [
-    ...accounts.map((account) => choose(account.id)),
-    choose(ANONYMOUS),
-    { separator: true },
+    { label: "Active account", submenu: [...accounts.map((account) => choose(account.id)), choose(ANONYMOUS), { separator: true },
+      { label: "Add new account...", onSelect: openAccountSettings }] },
     ...(onViewPinnedMessage ? [
       { label: "View pinned message", onSelect: onViewPinnedMessage } satisfies ContextMenuOption,
       { separator: true } satisfies ContextMenuOption,
     ] : []),
-    {
+    { label: "Notifications", submenu: [{
       label: ignoring ? "Stop ignoring notifications" : "Ignore notifications",
       onSelect: () => setMentionIgnored(channelRule, !ignoring),
     },
     {
       label: muted ? "Unmute notifications" : "Mute notifications",
       onSelect: () => setNotificationMuted(channelRule, !muted),
-    },
-    { separator: true },
+    }] },
     // What this one tab draws behind its name. The setting only stamps a new
     // tab, so this is the only thing that ever changes an open one -- and
     // there's no "follow the setting" to come back to, because a tab was never
     // following it.
-    { heading: "Background avatar" },
-    ...TAB_AVATAR_MODES.map((mode) => background(mode.id, mode.label)),
+    { label: "Background Avatar", submenu: TAB_AVATAR_MODES.map((mode) => background(mode.id, mode.label)) },
     { separator: true },
     ...tabActions,
   ];
 
-  return <ContextMenu x={x} y={y} options={options} onClose={onClose} />;
+  const name = tab.kind === "mentions" ? mentionTabName(tab) : tab.channel;
+  const characters = Array.from(name);
+  const title = characters.length > 32 ? `${characters.slice(0, 29).join("")}...` : name;
+  return <ContextMenu x={x} y={y} title={title} options={options} onClose={onClose} />;
 }

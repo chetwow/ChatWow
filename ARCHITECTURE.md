@@ -735,7 +735,10 @@ rendered panel rectangles, preferring aligned neighbors. They are captured befor
 composers or chat shortcuts; Tab and Enter can choose menu actions. Selection, outside click,
 Escape and window blur close the menu and clear the highlight. Scrolling and incoming messages
 do not dismiss it. Each action divides only the selected panel, keeping its tabs together and
-adding an empty panel on the requested side.
+adding an empty panel on the requested side. The tab context menu also offers all four
+directions in **Split**; those actions split the right-clicked tab's panel and move only that
+tab into the new panel, making it active and focused. Panel creation and tab membership are
+persisted together.
 
 Menu focus starts on the container. Arrow keys only select a panel; Tab explicitly enters
 the menu actions. Pointer movement returns action highlighting to hover, so keyboard focus
@@ -1253,6 +1256,9 @@ so FFZ emotes load from the url the API handed us, which is already the right on
 kind. BTTV needs no such care: it serves png, gif and webp from the same path.
 
 ## Settings
+
+Dialog navigation lives in the transient, per-window settings UI store. Both Active account
+submenus end with **Add new account...**, which opens the Accounts settings tab.
 
 Preferences live in `settings.json` next to the accounts and the tab list -- `Preferences` in
 [src-tauri/src/settings.rs](src-tauri/src/settings.rs), mirrored by the `Preferences` type in

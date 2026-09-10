@@ -19,6 +19,31 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("nested panels", () => {
+  it.each(["left", "right", "up", "down"] as SplitDirection[])("moves only the requested inactive tab into a new split %s", (direction) => {
+    useChat.getState().split(0, "right");
+    useChat.getState().moveTab("delta", 1, 0);
+    // Panel 1 is focused, but bravo belongs to panel 0 and is not its active tab.
+    useChat.getState().split(0, direction, "bravo");
+    expect(contents()).toEqual({ 0: ["alpha", "charlie"], 1: ["delta"], 2: ["bravo"] });
+    expect(useChat.getState().active).toEqual({ 0: "alpha", 1: "delta", 2: "bravo" });
+    expect(useChat.getState().focusedPane).toBe(2);
+    const root = getPaneLayout(useChat.getState()).root;
+    expect(paneIds(root)).toEqual(direction === "left" || direction === "up" ? [2, 0, 1] : [0, 2, 1]);
+    expect(useChat.getState().tabs).toHaveLength(4);
+  });
+  it("leaves an empty source panel when splitting its only tab", () => {
+    useChat.setState({ tabs: [tabs[0]] });
+    useChat.getState().split(0, "down", "alpha");
+    expect(contents()).toEqual({ 0: [], 1: ["alpha"] });
+    expect(useChat.getState().active).toEqual({ 0: null, 1: "alpha" });
+  });
+  it("ignores a missing tab or a tab in a different panel", () => {
+    useChat.getState().split(0, "right");
+    const before = useChat.getState().preferences;
+    useChat.getState().split(1, "down", "alpha");
+    useChat.getState().split(0, "left", "missing");
+    expect(useChat.getState().preferences).toBe(before);
+  });
   it("keeps zoom with the pane when switching and moving tabs", () => {
     useChat.getState().split(0, "right");
     useChat.getState().changeChatZoom(0, 1);

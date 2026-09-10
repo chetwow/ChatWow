@@ -635,7 +635,7 @@ type ChatState = {
   /** Accept a drop from a pane or another native window. */
   dropTab: (drag: TabDrag, pane: PaneIndex, index: number) => Promise<void>;
   /** Divide one pane, leaving its tabs in place and focusing the new empty pane. */
-  split: (pane: PaneIndex, direction: SplitDirection) => void;
+  split: (pane: PaneIndex, direction: SplitDirection, moveTabId?: string) => void;
   /** Merge a pane's tabs into its sibling and remove that pane. */
   removePane: (pane: PaneIndex) => void;
   setSplitRatio: (id: string, ratio: number) => void;
@@ -1095,7 +1095,7 @@ export const useChat = create<ChatState>((set) => ({
     set({ active: settleActive(settled, preferred), focusedPane: pane });
   },
 
-  split: (pane, direction) => {
+  split: (pane, direction, moveTabId) => {
     const state = useChat.getState();
     const layout = getPaneLayout(state);
     const ids = paneIds(layout.root);
@@ -1103,15 +1103,23 @@ export const useChat = create<ChatState>((set) => ({
     let added = 0;
     // A closed tab still remembers its former pane; do not reuse that identity.
     while (ids.includes(added) || state.lastClosedTab?.pane === added) added++;
+    // A tab-menu split belongs to that tab's panel, even if another tab is active.
+    if (moveTabId !== undefined && paneOf(state, moveTabId) !== pane) return;
     const newPane = { kind: "pane" as const, id: added };
     const first = direction === "left" || direction === "up";
     const root = mapPaneNode(layout.root, (node) => node.kind === "pane" && node.id === pane ? {
       kind: "split", id: newTabId(), axis: direction === "left" || direction === "right" ? "row" : "column",
       ratio: 0.5, first: first ? newPane : node, second: first ? node : newPane,
     } : node);
-    commitTabs(Object.fromEntries(ids.map((id) => [id, paneTabs(state, id)])), { ...layout, root });
+    const lists = Object.fromEntries(ids.map((id) => [id, paneTabs(state, id)]));
+    if (moveTabId !== undefined) {
+      lists[added] = lists[pane].filter((tab) => tab.id === moveTabId);
+      lists[pane] = lists[pane].filter((tab) => tab.id !== moveTabId);
+    }
+    // Persist the new panel and moved tab together.
+    commitTabs(lists, { ...layout, root });
     const settled = useChat.getState();
-    set({ active: settleActive(settled, state.active), focusedPane: added });
+    set({ active: settleActive(settled, { ...state.active, [added]: moveTabId ?? null }), focusedPane: added });
   },
 
   removePane: (pane) => {

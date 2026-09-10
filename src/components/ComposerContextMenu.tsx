@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ContextMenu, type ContextMenuOption } from "./ContextMenu";
+import { openAccountSettings } from "../store/settings";
 import { useChat } from "../store/chat";
 import { ANONYMOUS } from "../types";
 import { readClipboardText, writeClipboardText } from "../lib/clipboard";
@@ -48,11 +49,11 @@ export function ComposerContextMenu({ tabId, menu, onEdit, onError, onClose }: {
   };
   const options: ContextMenuOption[] = [{
     label: "Active account",
-    submenu: [...accounts.map((item) => ({ id: item.id, login: item.login })),
+    submenu: [...[...accounts.map((item) => ({ id: item.id, login: item.login })),
       { id: ANONYMOUS, login: "Anonymous" }].map((item) => ({
       label: `${item.login}${item.id === account ? " ✓" : ""}`,
       onSelect: () => { void useChat.getState().setTabAccount(tabId, item.id); },
-    })),
+    })), { separator: true }, { label: "Add new account...", onSelect: openAccountSettings }],
   }];
   if (selection) options.push(
     { separator: true },

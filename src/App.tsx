@@ -3,7 +3,7 @@ import { LinkContextMenu } from "./components/LinkContextMenu";
 import { TitleBar } from "./components/TitleBar";
 import { Panes, type TabSearchSession } from "./components/Panes";
 import { AddChannelDialog } from "./components/AddChannelDialog";
-import { FONT_SIZE_PX, SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
+import { FONT_SIZE_PX, SettingsDialog } from "./components/SettingsDialog";
 import { HoverPreview } from "./components/HoverPreview";
 import { ListenerCloseDialog } from "./components/ListenerCloseDialog";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
@@ -22,6 +22,7 @@ import {
 import { themeStyle } from "./lib/themes";
 import { IS_MAIN_WINDOW, windowTabs } from "./lib/windows";
 import { IS_MACOS, IS_TAURI } from "./lib/tauri";
+import { useSettings } from "./store/settings";
 import { subscribeToBackend, useChat } from "./store/chat";
 
 export default function App() {
@@ -30,7 +31,8 @@ export default function App() {
 
   const [showAdd, setShowAdd] = useState(false);
   // Which tab the settings dialog is open on, or null when it's closed.
-  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const settingsTab = useSettings((state) => state.tab);
+  const setSettingsTab = useSettings((state) => state.setTab);
   const [search, setSearch] = useState<TabSearchSession | null>(null);
   const [whatsNew, setWhatsNew] = useState<ReleaseNotes | null>(null);
   const chatFontSize = useChat((state) => FONT_SIZE_PX[state.preferences.chatFontSize]);

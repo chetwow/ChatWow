@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 
-type ContextMenuAction = {
+export type ContextMenuAction = {
   label: string;
   disabled?: boolean;
   onSelect: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -8,7 +8,7 @@ type ContextMenuAction = {
 
 export type ContextMenuOption =
   | ContextMenuAction
-  | { label: string; submenu: ContextMenuAction[] }
+  | { label: string; submenu: (ContextMenuAction | { separator: true })[] }
   /** A hairline rule, for grouping what the click landed *on* apart from the message. */
   | { separator: true }
   /**
@@ -31,6 +31,7 @@ export function ContextMenu({
   onKeyDown,
   autoFocus = false,
   label,
+  title,
 }: {
   x: number;
   y: number;
@@ -39,6 +40,7 @@ export function ContextMenu({
   onKeyDown?: (event: KeyboardEvent) => void;
   autoFocus?: boolean;
   label?: string;
+  title?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [keyboardNavigation, setKeyboardNavigation] = useState(false);
@@ -101,6 +103,9 @@ export function ContextMenu({
       style={{ left: style.left, top: style.top, visibility: style.visibility }}
       className="scroller fixed z-50 max-h-[calc(100vh-1rem)] min-w-[140px] overflow-y-auto rounded-lg border border-line bg-surface-raised py-1 shadow-2xl shadow-black/60 outline-none"
     >
+      {title && <div className="mb-1 max-w-[280px] break-words px-3 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+        {title}
+      </div>}
       {options.map((option, index) =>
         "separator" in option ? (
           <div key={index} className="my-1 border-t border-line" />
@@ -138,7 +143,7 @@ export function ContextMenu({
 /** Kept inside the parent menu's DOM so outside-click dismissal includes the submenu. */
 function SubmenuRow({ label, options, onClose }: {
   label: string;
-  options: ContextMenuAction[];
+  options: (ContextMenuAction | { separator: true })[];
   onClose: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -191,7 +196,9 @@ function SubmenuRow({ label, options, onClose }: {
             trigger.current?.focus();
           }
         }}>
-        {options.map((option, index) => (
+        {options.map((option, index) => "separator" in option ? (
+          <div key={index} role="separator" className="my-1 border-t border-line" />
+        ) : (
           <button key={index} role="menuitem" disabled={option.disabled}
             className="block w-full px-3 py-1.5 text-left text-[12px] text-ink-dim outline-none hover:bg-surface-hover hover:text-ink focus-visible:bg-surface-hover disabled:opacity-40"
             onClick={(event) => { option.onSelect(event); onClose(); }}>
