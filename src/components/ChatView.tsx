@@ -852,10 +852,10 @@ export function ChatView({
       <div ref={viewport} className="relative min-h-0 flex-1">
         <div
           ref={scroller}
-          className="scroller h-full overflow-y-auto overflow-x-hidden py-2"
+          className="scroller flex h-full flex-col overflow-y-auto overflow-x-hidden py-2"
         >
           {!messages?.length && (
-            <div className="flex h-full flex-col items-center justify-center gap-1 text-ink-faint">
+            <div className="flex h-full shrink-0 flex-col items-center justify-center gap-1 text-ink-faint">
               <div className="text-[13px]">
                 {isMentions
                   ? "No matching messages yet"
@@ -873,7 +873,7 @@ export function ChatView({
             </div>
           )}
 
-          <div ref={content} className="chat-transcript" style={{ zoom: chatZoom / 100 }}>
+          <div ref={content} className="chat-transcript mt-auto shrink-0" style={{ zoom: chatZoom / 100 }}>
             {messages?.map((message) => {
               const match = searchMatchIndex.get(message.key);
               const mentionMarker = mentionMarkerIndex.get(message.key);
