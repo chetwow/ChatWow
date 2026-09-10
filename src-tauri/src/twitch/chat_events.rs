@@ -353,6 +353,7 @@ pub(super) mod tests {
             channel: "room".into(),
             account: "1".into(),
             avatar_mode: None,
+            autohide_composer: None,
             mention: None,
         });
         state.data.write().insert(

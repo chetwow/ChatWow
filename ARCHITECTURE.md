@@ -215,7 +215,22 @@ neither IRC nor EventSub performs its own refresh exchange.
 ## Sending messages
 
 The composer has its own context menu, separate from tab management. Either avatar click
-opens only an **Active account** submenu; the input's context menu adds Cut, Copy and Paste.
+opens an **Active account** submenu; the input's context menu adds Cut, Copy and Paste.
+Both also offer **Autohide composer**, as does right-clicking the composer's empty space
+or collapsed bar. An explicit `Tab.autohideComposer` boolean persists with the tab, follows
+window/split moves and survives reopening. With no override, the default-on
+`autohideComposerInUnfocusedTabs` preference enables autohide. Input focus controls the
+countdown, so clicking chat in the same working panel also allows its composer to hide.
+`composerAutohideDelaySeconds` defaults to two seconds and is normalized to 0–30 seconds.
+Input focus, composer hover and an open composer menu keep it visible; losing those starts
+a fresh countdown. Focus/hover/menu changes, preference changes and unmount cancel the
+pending timer. Hover, a click on the bar, typing or a reply reveals it; an explicit off
+choice always keeps it open. The mounted input retains its draft;
+the clipped body slides below the panel as its reserved height shrinks to a 12px triangle bar.
+Hidden input controls are inert, and typing removes inert synchronously before focusing so
+the first character is retained. Pickers and menus sit outside the animated clip; reduced
+motion skips the transition.
+
 The input captures the caret or selection before secondary-click defaults can change it, and
 desktop clipboard text goes through the Tauri clipboard
 plugin. Cut removes text only after a successful copy; Paste replaces the captured selection.
@@ -714,7 +729,7 @@ panels retain their tabs. Reopening restores the original panel if it still exis
 uses the focused panel. Removing a panel merges its tabs into its sibling subtree and promotes
 that sibling, preserving the remaining dividers.
 
-General's Window/Tab Behavior preferences act only after an explicit tab close completes
+General's automatic-close Window/Tab Behavior preferences act only after an explicit tab close completes
 (including listener-close confirmation). Automatically close empty splits defaults off and
 removes only the just-emptied pane, retaining the final pane. Automatically close empty child
 windows defaults on and closes only a child whose last owned tab was just closed. The main
@@ -763,6 +778,10 @@ The transcript follows incoming messages only while pinned to the live edge. Upw
 intent unpins immediately, including fractional trackpad gestures; scrolling back to within
 one pixel of the bottom restores following. Resize corrections recheck pinning when their
 animation frame runs so a queued correction cannot override a reader scrolling away.
+Scroll events caused by viewport resizing, late message/media measurement, or downward
+resize corrections preserve following. They may temporarily leave a gap at the live edge;
+only upward user intent or an upward move with stable layout unpins it. This lets composer
+animations resize the chat without disabling follow while still respecting history browsing.
 The Jump to present button appears only with at least three fully hidden newer message rows
 below the viewport; this visibility threshold does not change live-edge pinning. Collapsed
 blocked rows do not count, and scrolling, incoming messages, resizing, and zoom update the count.

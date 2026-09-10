@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 export type ContextMenuAction = {
   label: string;
   disabled?: boolean;
+  checked?: boolean;
   onSelect: (event: MouseEvent<HTMLButtonElement>) => void;
 };
 
@@ -121,7 +122,8 @@ export function ContextMenu({
         ) : (
           <button
             key={index}
-            role="menuitem"
+            role={option.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={option.checked}
             disabled={option.disabled}
             onClick={(event) => {
               option.onSelect(event);
@@ -133,6 +135,7 @@ export function ContextMenu({
             }`}
           >
             {option.label}
+            {option.checked && <span aria-hidden="true" className="ml-4 float-right">✓</span>}
           </button>
         ),
       )}

@@ -27,6 +27,7 @@ import { isThemeId } from "../lib/themes";
 import { nextChatZoom, normalizeChatZoom, normalizePaneChatZoom, paneChatZoom, type ChatZoomAction } from "../lib/chatZoom";
 import { clampRatio, getPaneLayout, mapPaneNode, normalizePaneLayout, paneIds, siblingPane, withoutPane } from "../lib/panes";
 import { restorableClosedTab, type ClosedTab } from "../lib/closedTabs";
+import { normalizeComposerAutohideDelay } from "../lib/composerAutohide";
 import { ANONYMOUS } from "../types";
 import type {
   StreamInfo,
@@ -104,6 +105,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   alwaysOnTop: false,
   autoCloseEmptyChildWindows: true,
   autoCloseEmptySplits: false,
+  autohideComposerInUnfocusedTabs: true,
+  composerAutohideDelaySeconds: 2,
   composerAvatarMode: "twitch",
   newTabAvatarMode: "owner",
   tabAvatarOpacity: 0.4,
@@ -188,6 +191,7 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
   merged.chatZoom = normalizeChatZoom(merged.chatZoom);
   merged.zoomAllSplits = merged.zoomAllSplits === true;
+  merged.composerAutohideDelaySeconds = normalizeComposerAutohideDelay(merged.composerAutohideDelaySeconds);
   merged.paneChatZoom = normalizePaneChatZoom(merged.paneChatZoom);
   if (!COMPOSER_AVATAR_MODES.has(merged.composerAvatarMode)) {
     merged.composerAvatarMode = DEFAULT_PREFERENCES.composerAvatarMode;
@@ -668,6 +672,7 @@ type ChatState = {
   setTabAccount: (id: string, account: string) => Promise<void>;
   /** Change which picture one tab draws behind its name. */
   setTabAvatarMode: (id: string, mode: TabAvatarMode) => Promise<void>;
+  setTabAutohideComposer: (id: string, autohide: boolean) => Promise<void>;
   sendMessage: (id: string, text: string, replyToId?: string, replyTo?: ReplyInfo) => Promise<void>;
   /**
    * Run a slash command and print what it reported into the tab. Throws on
@@ -1380,6 +1385,11 @@ export const useChat = create<ChatState>((set) => ({
         opened = tabs.find((tab) => tab.id === closed.tab.id) ?? opened;
       }
 
+      if (IS_TAURI && typeof closed.tab.autohideComposer === "boolean") {
+        tabs = await api.setTabAutohideComposer(opened.id, closed.tab.autohideComposer);
+        opened = tabs.find((tab) => tab.id === closed.tab.id) ?? opened;
+      }
+
       set((current) => ({
         tabs,
         ...(IS_TAURI ? {} : { ready: { ...current.ready, [opened.id]: true } }),
@@ -1406,6 +1416,14 @@ export const useChat = create<ChatState>((set) => ({
       if (IS_TAURI) await api.closeChatWindow();
       else window.close();
     } else await closeTabNow(pending.tabId);
+  },
+
+  setTabAutohideComposer: async (id, autohide) => {
+    const tab = tabById(useChat.getState(), id);
+    if (!tab || tab.autohideComposer === autohide) return;
+    if (IS_TAURI) set({ tabs: await api.setTabAutohideComposer(id, autohide) });
+    else set((state) => ({ tabs: state.tabs.map((open) => open.id === id
+      ? { ...open, autohideComposer: autohide } : open) }));
   },
 
   setTabAvatarMode: async (id, mode) => {

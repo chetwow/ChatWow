@@ -22,6 +22,9 @@ export function bindChatScroll(
   isPinned: () => boolean,
 ) {
   let leavingBottom = false;
+  let previousTop = element.scrollTop;
+  let previousHeight = element.clientHeight;
+  let previousScrollHeight = element.scrollHeight;
   const wheel = (event: WheelEvent) => {
     if (event.ctrlKey || event.metaKey || event.deltaY === 0) return;
     leavingBottom = event.deltaY < 0;
@@ -29,8 +32,19 @@ export function bindChatScroll(
   };
   const scroll = () => {
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (isPinned() || distance > CHAT_BOTTOM_TOLERANCE) leavingBottom = false;
-    setPinned(!leavingBottom && distance <= CHAT_BOTTOM_TOLERANCE);
+    const wasPinned = isPinned();
+    const layoutChanged = element.clientHeight !== previousHeight || element.scrollHeight !== previousScrollHeight;
+    const movedUp = element.scrollTop < previousTop;
+    previousTop = element.scrollTop;
+    previousHeight = element.clientHeight;
+    previousScrollHeight = element.scrollHeight;
+    if (wasPinned || distance > CHAT_BOTTOM_TOLERANCE) leavingBottom = false;
+    if (!leavingBottom && distance <= CHAT_BOTTOM_TOLERANCE) setPinned(true);
+    // Composer transitions and late row measurements can create a gap before
+    // the resize observer catches up. They must not turn off following. Wheel
+    // intent already unpins above; upward scrollbar/keyboard moves also unpin
+    // when layout is stable. Stationary/downward correction events keep following.
+    else if (!wasPinned || (movedUp && !layoutChanged)) setPinned(false);
     onScroll();
   };
   element.addEventListener("wheel", wheel, { passive: true });

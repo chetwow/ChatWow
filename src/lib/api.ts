@@ -60,6 +60,8 @@ export const api = {
   /** Which picture one tab draws behind its name. */
   setTabAvatarMode: (id: string, mode: TabAvatarMode) =>
     invoke<Tab[]>("set_tab_avatar_mode", { id, mode }),
+  setTabAutohideComposer: (id: string, autohide: boolean) =>
+    invoke<Tab[]>("set_tab_autohide_composer", { id, autohide }),
   reorderTabs: (ids: string[]) => invoke<Tab[]>("reorder_tabs", { ids }),
   /** Owner avatars fetched so far, by channel. Empty when signed out. */
   channelAvatars: () => invoke<Record<string, string>>("channel_avatars"),

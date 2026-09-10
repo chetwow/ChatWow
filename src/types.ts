@@ -188,6 +188,8 @@ export type Tab = {
   id: string;
   /** Session-only native window ownership; older/mock tabs belong to main. */
   windowLabel?: string;
+  /** Null/absent follows the global focus rule; booleans override it for this tab. */
+  autohideComposer?: boolean | null;
   kind: "channel" | "mentions";
   /** Empty for a mentions tab, which belongs to an account rather than a room. */
   channel: string;
@@ -327,6 +329,9 @@ export type Preferences = {
   alwaysOnTop: boolean;
   autoCloseEmptyChildWindows: boolean;
   autoCloseEmptySplits: boolean;
+  autohideComposerInUnfocusedTabs: boolean;
+  /** Idle time after input blur or hover/menu dismissal, in seconds. */
+  composerAutohideDelaySeconds: number;
   /** What occupies the account slot beside the message box. */
   composerAvatarMode: ComposerAvatarMode;
   /** What a newly opened tab draws behind its name. Only new ones. */

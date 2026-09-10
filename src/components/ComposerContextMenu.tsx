@@ -11,11 +11,14 @@ export type ComposerMenuState = {
   y: number;
   selection?: ComposerSelection;
   clipboard?: Promise<string>;
+  emptySpace?: boolean;
 };
 
-export function ComposerContextMenu({ tabId, menu, onEdit, onError, onClose }: {
+export function ComposerContextMenu({ tabId, menu, autohide, onToggleAutohide, onEdit, onError, onClose }: {
   tabId: string;
   menu: ComposerMenuState;
+  autohide: boolean;
+  onToggleAutohide: () => void;
   onEdit: (value: string, caret: number) => void;
   onError: (message: string) => void;
   onClose: () => void;
@@ -47,7 +50,7 @@ export function ComposerContextMenu({ tabId, menu, onEdit, onError, onClose }: {
   const run = (action: () => Promise<void>) => {
     void action().catch(() => onError("Couldn't access the clipboard. Try again."));
   };
-  const options: ContextMenuOption[] = [{
+  const options: ContextMenuOption[] = menu.emptySpace ? [] : [{
     label: "Active account",
     submenu: [...[...accounts.map((item) => ({ id: item.id, login: item.login })),
       { id: ANONYMOUS, login: "Anonymous" }].map((item) => ({
@@ -64,6 +67,8 @@ export function ComposerContextMenu({ tabId, menu, onEdit, onError, onClose }: {
       if (text.replace(/[\r\n]/g, "")) replace(text);
     }) },
   );
+  if (options.length) options.push({ separator: true });
+  options.push({ label: "Autohide composer", checked: autohide, onSelect: onToggleAutohide });
   return <ContextMenu x={menu.x} y={menu.y} options={options} onClose={onClose}
-    autoFocus label={selection ? "Composer" : "Composer account"} />;
+    autoFocus label={selection || menu.emptySpace ? "Composer" : "Composer account"} />;
 }

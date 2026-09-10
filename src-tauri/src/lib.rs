@@ -1266,6 +1266,7 @@ fn add_tab(
                 channel: String::new(),
                 account,
                 avatar_mode: Some("none".to_string()),
+                autohide_composer: None,
                 mention: listener,
             }
         }
@@ -1280,6 +1281,7 @@ fn add_tab(
                 channel,
                 account,
                 avatar_mode,
+                autohide_composer: None,
                 mention: None,
             }
         }
@@ -1477,6 +1479,24 @@ fn set_tab_avatar_mode(
             return tabs.clone();
         }
         tab.avatar_mode = Some(mode);
+    }
+    tabs_changed(&app, &state)
+}
+
+/// Persist a tab's composer override and share it with every window.
+#[tauri::command]
+fn set_tab_autohide_composer(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    id: String,
+    autohide: bool,
+) -> Vec<Tab> {
+    {
+        let mut tabs = state.tabs.write();
+        let Some(tab) = tabs.iter_mut().find(|tab| tab.id == id) else {
+            return tabs.clone();
+        };
+        tab.autohide_composer = Some(autohide);
     }
     tabs_changed(&app, &state)
 }
@@ -1818,6 +1838,7 @@ pub fn run() {
             update_mentions_tab,
             set_tab_account,
             set_tab_avatar_mode,
+            set_tab_autohide_composer,
             channel_avatars,
             pinned_messages,
             live_channels,

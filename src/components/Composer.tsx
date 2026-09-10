@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { avatarOf, loginOf, useChat } from "../store/chat";
 import {
   chatterQuery,
@@ -22,6 +23,7 @@ import { ChatterPicker } from "./ChatterPicker";
 import { ComposerContextMenu, type ComposerMenuState } from "./ComposerContextMenu";
 import { readClipboardText } from "../lib/clipboard";
 import type { ComposerSelection } from "../lib/composerEditing";
+import { composerAutohideEnabled, scheduleComposerAutohide } from "../lib/composerAutohide";
 import { IS_MACOS, IS_TAURI } from "../lib/tauri";
 import { messageText } from "../lib/messageText";
 import { loadEmoji, searchEmoji, type Emoji } from "../lib/emoji";
@@ -104,13 +106,45 @@ export function Composer({
   const completeBlacklist = useChat((state) => state.preferences.emoteCompleteBlacklist);
   const avatarMode = useChat((state) => state.preferences.composerAvatarMode);
   const showAvatar = avatarMode !== "none";
+  const autohideUnfocused = useChat((state) => state.preferences.autohideComposerInUnfocusedTabs);
+  const autohideDelay = useChat((state) => state.preferences.composerAutohideDelaySeconds);
+  const autohide = composerAutohideEnabled(tab?.autohideComposer, autohideUnfocused);
+  const [hovered, setHovered] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [heldOpen, setHeldOpen] = useState(capturesTyping && tab?.autohideComposer !== true);
   const sentHistory = useChat((state) => state.sentHistory[id]);
   const chatters = useChat((state) => state.chatters[id]);
   // Absent until this tab's USERSTATE lands, which is the safe default: the
   // picker offers fewer commands rather than ones Twitch would refuse.
   const role = useChat((state) => state.roles[id] ?? "viewer");
-  /** Avatar menus only switch accounts; input menus also edit the selection. */
+  /** Input menus edit the captured selection; every composer menu has autohide. */
   const [accountMenu, setAccountMenu] = useState<ComposerMenuState | null>(null);
+  const hidden = autohide && !hovered && !inputFocused && !heldOpen && !accountMenu;
+  useEffect(() => {
+    if (!autohide || inputFocused || hovered || accountMenu) setHeldOpen(true);
+    return scheduleComposerAutohide({
+      enabled: autohide, inputFocused, hovered, menuOpen: accountMenu !== null,
+      delaySeconds: autohideDelay,
+    }, () => setHeldOpen(false));
+  }, [autohide, inputFocused, hovered, accountMenu, autohideDelay]);
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  const skipMenuFocus = useRef(false);
+  const body = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState(46);
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (!element) return;
+    const measure = () => {
+      const height = element.getBoundingClientRect().height;
+      // Background tabs are display:none. Retain the last real measurement.
+      if (height > 0) setBodyHeight(height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => setAccountMenu(null), [id]);
   const loadEmoteIndex = useChat((state) => state.loadEmoteIndex);
   const [value, setValue] = useState("");
@@ -134,6 +168,12 @@ export function Composer({
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const input = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    // A pinned-open composer must also release its caret when another panel
+    // becomes the typing target, even if that next composer is still hidden.
+    if ((hidden || !capturesTyping) && document.activeElement === input.current) input.current?.blur();
+    if (!capturesTyping) setInputFocused(false);
+  }, [hidden, capturesTyping]);
   const contextSelection = useRef<ComposerSelection | null>(null);
   /** The run of Tab presses currently cycling one half-typed word. */
   const completion = useRef<Completion | null>(null);
@@ -177,7 +217,7 @@ export function Composer({
   const capturesRef = useRef(capturesTyping);
   capturesRef.current = capturesTyping;
   useEffect(() => {
-    if (!disabled && capturesRef.current) input.current?.focus();
+    if (!disabled && capturesRef.current && !hiddenRef.current) input.current?.focus();
   }, [disabled]);
 
   // Emotes are only completable once the channel's sets have landed. The
@@ -292,9 +332,19 @@ export function Composer({
   }, [trigger]);
 
   // Replying focuses the composer, same as clicking into it.
-  useEffect(() => {
-    if (replyTo && !disabled) input.current?.focus();
+  const focusReply = useRef(false);
+  useLayoutEffect(() => {
+    if (replyTo && !disabled) {
+      focusReply.current = true;
+      setHeldOpen(true);
+    }
   }, [replyTo, disabled]);
+  useLayoutEffect(() => {
+    if (focusReply.current && !hidden) {
+      focusReply.current = false;
+      input.current?.focus({ preventScroll: true });
+    }
+  });
 
   // Escape cancels an in-progress reply. Kept separate from the window
   // keydown listener below, which never sees Escape (it bails out before
@@ -415,6 +465,10 @@ export function Composer({
       // Tab reclaims chat focus instead of advancing to the next control.
       // When already focused, the input handles completion before this runs.
       if (isTab) event.preventDefault();
+
+      // Remove inert before the browser performs this keystroke's default
+      // input action, preserving even the first character of a hidden draft.
+      if (hiddenRef.current) flushSync(() => setHeldOpen(true));
 
       // Reclaim focus (and put the caret back at the end, not the start) only
       // when it isn't already here -- don't disturb the caret mid-message.
@@ -648,8 +702,20 @@ export function Composer({
   };
 
   return (
-    <div className="relative shrink-0 border-t border-line bg-surface-raised">
-      {commandOpen && (
+    <div
+      className="composer-shell relative shrink-0 bg-surface-raised"
+      data-composer={id}
+      data-hidden={hidden}
+      style={{ height: hidden ? 12 : bodyHeight }}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setAccountMenu({ x: event.clientX, y: event.clientY, emptySpace: true });
+      }}
+    >
+      {!hidden && commandOpen && (
         <CommandPicker
           matches={commandMatches}
           auth={auth}
@@ -659,7 +725,7 @@ export function Composer({
           onPick={(match: CommandMatch) => pickCommand(match.name)}
         />
       )}
-      {chatterOpen && (
+      {!hidden && chatterOpen && (
         <ChatterPicker
           matches={chatterMatches}
           selected={chatterHighlighted}
@@ -668,133 +734,155 @@ export function Composer({
           onPick={pickChatter}
         />
       )}
-      {pickerOpen && (
+      {!hidden && pickerOpen && (
         <EmotePicker items={items} selected={highlighted} onSelect={setSelected} onPick={pick} />
       )}
-      {hinted && typed && <CommandHint command={hinted} name={typed.name} />}
-      {replyTo && <ReplyBar message={replyTo} onCancel={() => onCancelReply?.()} />}
-      <div className="px-2 py-1.5">
-        {/* One slot, and the length wins it: a failed send from a moment ago
-            is stale next to the reason the next one won't go either. */}
-        {overBy > 0 ? (
-          <div className="mb-1 text-[11px] text-rose-400">
-            {overBy} character{overBy === 1 ? "" : "s"} over Twitch's {MAX_MESSAGE_CHARS}-character
-            limit
-          </div>
-        ) : (
-          error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>
-        )}
-        <div className="flex items-center gap-2">
-          {/* Who this line will be sent as. The placeholder says it too, but
-              that's gone the moment you start typing, and with two accounts on
-              one channel the tabs look alike -- this is the half of the answer
-              that's still there while you type. Both clicks open the account
-              submenu; `onMouseDown` is swallowed so the caret and
-              any selection stay where they were. */}
-          {showAvatar && (
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                const box = event.currentTarget.getBoundingClientRect();
-                setAccountMenu({ x: box.left, y: box.bottom });
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setAccountMenu({ x: event.clientX, y: event.clientY });
-              }}
-              data-tooltip={login ? `Sending as ${login}` : "Reading anonymously"}
-              aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
-              className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
-            >
-              {avatarMode === "twitch" && avatar ? (
-                <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
-              ) : login ? (
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
-                  {login.slice(0, avatarMode === "generic" ? 2 : 1)}
-                </span>
-              ) : (
-                // Anonymous has no username to abbreviate, so both visible
-                // modes fall back to a silhouette that keeps the account
-                // picker reachable.
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-accent">
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                    <circle cx="8" cy="5.5" r="2.75" />
-                    <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />
-                  </svg>
-                </span>
+      <button
+        type="button"
+        className="composer-handle absolute inset-x-0 bottom-0 flex h-3 w-full items-center justify-center border-t border-line pb-px text-ink-faint outline-none hover:text-ink focus-visible:text-accent"
+        aria-label="Show composer"
+        aria-expanded={!hidden}
+        tabIndex={hidden ? 0 : -1}
+        onClick={() => {
+          flushSync(() => setHeldOpen(true));
+          input.current?.focus({ preventScroll: true });
+        }}
+      >
+        <svg aria-hidden="true" viewBox="0 0 10 5" width="8" height="4" fill="currentColor"><path d="M0 5 5 0 10 5Z" /></svg>
+      </button>
+      <div className="composer-clip absolute inset-0" inert={hidden} aria-hidden={hidden}>
+        <div ref={body} className="composer-body border-t border-line bg-surface-raised">
+          {hinted && typed && <CommandHint command={hinted} name={typed.name} />}
+          {replyTo && <ReplyBar message={replyTo} onCancel={() => onCancelReply?.()} />}
+          <div className="px-2 py-1.5">
+            {/* One slot, and the length wins it: a failed send from a moment ago
+                is stale next to the reason the next one won't go either. */}
+            {overBy > 0 ? (
+              <div className="mb-1 text-[11px] text-rose-400">
+                {overBy} character{overBy === 1 ? "" : "s"} over Twitch's {MAX_MESSAGE_CHARS}-character
+                limit
+              </div>
+            ) : (
+              error && <div className="mb-1 text-[11px] text-rose-400">{error}</div>
+            )}
+            <div className="flex items-center gap-2">
+              {/* Who this line will be sent as. The placeholder says it too, but
+                  that's gone the moment you start typing, and with two accounts on
+                  one channel the tabs look alike -- this is the half of the answer
+                  that's still there while you type. Both clicks open the account
+                  submenu; `onMouseDown` is swallowed so the caret and
+                  any selection stay where they were. */}
+              {showAvatar && (
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setAccountMenu({ x: box.left, y: box.bottom });
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setAccountMenu({ x: event.clientX, y: event.clientY });
+                  }}
+                  data-tooltip={login ? `Sending as ${login}` : "Reading anonymously"}
+                  aria-label={login ? `Sending as ${login}. Change account.` : "Pick an account"}
+                  className="shrink-0 rounded-full outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent/60"
+                >
+                  {avatarMode === "twitch" && avatar ? (
+                    <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
+                  ) : login ? (
+                    <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-[13px] font-semibold uppercase text-accent">
+                      {login.slice(0, avatarMode === "generic" ? 2 : 1)}
+                    </span>
+                  ) : (
+                    // Anonymous has no username to abbreviate, so both visible
+                    // modes fall back to a silhouette that keeps the account
+                    // picker reachable.
+                    <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-accent">
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+                        <circle cx="8" cy="5.5" r="2.75" />
+                        <path d="M2.5 14a5.5 5.5 0 0 1 11 0z" />
+                      </svg>
+                    </span>
+                  )}
+                </button>
               )}
-            </button>
-          )}
-          <input
-            ref={input}
-            value={value}
-            onChange={(event) => {
-              // Typing over a recalled message makes it yours again: the next
-              // up-arrow starts a fresh walk from the most recent send.
-              setHistoryIndex(null);
-              applyText(
-                event.target.value,
-                event.target.selectionStart ?? event.target.value.length,
-              );
-            }}
-            // Fires for clicks and arrow keys as well as typing, so the `:`
-            // search always knows which word the caret is actually in.
-            onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
-            onKeyDown={onKeyDown}
-            // WebKit can select the word under a secondary click before
-            // contextmenu fires. Preserve the user's caret/selection first.
-            onPointerDown={(event) => {
-              contextSelection.current = null;
-              if (event.button !== 2 && !(IS_MACOS && event.button === 0 && event.ctrlKey)) return;
-              const element = event.currentTarget;
-              contextSelection.current = {
-                value: element.value,
-                start: element.selectionStart ?? 0,
-                end: element.selectionEnd ?? 0,
-              };
-              event.preventDefault();
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              const element = event.currentTarget;
-              // Start reading during the user gesture (also needed by browser mock mode).
-              const clipboard = readClipboardText().catch(() => "");
-              const selection = contextSelection.current ?? {
-                value: element.value,
-                start: element.selectionStart ?? 0,
-                end: element.selectionEnd ?? 0,
-              };
-              contextSelection.current = null;
-              element.setSelectionRange(selection.start, selection.end);
-              setAccountMenu({ x: event.clientX, y: event.clientY, clipboard, selection });
-            }}
-            disabled={disabled}
-            placeholder={
-              // A disabled input takes no mouse events at all, so the
-              // right-click this used to name never reached it. The avatar is
-              // the control that works here -- and with it switched off, the
-              // tab's own right-click is what's left.
-              disabled
-                ? showAvatar
-                  ? "Click the avatar to send as an account"
-                  : "Right-click the tab to send as an account"
-                : login
-                  ? `Message #${channel} as ${login}`
-                  : `Message #${channel}`
-            }
-            spellCheck={false}
-            autoComplete="off"
-            // Over the limit the border goes rose and stays rose through
-            // focus, the same shade the settings dialog marks a rejected line
-            // with -- the accent focus ring would otherwise paint over the one
-            // state the box is trying to report.
-            className={`chat-text selectable min-w-0 flex-1 rounded-lg border bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors placeholder:text-ink-faint disabled:cursor-not-allowed ${
-              overBy > 0 ? "border-rose-500/60" : "border-line focus:border-accent/60"
-            }`}
-          />
+              <input
+                ref={input}
+                onFocus={() => {
+                  setInputFocused(true);
+                  setHeldOpen(true);
+                }}
+                onBlur={() => setInputFocused(false)}
+                value={value}
+                onChange={(event) => {
+                  // Typing over a recalled message makes it yours again: the next
+                  // up-arrow starts a fresh walk from the most recent send.
+                  setHistoryIndex(null);
+                  applyText(
+                    event.target.value,
+                    event.target.selectionStart ?? event.target.value.length,
+                  );
+                }}
+                // Fires for clicks and arrow keys as well as typing, so the `:`
+                // search always knows which word the caret is actually in.
+                onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+                onKeyDown={onKeyDown}
+                // WebKit can select the word under a secondary click before
+                // contextmenu fires. Preserve the user's caret/selection first.
+                onPointerDown={(event) => {
+                  contextSelection.current = null;
+                  if (event.button !== 2 && !(IS_MACOS && event.button === 0 && event.ctrlKey)) return;
+                  const element = event.currentTarget;
+                  contextSelection.current = {
+                    value: element.value,
+                    start: element.selectionStart ?? 0,
+                    end: element.selectionEnd ?? 0,
+                  };
+                  event.preventDefault();
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const element = event.currentTarget;
+                  // Start reading during the user gesture (also needed by browser mock mode).
+                  const clipboard = readClipboardText().catch(() => "");
+                  const selection = contextSelection.current ?? {
+                    value: element.value,
+                    start: element.selectionStart ?? 0,
+                    end: element.selectionEnd ?? 0,
+                  };
+                  contextSelection.current = null;
+                  element.setSelectionRange(selection.start, selection.end);
+                  setAccountMenu({ x: event.clientX, y: event.clientY, clipboard, selection });
+                }}
+                disabled={disabled}
+                placeholder={
+                  // A disabled input takes no mouse events at all, so the
+                  // right-click this used to name never reached it. The avatar is
+                  // the control that works here -- and with it switched off, the
+                  // tab's own right-click is what's left.
+                  disabled
+                    ? showAvatar
+                      ? "Click the avatar to send as an account"
+                      : "Right-click the tab to send as an account"
+                    : login
+                      ? `Message #${channel} as ${login}`
+                      : `Message #${channel}`
+                }
+                spellCheck={false}
+                autoComplete="off"
+                // Over the limit the border goes rose and stays rose through
+                // focus, the same shade the settings dialog marks a rejected line
+                // with -- the accent focus ring would otherwise paint over the one
+                // state the box is trying to report.
+                className={`chat-text selectable min-w-0 flex-1 rounded-lg border bg-surface px-2.5 py-1.5 text-ink outline-none transition-colors placeholder:text-ink-faint disabled:cursor-not-allowed ${
+                  overBy > 0 ? "border-rose-500/60" : "border-line focus:border-accent/60"
+                }`}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -802,6 +890,12 @@ export function Composer({
         <ComposerContextMenu
           tabId={id}
           menu={accountMenu}
+          autohide={autohide}
+          onToggleAutohide={() => {
+            skipMenuFocus.current = true;
+            void useChat.getState().setTabAutohideComposer(id, !autohide)
+              .catch(() => setError("Couldn't save the composer setting. Try again."));
+          }}
           onEdit={(next, nextCaret) => {
             // A clipboard operation may finish after the user resumes typing.
             const element = input.current;
@@ -821,7 +915,9 @@ export function Composer({
           onClose={() => {
             setAccountMenu(null);
             const element = input.current;
-            element?.focus({ preventScroll: true });
+            const restoreFocus = !skipMenuFocus.current && !accountMenu.emptySpace;
+            skipMenuFocus.current = false;
+            if (restoreFocus) element?.focus({ preventScroll: true });
             const selection = accountMenu.selection;
             if (element && selection && element.value === selection.value) {
               element.setSelectionRange(selection.start, selection.end);

@@ -109,6 +109,9 @@ pub struct Tab {
     /// here -- see the note on `chat_font_size`.
     #[serde(default)]
     pub avatar_mode: Option<String>,
+    /// None follows the global focus rule; a boolean overrides it for this tab.
+    #[serde(default)]
+    pub autohide_composer: Option<bool>,
     /// Present for custom mentions tabs. `None` on channel tabs and on legacy
     /// mentions tabs, whose old behavior is preserved by the frontend.
     #[serde(default)]
@@ -218,6 +221,8 @@ pub struct Preferences {
     pub always_on_top: bool,
     pub auto_close_empty_child_windows: bool,
     pub auto_close_empty_splits: bool,
+    pub autohide_composer_in_unfocused_tabs: bool,
+    pub composer_autohide_delay_seconds: f64,
     /// What occupies the account slot beside the message box: the sending
     /// account's `twitch` picture, a `generic` silhouette or `none`. The
     /// frontend validates this like the other visual presets.
@@ -330,6 +335,8 @@ impl Default for Preferences {
             always_on_top: false,
             auto_close_empty_child_windows: true,
             auto_close_empty_splits: false,
+            autohide_composer_in_unfocused_tabs: true,
+            composer_autohide_delay_seconds: 2.0,
             composer_avatar_mode: "twitch".to_string(),
             new_tab_avatar_mode: "owner".to_string(),
             tab_avatar_opacity: 0.4,
@@ -471,6 +478,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             channel: channel.clone(),
             account: account.clone(),
             avatar_mode: None,
+            autohide_composer: None,
             mention: None,
         })
         .collect();
@@ -502,6 +510,7 @@ fn migrate(settings: &mut Settings, raw: &str) {
             channel: String::new(),
             account,
             avatar_mode: None,
+            autohide_composer: None,
             mention: None,
         },
     );
@@ -572,6 +581,25 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn composer_autohide_defaults_and_tab_overrides_survive_settings_roundtrip() {
+        let old = r#"{"tabs":[{"id":"one","kind":"channel","channel":"one","account":""}]}"#;
+        let mut settings: super::Settings = serde_json::from_str(old).unwrap();
+        assert!(settings.preferences.autohide_composer_in_unfocused_tabs);
+        assert_eq!(settings.preferences.composer_autohide_delay_seconds, 2.0);
+        assert_eq!(settings.tabs[0].autohide_composer, None);
+        for choice in [true, false] {
+            settings.tabs[0].autohide_composer = Some(choice);
+            settings.preferences.autohide_composer_in_unfocused_tabs = false;
+            settings.preferences.composer_autohide_delay_seconds = 0.5;
+            let saved = serde_json::to_string(&settings).unwrap();
+            let restored: super::Settings = serde_json::from_str(&saved).unwrap();
+            assert!(!restored.preferences.autohide_composer_in_unfocused_tabs);
+            assert_eq!(restored.preferences.composer_autohide_delay_seconds, 0.5);
+            assert_eq!(restored.tabs[0].autohide_composer, Some(choice));
+        }
+    }
+
     #[test]
     fn live_stream_thumbnails_default_off_and_round_trip() {
         let defaults: super::Preferences = serde_json::from_str("{}").unwrap();

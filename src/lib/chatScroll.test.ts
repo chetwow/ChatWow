@@ -48,13 +48,49 @@ function setup() {
     Object.assign(new Event("wheel"), { deltaY, ctrlKey: false, metaKey: false, ...modifiers }),
   );
   const scroll = (distance: number) => {
-    element.scrollTop = 500 - distance;
+    element.scrollTop = element.scrollHeight - element.clientHeight - distance;
     element.dispatchEvent(new Event("scroll"));
   };
-  return { wheel, scroll, dispose, jump: () => { pinned = true; scroll(0); }, pinned: () => pinned };
+  const layout = (metrics: Partial<Pick<typeof element, "scrollHeight" | "clientHeight" | "scrollTop">>) => {
+    Object.assign(element, metrics);
+    element.dispatchEvent(new Event("scroll"));
+  };
+  return { wheel, scroll, layout, dispose, jump: () => { pinned = true; scroll(0); }, pinned: () => pinned };
 }
 
 describe("chat scroll pinning", () => {
+  it("keeps following through composer animation frames and delayed resize corrections", () => {
+    const chat = setup();
+    chat.layout({ clientHeight: 480 }); // Composer expands before the first correction.
+    expect(chat.pinned()).toBe(true);
+    chat.layout({ clientHeight: 470, scrollTop: 520 }); // Correction used the previous frame's height.
+    expect(chat.pinned()).toBe(true);
+    chat.layout({ scrollTop: 525 }); // Another downward correction still short of the bottom.
+    expect(chat.pinned()).toBe(true);
+    chat.scroll(0);
+    chat.layout({ clientHeight: 500, scrollTop: 500 }); // Retraction clamps scrollTop upward.
+    expect(chat.pinned()).toBe(true);
+  });
+  it("keeps following when newly rendered message or media heights grow after scrolling", () => {
+    const chat = setup();
+    chat.layout({ scrollHeight: 1100 });
+    expect(chat.pinned()).toBe(true);
+    chat.layout({ scrollHeight: 1200, scrollTop: 600 });
+    expect(chat.pinned()).toBe(true);
+    chat.scroll(0);
+    expect(chat.pinned()).toBe(true);
+  });
+  it("still pauses for upward scrolling during resize and keeps older messages in place", () => {
+    const chat = setup();
+    chat.wheel(-0.25);
+    chat.layout({ clientHeight: 480, scrollTop: 499.75 });
+    expect(chat.pinned()).toBe(false);
+    chat.layout({ scrollHeight: 1100 });
+    expect(chat.pinned()).toBe(false);
+    chat.jump();
+    chat.scroll(50); // A scrollbar/keyboard move with stable geometry.
+    expect(chat.pinned()).toBe(false);
+  });
   it("pauses on the first tiny upward gesture before scrolling, and stays paused near the bottom", () => {
     const chat = setup();
     chat.wheel(-0.25);

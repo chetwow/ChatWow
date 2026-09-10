@@ -9,6 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Autohide composers after an adjustable delay when the input loses focus, reveal them by hovering or typing, and override the behavior per tab.
+
 - Configure automatic closing of child windows and splits when their last tab is closed.
 
 - Close empty split panels directly from their tab bar.
@@ -33,6 +35,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Keep new messages in view while composers hide or reveal and chat media resizes.
 - Make the tab scrollbar translucent, overlay the tabs without adding height, and reliably hide when idle.
 - Keep the split-panel selection highlight visible over the active tab.
 - Prevent chat from snapping back to the bottom when scrolling up slowly with a trackpad.

@@ -854,6 +854,33 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Window/Tab Behavior">
+                <Row label="Autohide composer in unfocused tabs"
+                  hint="Override this behavior for individual tabs by right-clicking anywhere in the composer.">
+                  <Toggle
+                    checked={preferences.autohideComposerInUnfocusedTabs}
+                    onChange={(autohideComposerInUnfocusedTabs) => updatePreferences({ autohideComposerInUnfocusedTabs })}
+                    label="Autohide composer in unfocused tabs"
+                  />
+                </Row>
+                <Row label="Composer autohide delay">
+                  <div className="flex items-center gap-2">
+                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
+                      {preferences.composerAutohideDelaySeconds}s
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={30}
+                      step={0.5}
+                      value={preferences.composerAutohideDelaySeconds}
+                      onChange={(event) => updatePreferences({ composerAutohideDelaySeconds: Number(event.target.value) })}
+                      aria-label="Composer autohide delay"
+                      aria-valuetext={preferences.composerAutohideDelaySeconds === 0
+                        ? "Immediately" : `${preferences.composerAutohideDelaySeconds} seconds`}
+                      className="w-32 accent-accent"
+                    />
+                  </div>
+                </Row>
                 <Row label="Keep tabs on one row">
                   <Toggle
                     checked={preferences.singleRowTabs}

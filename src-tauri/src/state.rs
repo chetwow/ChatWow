@@ -725,6 +725,7 @@ mod tests {
             channel: channel.to_string(),
             account: account.to_string(),
             avatar_mode: None,
+            autohide_composer: None,
             mention: None,
         }
     }
@@ -873,6 +874,7 @@ mod tests {
             channel: String::new(),
             account: "333".to_string(),
             avatar_mode: None,
+            autohide_composer: None,
             mention: None,
         });
 
