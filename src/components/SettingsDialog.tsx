@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
 import { IS_MACOS, IS_TAURI, TITLE_BAR_PX } from "../lib/tauri";
 import { MAX_GIF_SCALE, MIN_GIF_SCALE, MAX_GIGANTIFY_SCALE, MIN_GIGANTIFY_SCALE, useChat, type BlacklistKind } from "../store/chat";
+import { Dropdown } from "./Dropdown";
 import { AccountPanel } from "./AccountPanel";
 import { EmoteImage } from "./EmoteImage";
 import { Hinted } from "./Hinted";
@@ -16,7 +17,6 @@ import type {
   ComposerAvatarMode,
   EmoteEntry,
   EmoteRule,
-  NewTabAvatarMode,
   ThemeId,
 } from "../types";
 
@@ -177,60 +177,6 @@ function Toggle({
         }`}
       />
     </button>
-  );
-}
-
-function SegmentedFontSize({
-  value,
-  onChange,
-}: {
-  value: ChatFontSize;
-  onChange: (next: ChatFontSize) => void;
-}) {
-  return (
-    <div className="flex rounded-md border border-line p-0.5">
-      {FONT_SIZES.map((size) => (
-        <button
-          key={size.id}
-          onClick={() => onChange(size.id)}
-          aria-pressed={value === size.id}
-          className={`rounded px-2 py-1 text-[11px] transition-colors ${
-            value === size.id
-              ? "bg-accent/20 font-semibold text-accent"
-              : "text-ink-dim hover:bg-surface-hover hover:text-ink"
-          }`}
-        >
-          {size.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SegmentedComposerAvatar({
-  value,
-  onChange,
-}: {
-  value: ComposerAvatarMode;
-  onChange: (next: ComposerAvatarMode) => void;
-}) {
-  return (
-    <div className="flex rounded-md border border-line p-0.5">
-      {COMPOSER_AVATAR_MODES.map((mode) => (
-        <button
-          key={mode.id}
-          onClick={() => onChange(mode.id)}
-          aria-pressed={value === mode.id}
-          className={`rounded px-2 py-1 text-[11px] transition-colors ${
-            value === mode.id
-              ? "bg-accent/20 font-semibold text-accent"
-              : "text-ink-dim hover:bg-surface-hover hover:text-ink"
-          }`}
-        >
-          {mode.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -908,6 +854,13 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Window/Tab Behavior">
+                <Row label="Keep tabs on one row">
+                  <Toggle
+                    checked={preferences.singleRowTabs}
+                    onChange={(singleRowTabs) => updatePreferences({ singleRowTabs })}
+                    label="Keep tabs on one row"
+                  />
+                </Row>
                 <Row label="Automatically close empty child windows">
                   <Toggle
                     checked={preferences.autoCloseEmptyChildWindows}
@@ -925,20 +878,12 @@ export function SettingsDialog({
               </Section>
               <Section title="Moderation">
                 <Row label="Default timeout duration">
-                  <select
+                  <Dropdown
+                    label="Default timeout duration"
                     value={preferences.defaultTimeoutSeconds}
-                    onChange={(event) =>
-                      updatePreferences({ defaultTimeoutSeconds: Number(event.target.value) })
-                    }
-                    className="appearance-none rounded-md border border-line bg-surface px-2 py-1 text-[11px] text-ink outline-none transition-colors hover:bg-surface-hover focus:border-accent"
-                    aria-label="Default timeout duration"
-                  >
-                    {TIMEOUT_PRESETS.map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {formatTimeout(seconds)}
-                      </option>
-                    ))}
-                  </select>
+                    options={TIMEOUT_PRESETS.map((seconds) => ({ id: seconds, label: formatTimeout(seconds) }))}
+                    onChange={(defaultTimeoutSeconds) => updatePreferences({ defaultTimeoutSeconds })}
+                  />
                 </Row>
               </Section>
               <Section title="Updates">
@@ -986,7 +931,9 @@ export function SettingsDialog({
                   sentence behind a dot would. */}
               <Section title="Chat">
                 <Row label="Font size">
-                  <SegmentedFontSize
+                  <Dropdown
+                    label="Font size"
+                    options={FONT_SIZES}
                     value={preferences.chatFontSize}
                     onChange={(chatFontSize) => updatePreferences({ chatFontSize })}
                   />
@@ -1088,13 +1035,6 @@ export function SettingsDialog({
                 </Row>
               </Section>
               <Section title="Tabs">
-                <Row label="Keep tabs on one row">
-                  <Toggle
-                    checked={preferences.singleRowTabs}
-                    onChange={(singleRowTabs) => updatePreferences({ singleRowTabs })}
-                    label="Keep tabs on one row"
-                  />
-                </Row>
                 <Row label="Show live stream thumbnails on hover">
                   <Toggle
                     checked={preferences.showLiveStreamThumbnails}
@@ -1105,36 +1045,12 @@ export function SettingsDialog({
                 {/* What a tab *opens* with: an open tab keeps the one it has
                     and changes through its own right-click menu. */}
                 <Row label="Default background avatar">
-                  {/* `appearance-none` and our own chevron: left native, the
-                      control draws in the OS's own light chrome, which is the
-                      one thing on this screen that wouldn't be dark. */}
-                  <div className="relative">
-                    <select
-                      value={preferences.newTabAvatarMode}
-                      onChange={(event) =>
-                        updatePreferences({
-                          newTabAvatarMode: event.target.value as NewTabAvatarMode,
-                        })
-                      }
-                      aria-label="Default background avatar"
-                      className="w-full appearance-none rounded-md border border-line bg-surface py-1 pl-2 pr-7 text-[11px] text-ink outline-none transition-colors hover:bg-surface-hover focus:border-accent"
-                    >
-                      {NEW_TAB_AVATAR_MODES.map((mode) => (
-                        <option key={mode.id} value={mode.id} className="bg-surface text-ink">
-                          {mode.label}
-                        </option>
-                      ))}
-                    </select>
-                    <svg
-                      viewBox="0 0 10 6"
-                      width="8"
-                      height="5"
-                      aria-hidden
-                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint"
-                    >
-                      <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  </div>
+                  <Dropdown
+                    label="Default background avatar"
+                    value={preferences.newTabAvatarMode}
+                    options={NEW_TAB_AVATAR_MODES}
+                    onChange={(newTabAvatarMode) => updatePreferences({ newTabAvatarMode })}
+                  />
                 </Row>
                 {/* Worth a control rather than a constant: how visible a given
                     opacity looks depends entirely on the avatar behind it. */}
@@ -1166,7 +1082,9 @@ export function SettingsDialog({
               </Section>
               <Section title="Miscellaneous">
                 <Row label="Avatar displayed in composer">
-                  <SegmentedComposerAvatar
+                  <Dropdown
+                    label="Avatar displayed in composer"
+                    options={COMPOSER_AVATAR_MODES}
                     value={preferences.composerAvatarMode}
                     onChange={(composerAvatarMode) => updatePreferences({ composerAvatarMode })}
                   />

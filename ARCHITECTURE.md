@@ -1274,6 +1274,10 @@ Settings info dots. Delegated pointer/focus listeners cover dynamic and disabled
 the popup renders above dialogs, clamps to the viewport, and dismisses on interaction or scroll.
 Embedded player `title` attributes remain accessible frame names, not app text hints.
 
+Settings single-choice controls use `Dropdown`, a themed combobox with keyboard navigation.
+Its listbox portals into the app theme root to escape dialog scroll clipping; focus stays on
+the trigger, and Escape dismisses the list before the dialog.
+
 Dialog navigation lives in the transient, per-window settings UI store. Both Active account
 submenus end with **Add new account...**, which opens the Accounts settings tab.
 

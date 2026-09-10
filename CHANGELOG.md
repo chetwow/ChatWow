@@ -15,6 +15,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Use themed dropdowns in Settings, including font size and composer avatar choices.
+
 - Control each window’s keep-on-top state from its title-bar pin; remove the Appearance toggle.
 
 - Fade Jump to present in and out, showing it only when at least three newer messages are fully off screen.
