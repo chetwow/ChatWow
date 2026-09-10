@@ -406,11 +406,15 @@ export function Composer({
       if (event.defaultPrevented) return;
       if (document.querySelector("[data-menu]")) return;
       if (document.querySelector("[data-modal]")) return;
-      if (isForeignTextField(document.activeElement)) return;
+      const isTab = event.key === "Tab";
+      if (!isTab && isForeignTextField(document.activeElement)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
 
       const isEnter = event.key === "Enter";
-      if (!isEnter && event.key.length !== 1 && event.key !== "Backspace") return;
+      if (!isEnter && !isTab && event.key.length !== 1 && event.key !== "Backspace") return;
+      // Tab reclaims chat focus instead of advancing to the next control.
+      // When already focused, the input handles completion before this runs.
+      if (isTab) event.preventDefault();
 
       // Reclaim focus (and put the caret back at the end, not the start) only
       // when it isn't already here -- don't disturb the caret mid-message.

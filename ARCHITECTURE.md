@@ -726,7 +726,9 @@ identifies where new tabs and whispers go and what `Ctrl/Cmd+W` closes. `settleA
 that map after layout changes, falling back to the first remaining tab in each panel.
 Capture-phase pointer and focus handlers select the working pane. Only that pane's composer
 captures typing; when it is empty, a visible composer takes over. Mounting a composer in any
-other panel must not steal focus.
+other panel must not steal focus. Tab reveals and focuses the capturing composer, including
+from other text fields, while open menus and modals retain keyboard control. Once focused,
+Tab and Shift+Tab keep their completion behavior.
 
 Each split branch in [Panes.tsx](src/components/Panes.tsx) measures its own rectangle and owns
 its draggable divider. Drag ratios stay local until pointer release or cancellation, avoiding
