@@ -17,6 +17,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Place Settings sliders to the right of their numerical values.
+
 - Focus and reveal the active composer with Tab when no menu or modal is open.
 
 - Use themed dropdowns in Settings, including font size and composer avatar choices.

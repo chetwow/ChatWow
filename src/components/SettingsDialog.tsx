@@ -1002,6 +1002,9 @@ export function SettingsDialog({
                 </Row>
                 <Row label="GIF size">
                   <div className="flex items-center gap-2">
+                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.gifScale * 100)}%
+                    </span>
                     <input
                       type="range"
                       min={MIN_GIF_SCALE * 100}
@@ -1014,9 +1017,6 @@ export function SettingsDialog({
                       aria-label="GIF size"
                       className="w-32 accent-accent"
                     />
-                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
-                      {Math.round(preferences.gifScale * 100)}%
-                    </span>
                   </div>
                 </Row>
               </Section>
@@ -1044,6 +1044,9 @@ export function SettingsDialog({
                 </Row>
                 <Row label="Gigantify size">
                   <div className="flex items-center gap-2">
+                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.gigantifyScale * 100)}%
+                    </span>
                     <input
                       type="range"
                       min={MIN_GIGANTIFY_SCALE * 100}
@@ -1055,9 +1058,6 @@ export function SettingsDialog({
                       aria-valuetext={`${Math.round(preferences.gigantifyScale * 100)}%`}
                       className="w-32 accent-accent"
                     />
-                    <span className="w-9 text-right text-[11px] tabular-nums text-ink-faint">
-                      {Math.round(preferences.gigantifyScale * 100)}%
-                    </span>
                   </div>
                 </Row>
               </Section>
@@ -1083,6 +1083,9 @@ export function SettingsDialog({
                     opacity looks depends entirely on the avatar behind it. */}
                 <Row label="Background avatar opacity">
                   <div className="flex items-center gap-2">
+                    <span className="w-8 text-right text-[11px] tabular-nums text-ink-faint">
+                      {Math.round(preferences.tabAvatarOpacity * 100)}%
+                    </span>
                     <input
                       type="range"
                       min={0}
@@ -1095,9 +1098,6 @@ export function SettingsDialog({
                       aria-label="Background avatar opacity"
                       className="w-32 accent-accent"
                     />
-                    <span className="w-8 text-right text-[11px] tabular-nums text-ink-faint">
-                      {Math.round(preferences.tabAvatarOpacity * 100)}%
-                    </span>
                   </div>
                 </Row>
               </Section>
