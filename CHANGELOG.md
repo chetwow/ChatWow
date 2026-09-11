@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-11
+
 ### Added
 
 - Autohide composers after an adjustable delay when the input loses focus, reveal them by hovering or typing, and override the behavior per tab.
