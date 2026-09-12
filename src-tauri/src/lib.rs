@@ -9,6 +9,7 @@ mod irc;
 mod linkinfo;
 #[cfg(test)]
 mod livecheck;
+mod local_assets;
 mod render;
 mod settings;
 mod state;
@@ -1648,6 +1649,11 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    // Keep the listener alive until the event loop exits. Development already
+    // has Vite's HTTP origin; packaged windows need one for provider embeds.
+    let _local_assets = local_assets::start(&mut context)
+        .expect("could not start the local application asset server");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -1857,7 +1863,7 @@ pub fn run() {
             emote_index,
             record_emote_uses,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         // Built and then run, rather than `run(context)`, only so that a
         // clean exit can say so. It's the difference between a log that ends

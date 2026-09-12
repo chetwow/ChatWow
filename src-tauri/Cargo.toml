@@ -30,6 +30,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 anyhow = "1"
 base64 = "0.22"
 tempfile = "3"
+tiny_http = "0.12"
 rand = "0.8"
 parking_lot = "0.12"
 filetime = "0.2"

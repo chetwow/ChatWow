@@ -1088,8 +1088,9 @@ clip links also offer “Open in browser” when their respective inline option 
 Inline video frames load directly from the recognized provider, rather than through the
 Rust page/image preview fetch. The YouTube API script is loaded lazily from YouTube.
 The embed uses the page origin and the browser's `strict-origin-when-cross-origin` referrer
-policy. Packaged webviews whose custom origin suppresses HTTP Referer may encounter YouTube
-error 153 and use the browser fallback; desktop playback needs verification on each platform.
+policy. Packaged windows use the loopback HTTP origin described in [The window](#the-window),
+so WebKit can send the HTTP Referer required by YouTube instead of suppressing a custom-scheme
+referrer. Provider restrictions on particular videos still use the browser fallback.
 
 `inlineTwitchClips` separately enables click-to-expand Twitch clips. Only clip links are
 recognized; channels and VODs stay external. The iframe uses the current hostname as Twitch's
@@ -1100,8 +1101,9 @@ Twitch may still show its disabled fullscreen control; there is no configured eq
 of YouTube's hide-button parameter. Clips have no interactive JavaScript API, so iframe load
 is not treated as proof of playback: load failures/timeouts offer a browser prompt. Errors displayed inside the cross-origin frame cannot be detected; the header icon
 and link context menu offer “Open in browser”. There is no separate “Clip not playing?”
-button. Closing, disabling, or removing the row unmounts the frame. Custom desktop origins
-may be rejected by Twitch's parent checks; the browser path remains available.
+button. Closing, disabling, or removing the row unmounts the frame. Packaged windows use
+`localhost` as their parent: Twitch's `frame-ancestors` allows HTTP localhost, but rejects
+macOS's former `tauri://localhost` and Windows' former `http://tauri.localhost` origins.
 
 The off-by-default `inlineImages` preference opens clicked image links in an `InlineImage`
 card with the same icon controls as videos. It uses the existing protected image fetch and
@@ -1374,6 +1376,19 @@ resets case, weight and tracking rather than inheriting them: it hangs inside th
 explains, and a section heading's small caps were being inherited into whole sentences.
 
 ## The window
+
+Packaged app windows load bundled assets from `http://localhost:<ephemeral-port>/` through
+[src-tauri/src/local_assets.rs](src-tauri/src/local_assets.rs). YouTube needs an HTTP referrer
+and Twitch requires an HTTP(S) frame ancestor; the default custom-protocol origins do not
+satisfy both providers. The server binds only IPv4 loopback and retains the allocated listener
+to avoid a port-selection race. It serves an in-memory map of compiled assets, accepts only
+GET/HEAD for the exact Host and same-origin Origin (when present), and supplies no CORS access,
+filesystem lookup, SPA fallback, credentials or HTTP command endpoints. A frame-ancestors
+policy prevents other pages from framing the app. The process's Tauri frontend URL is set to
+that exact origin before any window is created, so main and child windows share it and retain
+the existing local IPC capabilities without remote grants. Settings and accounts remain in
+the backend's existing files; they are independent of the changing port. The server ends with
+the app. Development keeps Vite's existing HTTP origin.
 
 `Ctrl/Cmd+N` opens an empty native chat window. **Move to new window** in a tab's context menu
 transfers the same tab ID and its retained chat/listener history. All windows share accounts,
