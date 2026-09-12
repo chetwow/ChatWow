@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-12
+
 ### Fixed
 
 - Restore inline YouTube playback on macOS and Twitch clip embeds in packaged desktop apps.

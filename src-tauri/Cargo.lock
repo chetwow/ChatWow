@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "chatwow"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
