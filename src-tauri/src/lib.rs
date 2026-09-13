@@ -13,6 +13,8 @@ mod local_assets;
 mod render;
 mod settings;
 mod state;
+#[cfg(target_os = "macos")]
+mod tab_drag_macos;
 #[cfg(test)]
 mod token_tests;
 mod twitch;

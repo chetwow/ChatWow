@@ -753,6 +753,20 @@ keeps the identity available within the source webview. Other windows recognize 
 drag MIME type during hover and read the tab ID and source window from `DataTransfer` on drop.
 The backend validates that the source still owns the tab before transferring ownership; the
 destination then places and activates it in the target pane without closing or duplicating it.
+An unhandled, released source drag asks `new_window` to detach the tab. On macOS,
+[tab_drag_macos.rs](src-tauri/src/tab_drag_macos.rs) observes AppKit drag sessions carrying the
+custom tab MIME marker. It disables the native rejected-drop return animation only for those
+sessions through both the modern session API and the older `dragImage` entrypoint. It captures
+the physical cursor in the native completion callback where available; older WebKit sources
+without that callback use the native cursor when `dragend` arrives. Neither path trusts WebKit's
+DOM end coordinates. Accepted native drops and Escape cancellation are consumed as no-ops.
+Other platforms convert the webview release coordinates. All platforms
+check every visible, non-minimized app window's outer frame before detaching.
+Outside drops reuse the snapshot/ownership transfer. The new tab's grab point stays under the
+release point, using the destination display scale and clamping the frame to its work area.
+A source tab already moved by another window is a silent no-op; ownership is rechecked after
+window creation as well. Moving the last tab leaves its source window open.
+
 
 The title-bar split button always offers left, right, up and down. Opening its menu selects
 the focused panel; a transient [selection store](src/store/splitTarget.ts) highlights that

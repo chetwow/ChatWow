@@ -12,8 +12,8 @@ import {
 import { createPortal } from "react-dom";
 import { mentionTabName, panes, paneTabs, tabPin, useChat } from "../store/chat";
 import { tabAvatar } from "../lib/tabAvatar";
-import { acceptsTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "../store/tabDrag";
-import { IS_MACOS } from "../lib/tauri";
+import { acceptsTabDrag, finishTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "../store/tabDrag";
+import { IS_MACOS, TITLE_BAR_PX } from "../lib/tauri";
 import { WINDOW_LABEL } from "../lib/windows";
 import { useSplitTarget } from "../store/splitTarget";
 import { AccountMenu } from "./AccountMenu";
@@ -325,9 +325,14 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
   // strays a pixel above into the title bar or below into the chat view, so
   // accept the drop everywhere while a tab drag is in progress.
   useEffect(() => {
+    const cancelDrag = (event: KeyboardEvent) => {
+      if (event.key === "Escape") useTabDrag.getState().end();
+    };
+    window.addEventListener("keydown", cancelDrag, true);
     window.addEventListener("dragenter", allowDrop);
     window.addEventListener("dragover", allowDrop);
     return () => {
+      window.removeEventListener("keydown", cancelDrag, true);
       window.removeEventListener("dragenter", allowDrop);
       window.removeEventListener("dragover", allowDrop);
     };
@@ -393,7 +398,9 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           onPointerDown={dismissStream}
           onDragStart={(event) => {
             dismissStream();
-            const dragging = { tab: tab.id, pane, windowLabel: WINDOW_LABEL };
+            const rect = event.currentTarget.getBoundingClientRect();
+            const dragging = { tab: tab.id, pane, windowLabel: WINDOW_LABEL,
+              offset: { x: 4 + event.clientX - rect.left, y: TITLE_BAR_PX + event.clientY - rect.top } };
             writeTabDrag(event.dataTransfer, dragging);
             startDrag(dragging);
           }}
@@ -403,7 +410,11 @@ export function TabBar({ pane, onAdd }: { pane: PaneIndex; onAdd: () => void }) 
           // the DOM under the cursor while the drag is still in progress --
           // the actual move happens once, on release.
           onDrop={(event) => dropAt(event, index)}
-          onDragEnd={endDrag}
+          onDragEnd={(event) => {
+            const dropped = finishTabDrag(event);
+            if (dropped) void useChat.getState().newWindow(dropped.tab, undefined,
+              { x: event.clientX, y: event.clientY, offset: dropped.offset });
+          }}
           onClick={() => setActive(tab.id, pane)}
           // Right-click is where a tab's account is changed -- the tab is the
           // thing being changed, so it's the thing you aim at.

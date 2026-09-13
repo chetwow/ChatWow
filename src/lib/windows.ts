@@ -14,6 +14,8 @@ export const windowTabs = (tabs: Tab[], label = WINDOW_LABEL): Tab[] =>
 
 /** CSS coordinates in the creating webview, converted to desktop pixels by Rust. */
 export type WindowAnchor = { x: number; y: number };
+/** Release point and grab offset within the new window, in CSS pixels. */
+export type WindowDrop = WindowAnchor & { offset?: WindowAnchor };
 
 export function windowAnchor(button: HTMLElement): WindowAnchor {
   const rect = button.getBoundingClientRect();

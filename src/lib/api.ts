@@ -1,4 +1,4 @@
-import type { WindowAnchor } from "./windows";
+import type { WindowAnchor, WindowDrop } from "./windows";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   StreamInfo,
@@ -18,8 +18,8 @@ import type {
 } from "../types";
 
 export const api = {
-  newWindow: (tabId: string | undefined, snapshot: { data: unknown; cursor: number }, anchor?: WindowAnchor) =>
-    invoke<string>("new_window", { tabId: tabId ?? null, snapshot, anchor: anchor ?? null }),
+  newWindow: (tabId: string | undefined, snapshot: { data: unknown; cursor: number }, anchor?: WindowAnchor, outsideDrop?: WindowDrop) =>
+    invoke<string | null>("new_window", { tabId: tabId ?? null, snapshot, anchor: anchor ?? null, outsideDrop: outsideDrop ?? null }),
   windowBootstrap: () => invoke<import("./backendEvents").WindowBootstrap>("window_bootstrap"),
   closeChatWindow: () => invoke<void>("close_chat_window"),
   focusTabWindow: (id: string) => invoke<void>("focus_tab_window", { id }),

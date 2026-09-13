@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { PaneIndex } from "../types";
-import { WINDOW_LABEL } from "../lib/windows";
+import { WINDOW_LABEL, type WindowAnchor } from "../lib/windows";
 
 const TAB_TYPE = "application/x-chatwow-tab";
 
@@ -15,7 +15,7 @@ const TAB_TYPE = "application/x-chatwow-tab";
  * persisted, and a value that changes on every dragenter has no business
  * waking the components subscribed to messages.
  */
-export type TabDrag = { tab: string; pane: PaneIndex; windowLabel: string };
+export type TabDrag = { tab: string; pane: PaneIndex; windowLabel: string; offset?: WindowAnchor };
 
 export function writeTabDrag(data: DataTransfer, drag: TabDrag) {
   data.setData(TAB_TYPE, JSON.stringify(drag));
@@ -49,3 +49,12 @@ export const useTabDrag = create<DragState>((set) => ({
   start: (drag) => set({ drag }),
   end: () => set({ drag: null }),
 }));
+
+/** Consume the source drag once; the native bounds check decides whether to detach.
+ * WebKit may report "copy" even for an outside drop, so dropEffect is not a location test.
+ */
+export function finishTabDrag(event: { buttons: number }): TabDrag | null {
+  const { drag, end } = useTabDrag.getState();
+  end();
+  return event.buttons === 0 ? drag : null;
+}

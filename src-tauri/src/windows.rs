@@ -217,6 +217,8 @@ pub fn begin_shutdown(app: &AppHandle, state: &Shared) {
 /// One ordered event stream lets a new webview replay everything since the
 /// source's snapshot, including messages received while the native window loads.
 pub fn install(app: &AppHandle, state: &Shared) {
+    #[cfg(target_os = "macos")]
+    crate::tab_drag_macos::install(app);
     for name in EVENTS {
         let state = state.clone();
         let app_handle = app.clone();
@@ -339,10 +341,18 @@ pub struct WindowAnchor {
     y: f64,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+pub struct WindowDrop {
+    x: f64,
+    y: f64,
+    offset: Option<WindowAnchor>,
+}
+
 struct OpeningPlacement {
     size: tauri::LogicalSize<f64>,
     origin: tauri::PhysicalPosition<f64>,
     centered: bool,
+    grab_offset: Option<WindowAnchor>,
     work_area: Option<tauri::PhysicalRect<i32, u32>>,
 }
 
@@ -359,6 +369,15 @@ fn screen_anchor(
         f64::from(content_origin.x) + anchor.x * scale,
         f64::from(content_origin.y) + anchor.y * scale,
     )
+}
+
+fn offset_origin(
+    origin: tauri::PhysicalPosition<f64>,
+    offset: Option<WindowAnchor>,
+    scale: f64,
+) -> tauri::PhysicalPosition<f64> {
+    let offset = offset.unwrap_or(WindowAnchor { x: 0.0, y: 0.0 });
+    tauri::PhysicalPosition::new(origin.x - offset.x * scale, origin.y - offset.y * scale)
 }
 
 fn opening_position(
@@ -393,6 +412,7 @@ impl OpeningPlacement {
         app: &AppHandle,
         source: &WebviewWindow,
         anchor: Option<WindowAnchor>,
+        desktop: Option<tauri::PhysicalPosition<f64>>,
     ) -> Result<Self, String> {
         let main = app
             .get_webview_window("main")
@@ -405,7 +425,9 @@ impl OpeningPlacement {
             config.min_width.unwrap_or(420.0),
             config.min_height.unwrap_or(320.0).max(320.0),
         );
-        let origin = if let Some(anchor) = anchor {
+        let origin = if let Some(desktop) = desktop {
+            desktop
+        } else if let Some(anchor) = anchor {
             screen_anchor(
                 source.inner_position().map_err(|e| e.to_string())?,
                 source.scale_factor().map_err(|e| e.to_string())?,
@@ -428,7 +450,8 @@ impl OpeningPlacement {
         Ok(Self {
             size,
             origin,
-            centered: anchor.is_none(),
+            centered: anchor.is_none() && desktop.is_none(),
+            grab_offset: None,
             work_area: monitor.map(|m| *m.work_area()),
         })
     }
@@ -443,11 +466,85 @@ impl OpeningPlacement {
         window.set_size(self.size)?;
         // Include the platform frame when centering and keeping the window on-screen.
         window.set_position(opening_position(
-            self.origin,
+            offset_origin(self.origin, self.grab_offset, window.scale_factor()?),
             window.outer_size()?,
             self.centered,
             self.work_area.as_ref(),
         ))
+    }
+}
+
+fn contains_point(
+    position: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    point: tauri::PhysicalPosition<f64>,
+) -> bool {
+    point.x >= f64::from(position.x)
+        && point.y >= f64::from(position.y)
+        && point.x < f64::from(position.x) + f64::from(size.width)
+        && point.y < f64::from(position.y) + f64::from(size.height)
+}
+
+/// Use native physical coordinates, including frames and every visible app window.
+fn outside_drop_position(
+    app: &AppHandle,
+    source: &WebviewWindow,
+    release: WindowAnchor,
+) -> Result<Option<tauri::PhysicalPosition<f64>>, String> {
+    #[cfg(target_os = "macos")]
+    let point = match crate::tab_drag_macos::take_release(source.label()) {
+        Some(Some(point)) => point,
+        Some(None) => return Ok(None),
+        // Older WebKit may not expose a modern dragging session. Keep detaching
+        // usable without trusting its DOM dragend coordinates.
+        None if objc2_app_kit::NSEvent::pressedMouseButtons() == 0 => {
+            app.cursor_position().map_err(|error| error.to_string())?
+        }
+        None => return Ok(None),
+    };
+    #[cfg(not(target_os = "macos"))]
+    let point = screen_anchor(
+        source.inner_position().map_err(|e| e.to_string())?,
+        source.scale_factor().map_err(|e| e.to_string())?,
+        release,
+    );
+    #[cfg(target_os = "macos")]
+    let _ = release;
+    if !point.x.is_finite() || !point.y.is_finite() {
+        return Ok(None);
+    }
+    for window in app.webview_windows().values() {
+        if !window.is_visible().map_err(|e| e.to_string())?
+            || window.is_minimized().map_err(|e| e.to_string())?
+        {
+            continue;
+        }
+        if contains_point(
+            window.outer_position().map_err(|e| e.to_string())?,
+            window.outer_size().map_err(|e| e.to_string())?,
+            point,
+        ) {
+            return Ok(None);
+        }
+    }
+    Ok(Some(point))
+}
+
+fn can_open_source(
+    tabs: &[crate::settings::Tab],
+    id: Option<&str>,
+    source: &str,
+    outside: bool,
+) -> Result<bool, String> {
+    if id.is_none_or(|id| {
+        tabs.iter()
+            .any(|tab| tab.id == id && tab.window_label == source)
+    }) {
+        Ok(true)
+    } else if outside {
+        Ok(false)
+    } else {
+        Err("This tab is no longer in this window".into())
     }
 }
 
@@ -459,18 +556,39 @@ pub async fn new_window(
     tab_id: Option<String>,
     snapshot: Snapshot,
     anchor: Option<WindowAnchor>,
-) -> Result<String, String> {
-    if let Some(id) = &tab_id {
-        if !state
-            .tabs
-            .read()
-            .iter()
-            .any(|t| &t.id == id && t.window_label == window.label())
-        {
-            return Err("This tab is no longer in this window".into());
+    outside_drop: Option<WindowDrop>,
+) -> Result<Option<String>, String> {
+    let desktop = if let Some(release) = outside_drop {
+        if tab_id.is_none() {
+            return Err("An outside drop requires a tab".into());
         }
+        let Some(point) = outside_drop_position(
+            &app,
+            &window,
+            WindowAnchor {
+                x: release.x,
+                y: release.y,
+            },
+        )?
+        else {
+            return Ok(None);
+        };
+        Some(point)
+    } else {
+        None
+    };
+    if !can_open_source(
+        &state.tabs.read(),
+        tab_id.as_deref(),
+        window.label(),
+        outside_drop.is_some(),
+    )? {
+        return Ok(None);
     }
-    let placement = OpeningPlacement::capture(&app, &window, anchor)?;
+    let mut placement = OpeningPlacement::capture(&app, &window, anchor, desktop)?;
+    placement.grab_offset = outside_drop
+        .and_then(|drop| drop.offset)
+        .filter(|offset| offset.x.is_finite() && offset.y.is_finite());
     let id = state
         .windows
         .next
@@ -525,11 +643,17 @@ pub async fn new_window(
             .find(|t| &t.id == id && t.window_label == window.label())
         {
             tab.window_label = label.clone();
+        } else {
+            // A destination may finish transferring the tab while the native
+            // window is being built. Do not leave an empty orphan or show an error.
+            drop(tabs);
+            let _ = created.destroy();
+            return Ok(None);
         }
     }
     crate::tabs_changed(&app, &state);
     let _ = created.set_always_on_top(preferences_for(&state, &label).always_on_top);
-    Ok(label)
+    Ok(Some(label))
 }
 
 #[tauri::command]
@@ -650,6 +774,57 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use std::sync::Arc;
+
+    #[test]
+    fn detached_window_keeps_the_grab_point_under_the_release_at_destination_scale() {
+        let release = tauri::PhysicalPosition::new(2000.0, 200.0);
+        let offset = Some(WindowAnchor { x: 35.0, y: 52.0 });
+        assert_eq!(
+            offset_origin(release, offset, 2.0),
+            tauri::PhysicalPosition::new(1930.0, 96.0)
+        );
+        assert_eq!(
+            offset_origin(release, offset, 1.0),
+            tauri::PhysicalPosition::new(1965.0, 148.0)
+        );
+    }
+
+    #[test]
+    fn a_completed_cross_window_drop_is_a_silent_noop_in_its_old_source() {
+        let tabs: Vec<crate::settings::Tab> = serde_json::from_value(json!([
+            {"id":"tab", "kind":"channel", "channel":"room", "account":"", "windowLabel":"main"}
+        ]))
+        .unwrap();
+        assert!(!can_open_source(&tabs, Some("tab"), "chat-0", true).unwrap());
+        assert!(!can_open_source(&tabs, Some("closed"), "chat-0", true).unwrap());
+        assert!(can_open_source(&tabs, Some("tab"), "chat-0", false).is_err());
+        assert!(can_open_source(&tabs, Some("tab"), "main", true).unwrap());
+    }
+
+    #[test]
+    fn drop_bounds_include_frames_and_support_negative_desktop_coordinates() {
+        let position = tauri::PhysicalPosition::new(-1920, -100);
+        let size = tauri::PhysicalSize::new(960, 800);
+        for (x, y) in [(-1920.0, -100.0), (-1500.0, 0.0), (-960.1, 699.9)] {
+            assert!(contains_point(
+                position,
+                size,
+                tauri::PhysicalPosition::new(x, y)
+            ));
+        }
+        for (x, y) in [
+            (-1920.1, 0.0),
+            (-960.0, 0.0),
+            (-1500.0, -100.1),
+            (-1500.0, 700.0),
+        ] {
+            assert!(!contains_point(
+                position,
+                size,
+                tauri::PhysicalPosition::new(x, y)
+            ));
+        }
+    }
 
     #[test]
     fn new_windows_copy_main_pin_even_when_opened_from_a_differently_pinned_child() {

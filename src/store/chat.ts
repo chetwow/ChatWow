@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { backendListen as listen, backendCursor, backendHydrating, startBackendEvents, finishBackendBootstrap } from "../lib/backendEvents";
-import { ownsTab, windowTabs, WINDOW_LABEL, IS_MAIN_WINDOW, type WindowAnchor, type ListenerDestination } from "../lib/windows";
+import { ownsTab, windowTabs, WINDOW_LABEL, IS_MAIN_WINDOW, type WindowAnchor, type WindowDrop, type ListenerDestination } from "../lib/windows";
 import { useTabDrag, type TabDrag } from "./tabDrag";
 import { api } from "../lib/api";
 import { IS_TAURI, MOCK_MODE } from "../lib/tauri";
@@ -532,7 +532,7 @@ type ChatState = {
   /** Every open tab, in bar order -- the backend's list, mirrored here. */
   tabs: Tab[];
   receiveTabs: (tabs: Tab[]) => void;
-  newWindow: (tabId?: string, anchor?: WindowAnchor) => Promise<void>;
+  newWindow: (tabId?: string, anchor?: WindowAnchor, outsideDrop?: WindowDrop) => Promise<void>;
   requestCloseWindow: () => void;
   windowError: string | null;
   /**
@@ -967,16 +967,17 @@ export const useChat = create<ChatState>((set) => ({
     const dragging = useTabDrag.getState().drag;
     if (dragging && !tabs.some((tab) => tab.id === dragging.tab && ownsTab(tab))) useTabDrag.getState().end();
   },
-  newWindow: async (tabId, anchor) => {
+  newWindow: async (tabId, anchor, outsideDrop) => {
     const state = useChat.getState();
+    if (outsideDrop && !state.tabs.some(tab => tab.id === tabId && ownsTab(tab))) return;
     // Preserve legacy split membership before ownership changes the local list.
     if (tabId && !state.preferences.paneLayout) state.updatePreferences({ paneLayout: getPaneLayout(state) });
     set({ windowError: null });
     try {
-      if (IS_TAURI) await api.newWindow(tabId, { data: windowSnapshot(), cursor: backendCursor() }, anchor);
+      if (IS_TAURI) await api.newWindow(tabId, { data: windowSnapshot(), cursor: backendCursor() }, anchor, outsideDrop);
       else if (__CHATWOW_MOCKS__ && MOCK_MODE) {
         const { openMockWindow } = await import("../dev/mockWindows");
-        openMockWindow(tabId, anchor);
+        openMockWindow(tabId, anchor, outsideDrop);
       }
     } catch (error) {
       set({ windowError: `Couldn't open a window: ${String(error)}` });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/windows", () => ({ WINDOW_LABEL: "main" }));
-import { acceptsTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "./tabDrag";
+import { acceptsTabDrag, finishTabDrag, readTabDrag, useTabDrag, writeTabDrag } from "./tabDrag";
 
 function transfer() {
   const values = new Map<string, string>();
@@ -40,5 +40,33 @@ describe("native tab drag payload", () => {
     expect(acceptsTabDrag(data, 1)).toBe(true);
     data.getData = () => '{"tab":"a","pane":0}';
     expect(readTabDrag(data)).toBeNull();
+  });
+});
+
+describe("finishing a tab drag", () => {
+  const drag = { tab: "a", pane: 0, windowLabel: "main" };
+  const event = (dropEffect = "none", buttons = 0) => ({
+    dataTransfer: { dropEffect } as DataTransfer, buttons,
+  });
+
+  it("consumes an unhandled released drag exactly once for the native bounds check", () => {
+    useTabDrag.getState().start(drag);
+    expect(finishTabDrag(event())).toEqual(drag);
+    expect(finishTabDrag(event())).toBeNull();
+  });
+
+  it("leaves drop location decisions to native bounds regardless of the browser effect", () => {
+    for (const effect of ["none", "move", "copy", "link"]) {
+      useTabDrag.getState().start(drag);
+      expect(finishTabDrag(event(effect))).toEqual(drag);
+    }
+  });
+
+  it("does not detach cancelled or already-consumed source drags", () => {
+    useTabDrag.getState().start(drag);
+    expect(finishTabDrag(event("none", 1))).toBeNull();
+    useTabDrag.getState().start(drag);
+    useTabDrag.getState().end(); // Escape, a local drop, or ownership changed.
+    expect(finishTabDrag(event())).toBeNull();
   });
 });

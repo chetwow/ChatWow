@@ -201,8 +201,11 @@ export default function App() {
     let fromRightClick = false;
     let hadSelection = false;
 
-    const editable = (target: EventTarget | null) =>
-      !!(target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']");
+    const editable = (target: EventTarget | null) => {
+      // WebKit can target a text node when selection starts during a drag.
+      const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+      return !!element?.closest("input, textarea, [contenteditable='true']");
+    };
 
     const clearIfOurs = () => {
       if (!hadSelection) window.getSelection()?.removeAllRanges();

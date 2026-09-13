@@ -1,6 +1,6 @@
 // Browser-only multiwindow fixtures; dynamically imported and absent from release output.
 import { DEFAULT_PREFERENCES, hydrateWindowSnapshot, useChat, windowSnapshot } from "../store/chat";
-import { WINDOW_LABEL, IS_MAIN_WINDOW, windowTabs, type WindowAnchor } from "../lib/windows";
+import { WINDOW_LABEL, IS_MAIN_WINDOW, windowTabs, type WindowAnchor, type WindowDrop } from "../lib/windows";
 import { randomMockMessage } from "./mockData";
 import type { Preferences, Tab, ChatMessage } from "../types";
 
@@ -11,7 +11,29 @@ let channel: BroadcastChannel | null = null;
 let receiving = false;
 const children: Window[] = [];
 
-export function openMockWindow(tabId?: string, anchor?: WindowAnchor) {
+function mockWindows(): Window[] {
+  let root = window;
+  while (root.opener && !root.opener.closed) root = root.opener;
+  const family: Window[] = [];
+  // Each popup exposes its children to other same-origin mock windows.
+  const visit = (current: Window) => {
+    if (current.closed || family.includes(current)) return;
+    family.push(current);
+    for (const child of (current as Window & { __chatwowChildren?: Window[] }).__chatwowChildren ?? []) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return family.filter(w => !w.closed);
+}
+
+export function openMockWindow(tabId?: string, anchor?: WindowAnchor, outsideDrop?: WindowDrop) {
+  const desktop = outsideDrop ? {
+    x: window.screenX + outsideDrop.x,
+    y: window.screenY + window.outerHeight - window.innerHeight + outsideDrop.y,
+  } : undefined;
+  if (desktop && mockWindows().some(w => desktop.x >= w.screenX && desktop.y >= w.screenY &&
+    desktop.x < w.screenX + w.outerWidth && desktop.y < w.screenY + w.outerHeight)) return;
   const label = `chat-${crypto.randomUUID()}`;
   const url = new URL(location.href);
   url.searchParams.set("window", label);
@@ -20,8 +42,8 @@ export function openMockWindow(tabId?: string, anchor?: WindowAnchor) {
   while (master.opener && !master.opener.closed) master = master.opener;
   const width = 420;
   const height = Math.max(320, Math.round(master.innerHeight * 0.75));
-  const left = anchor ? window.screenX + anchor.x : master.screenX + (master.outerWidth - width) / 2;
-  const top = anchor ? window.screenY + (window.outerHeight - window.innerHeight) + anchor.y
+  const left = desktop ? desktop.x - (outsideDrop?.offset?.x ?? 0) : anchor ? window.screenX + anchor.x : master.screenX + (master.outerWidth - width) / 2;
+  const top = desktop ? desktop.y - (outsideDrop?.offset?.y ?? 0) : anchor ? window.screenY + (window.outerHeight - window.innerHeight) + anchor.y
     : master.screenY + (master.outerHeight - height) / 2;
   const child = window.open("about:blank", label,
     `popup,width=${width},height=${height},left=${Math.round(left)},top=${Math.round(top)}`);
@@ -36,6 +58,7 @@ export function openMockWindow(tabId?: string, anchor?: WindowAnchor) {
   } }));
   useChat.getState().receiveTabs(tabs);
   children.push(child);
+  (window as Window & { __chatwowChildren?: Window[] }).__chatwowChildren = children;
   child.location.href = url.href;
 }
 

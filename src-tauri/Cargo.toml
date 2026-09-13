@@ -48,4 +48,6 @@ tauri-plugin-window-state = "2.4.1"
 tokio = { version = "1", features = ["test-util", "io-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSCursor"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSCursor", "NSEvent", "NSView", "NSWindow", "NSResponder", "NSDraggingSession", "NSPasteboard"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSData", "NSGeometry"] }
