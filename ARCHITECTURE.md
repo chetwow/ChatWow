@@ -753,6 +753,10 @@ keeps the identity available within the source webview. Other windows recognize 
 drag MIME type during hover and read the tab ID and source window from `DataTransfer` on drop.
 The backend validates that the source still owns the tab before transferring ownership; the
 destination then places and activates it in the target pane without closing or duplicating it.
+The source drag is consumed once. `dropEffect` is not an outside-drop test: WebKit can report
+`copy` rather than `none`, and a cross-window destination may finish its transfer before the
+source's `dragend` handler runs. `WindowDrop` carries webview CSS coordinates and a CSS grab
+offset; the macOS backend replaces the unreliable DOM release position with a native one.
 An unhandled, released source drag asks `new_window` to detach the tab. On macOS,
 [tab_drag_macos.rs](src-tauri/src/tab_drag_macos.rs) observes AppKit drag sessions carrying the
 custom tab MIME marker. It disables the native rejected-drop return animation only for those
@@ -1405,16 +1409,19 @@ the backend's existing files; they are independent of the changing port. The ser
 the app. Development keeps Vite's existing HTTP origin.
 
 `Ctrl/Cmd+N` opens an empty native chat window. **Move to new window** in a tab's context menu
-transfers the same tab ID and its retained chat/listener history. All windows share accounts,
-connections and the backend tab list; a listener can consume channel tabs in any window.
+or dropping a tab outside every visible ChatWow window transfers the same tab ID and its retained
+chat/listener history. [Split view](#split-view) describes drag acceptance and ownership races.
+All windows share accounts, connections and the backend tab list; a listener can consume channel
+tabs in any window.
 Each webview renders only its own tabs and owns its focus, split layout and notification controls.
 Settings, Info and Accounts stay on the main window's title bar. Secondary title bars contain
 Search, Pin, Mute and Split, plus platform window controls. New windows start at the configured
 minimum width (420 CSS pixels) and 75% of the main window's current content height, with a 320px
 minimum height. Menu actions anchor the window below the selected menu button, converting from
 the creating webview's coordinates to physical desktop pixels. Hotkeys center the new outer
-frame over main even when invoked from a secondary window. Placement is applied before showing
-the webview and clamped to the destination display's work area.
+frame over main even when invoked from a secondary window. An outside drop aligns the new tab's
+grab point with the native release point, using the destination display's scale. Placement is
+applied before showing the webview and clamped to the destination display's work area.
 
 The configured `main` window controls app lifetime: closing it quits the app and all secondary
 windows. Closing a secondary window closes only its tabs, first warning if this would stop a
@@ -1473,8 +1480,8 @@ no service to run. A website would only start earning its place with staged roll
 channel, or download numbers, none of which anyone has asked for.
 
 The preferred release trigger is `workflow_dispatch` on `main` after the version commit has been
-pushed. The Tauri action still creates the `v<version>` tag and draft release, while keeping the
-workflow on the default-branch cache scope lets later releases reuse npm and Rust artifacts;
+pushed. The Tauri action is configured to create the `v<version>` tag and a draft release.
+Keeping the workflow on the default-branch cache scope lets later releases reuse npm and Rust artifacts;
 separate version tags cannot share their own caches. A pushed tag remains a fallback trigger.
 Every `npm ci` skips its automatic audit request and prefers cached packages because verification
 runs one explicit, retry-protected `npm audit`; install-time audits would duplicate that network
@@ -1557,9 +1564,10 @@ one key missing from the file and that platform alone never seeing another updat
 1` is the whole fix.
 
 **Publishing the draft is the act of shipping.** `releases/latest/download/` resolves only to a
-published, non-prerelease release, so the draft the workflow leaves is invisible to every
-installed copy until someone publishes it -- and the moment they do, every running app finds it
-at its next launch. There's no staged rollout and no recall: the NSIS template refuses
+published, non-prerelease release. Verify the actual release's `draft` and `prerelease` flags
+after the workflow; `releaseDraft: true` alone does not establish the resulting state. A release
+that remains a draft is invisible to installed copies until publication, when every running app
+finds it at its next launch. There's no staged rollout and no recall: the NSIS template refuses
 downgrades and the updater only offers strictly newer versions, so the only fix for a bad
 release is a newer one carrying the old code. `CHATWOW_UPDATE_ENDPOINT` exists for the
 rehearsal that makes that unlikely -- point a hand-installed build at a pre-release's own
@@ -1600,9 +1608,13 @@ overlay inside the cog's existing fixed box: it must never change what the title
 | `src-tauri/src/auth.rs` | OAuth device code flow, permission groups |
 | `src-tauri/src/state.rs` | Accounts, connections, per-room data and per-session state |
 | `src-tauri/src/windows.rs` | Native chat windows, scoped preferences, event replay and app lifetime |
+| `src-tauri/src/tab_drag_macos.rs` | Modern and legacy AppKit tab-drag hooks, return-animation suppression and native completion capture |
+| `src-tauri/src/local_assets.rs` | Loopback HTTP serving of bundled assets for packaged provider embeds |
 | `src-tauri/src/settings.rs` | `settings.json`: accounts, tabs, emote counts, preferences; migration |
 | `src/store/chat.ts` | Zustand store, per-tab message arrays trimmed to 500 when exceeding 600, pane layout |
-| `src/store/tabDrag.ts` | The tab being dragged, shared by both panes |
+| `src/store/tabDrag.ts` | Typed tab drag payload, source-webview drag state and one-time consumption |
+| `src/lib/windows.ts` | Window ownership filters, labels, menu anchors and outside-drop coordinates |
+| `src/dev/mockWindows.ts` | Browser-only window, ownership and snapshot fixtures; not native verification |
 | `src/components/Panes.tsx` | Pane layout, active chat views, and optional retention of the video-owning inactive tab |
 | `src/store/inlineVideo.ts` | Single inline video owner, owning tab, and off-screen state |
 | `src/components/VideoTabContext.ts` | Tab identity and visibility for inline links |
@@ -1732,3 +1744,34 @@ an unexpectedly empty catalog can otherwise look like a channel simply has no em
 `npm test` runs the Vitest frontend regression suite, and `npm run build` type-checks and bundles
 the production UI. The release workflow runs both, plus Rust formatting, strict Clippy and the
 Rust unit suite and npm/RustSec dependency audits, before any platform installer job can begin.
+
+### Native tab-drag verification
+
+`npm test -- src/store/tabDrag.test.ts src/store/windows.test.ts` covers drag payloads, one-time
+source consumption, stale ownership, pane placement, and retained tab state. Rust tests in
+`windows.rs` cover frame containment, grab offsets at different display scales, and a completed
+cross-window transfer becoming a silent no-op in its old source. The macOS module's unit test
+checks the custom tab marker; it does not exercise AppKit or establish animation behavior.
+
+Use a rebuilt native app to check detachment, then transfer the tab back. Verify the child tab's
+vertical and horizontal placement, no return animation before the child opens, no error in the
+old window, and preserved tab history. Also exercise an inside-window drop, Escape cancellation,
+an emptied source window, and display-edge clamping; check mixed-scale displays when available.
+Record which scenarios and platforms were actually exercised instead of treating this list as
+proof they all passed. Browser mock popups do not verify native bounds or AppKit behavior.
+
+For an isolated native session without the regular profile's tabs or accounts, first ensure port
+1420 is free and start `npm run dev -- --host 127.0.0.1`. Then, in a second terminal:
+
+```bash
+CHATWOW_LOG=debug npm run tauri dev -- --no-watch --config '{"identifier":"com.chatwow.drag-test","build":{"beforeDevCommand":"","devUrl":"http://127.0.0.1:1420"}}'
+```
+
+If reusing an existing preview, verify its checkout and URL first. The identifier override uses
+a separate persistent test profile; it does not populate native windows with browser mock data.
+On macOS its log is `~/Library/Logs/com.chatwow.drag-test/chatwow.log`. The diagnostic
+`native tab drag: legacy return animation disabled` confirms that the older AppKit entrypoint
+was intercepted; the modern path logs `native tab drag: return animation disabled`. These logs
+corroborate an observed gesture, not the correctness of the complete interaction. Inspect fresh
+webview errors too: selection events may target text nodes, so `App.tsx` resolves their parent
+element before calling `.closest`. Stop only the test processes started for verification.

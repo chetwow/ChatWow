@@ -19,9 +19,10 @@
 #
 #   gh workflow run release.yml --ref main
 #
-# Pushing a pre-created v* tag remains a fallback. Either way the release lands
-# as a draft, named from the version in tauri.conf.json -- nothing is published
-# until you say so.
+# Pushing a pre-created v* tag remains a fallback. Both paths request a draft,
+# named from the version in tauri.conf.json. Verify the resulting release's
+# actual draft/prerelease flags; this configuration is not proof of its state.
+# Publication still requires explicit authorization.
 name: release
 
 on:

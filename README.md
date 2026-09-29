@@ -7,6 +7,7 @@ in a browser.
 ## Key features
 
 - Tabbed chats for multiple channels, with optional split-screen viewing
+- Child windows with tabs that can be moved between windows
 - Multiple Twitch accounts, with per-tab account selection and permission controls
 - Chat history search
 - Six built-in color themes, plus customizable appearance and notifications
@@ -28,11 +29,19 @@ ChatWow is available for Windows, macOS, and Linux.
 
 ## Keyboard shortcuts
 
+- `Ctrl+N` on Windows/Linux or `Cmd+N` on macOS opens a new chat window.
 - `Ctrl+1`–`Ctrl+8` on Windows/Linux or `Cmd+1`–`Cmd+8` on macOS selects a numbered tab.
 - `Ctrl+9` on Windows/Linux or `Cmd+9` on macOS selects the final tab.
 - `Ctrl+Tab` / `Ctrl+Shift+Tab` cycles tabs on Windows/Linux.
 - `Cmd+Option+Right` / `Cmd+Option+Left` cycles tabs on macOS.
 - `Ctrl+Shift+T` on Windows/Linux or `Cmd+Shift+T` on macOS reopens the last closed tab.
 - `Cmd+,` opens Settings on macOS.
+
+## Moving tabs between windows
+
+Drag a tab onto another ChatWow window to move it there, or choose **Move to new window**
+from the tab's context menu. In the unreleased development version, dropping a tab outside all
+ChatWow windows also opens it in a new child window at the drop location, preserving its chat
+history. Moving the last tab out leaves its original window open.
 
 <img width="1448" height="1086" alt="d2da58ce-a0ac-49fa-b96b-460619b790c7" src="https://github.com/user-attachments/assets/59a67fa2-48cd-4c77-9dfb-df47b6762327" />
