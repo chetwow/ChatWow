@@ -1488,6 +1488,8 @@ tabs, composers, pins, dialogs and dividers paint their own opaque backgrounds. 
 dividers mix their tints with the solid surface rather than transparent pixels. macOS enables
 Tauri's `macos-private-api` feature and `macOSPrivateApi` config for the transparent webview
 backing; both native configs use `transparent: true` and a clear `backgroundColor`.
+Keep `macOSPrivateApi` in the common config to match the Cargo feature during Linux and
+Windows verification too; Tauri's build script checks those features on every platform.
 
 The popover focuses its slider on opening. Dismiss it on an outside pointer target, focus
 moving to a control outside it, window blur, or Escape; Escape restores focus to the button.

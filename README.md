@@ -40,7 +40,7 @@ ChatWow is available for Windows, macOS, and Linux.
 
 ## Chat background transparency
 
-In the unreleased development version, click the half-filled circle beside the title-bar pin
+Click the half-filled circle beside the title-bar pin
 to adjust **Chat background transparency** from 0% (opaque) to 100% (fully transparent).
 Only the chat panel background changes; text, images, title bars, tabs, input controls and
 dialogs stay opaque.
@@ -52,7 +52,7 @@ window share it; moving a tab uses the destination window's setting. New windows
 ## Moving tabs between windows
 
 Drag a tab onto another ChatWow window to move it there, or choose **Move to new window**
-from the tab's context menu. In the unreleased development version, dropping a tab outside all
+from the tab's context menu. Dropping a tab outside all
 ChatWow windows also opens it in a new child window at the drop location, preserving its chat
 history. Moving the last tab out leaves its original window open.
 

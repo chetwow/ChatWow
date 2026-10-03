@@ -4,8 +4,6 @@
 //! Excluded from the normal suite because it needs the network:
 //!   cargo test -- --ignored --nocapture
 
-#![cfg(test)]
-
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::time::Duration;

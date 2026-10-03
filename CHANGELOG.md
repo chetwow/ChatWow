@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-03
+
 ### Added
 
 - Drag a tab outside all ChatWow windows to move it into a new child window.
