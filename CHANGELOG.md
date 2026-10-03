@@ -7,6 +7,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-03
+
+### Fixed
+
+- Prevent delayed responses from restoring closed or moved tabs, losing listener messages,
+  or skipping saved tab settings and empty-window cleanup.
+- Keep account permissions, channel readiness, and emote completion consistent when switching accounts.
+- Preserve text and replies edited while a message is being sent; discard canceled searches and sign-in requests.
+- Retain accounts during temporary authentication failures and respect Twitch's sign-in polling backoff.
+- Offer Restart only after an update has been verified and installed successfully.
+- Bound emote image downloads and preserve cached badges when a provider lookup fails.
+- Validate release versions consistently and keep prereleases out of the stable update channel.
+
+### Security
+
+- Update Rustls to 0.23.45 to address RUSTSEC-2026-0285 in TLS 1.3 handshake processing.
+
 ## [1.8.0] - 2026-10-03
 
 ### Added
