@@ -592,11 +592,19 @@ pub async fn new_window(
     placement.grab_offset = outside_drop
         .and_then(|drop| drop.offset)
         .filter(|offset| offset.x.is_finite() && offset.y.is_finite());
-    let id = state
-        .windows
-        .next
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-        .map_err(|_| "No more window IDs are available")?;
+    // Keep allocation compatible with older Rust versions too: newer compilers
+    // deprecate fetch_update, while the renamed try_update is not available there.
+    let counter = &state.windows.next;
+    let mut id = counter.load(Ordering::Relaxed);
+    loop {
+        let next = id
+            .checked_add(1)
+            .ok_or("No more window IDs are available")?;
+        match counter.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(current) => id = current,
+        }
+    }
     let label = format!("chat-{id}");
     {
         let mut journal = state.windows.journal.lock();
