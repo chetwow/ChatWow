@@ -41,6 +41,8 @@ const SCALE: i64 = 2;
 struct Response {
     #[serde(default)]
     data: Option<Data>,
+    #[serde(default)]
+    errors: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -117,14 +119,24 @@ fn pick_image(images: &[Image]) -> Option<&Image> {
         .filter(|image| !image.url.is_empty())
 }
 
-fn badges_from(response: Response, ids: &[String]) -> HashMap<String, Badge> {
-    let Some(data) = response.data else {
-        return HashMap::new();
-    };
+fn badges_from(response: Response, ids: &[String]) -> Result<HashMap<String, Badge>> {
+    // GraphQL failures can use HTTP 200 and partial/null data. They must not
+    // become cached "no badge" answers that erase working badges for a day.
+    anyhow::ensure!(
+        response.errors.is_empty(),
+        "7TV badge lookup returned errors"
+    );
+    let data = response
+        .data
+        .ok_or_else(|| anyhow!("7TV badge lookup returned no data"))?;
     let mut map = HashMap::new();
 
     for (index, id) in ids.iter().enumerate() {
-        let Some(Some(user)) = data.users.get(&format!("u{index}")) else {
+        let user = data
+            .users
+            .get(&format!("u{index}"))
+            .ok_or_else(|| anyhow!("7TV badge lookup returned incomplete data"))?;
+        let Some(user) = user else {
             continue;
         };
         let Some(badge) = user
@@ -151,7 +163,7 @@ fn badges_from(response: Response, ids: &[String]) -> HashMap<String, Badge> {
             ),
         );
     }
-    map
+    Ok(map)
 }
 
 /// How long to let ids pile up before asking. A join hands us a hundred
@@ -178,7 +190,7 @@ pub async fn fetch(client: &reqwest::Client, ids: &[String]) -> Result<HashMap<S
     let body = response.text().await?;
     let parsed: Response = serde_json::from_str(&body)
         .map_err(|error| anyhow!("unexpected 7TV badge response: {error}"))?;
-    Ok(badges_from(parsed, &ids))
+    badges_from(parsed, &ids)
 }
 
 /// The resolver: chatters go in one at a time, requests go out in batches.
@@ -310,7 +322,7 @@ mod tests {
             "u2":{"style":{"activeBadge":{"id":"01JF","name":"NNYS Golden Gondola","images":[
               {"url":"https://cdn.7tv.app/badge/01JF/2x_static.avif","mime":"image/avif","scale":2}]}}}
         }}}"#;
-        let map = badges_from(serde_json::from_str(json).unwrap(), &ids);
+        let map = badges_from(serde_json::from_str(json).unwrap(), &ids).unwrap();
 
         let xqc = map.get("71092938").expect("the first id keeps its badge");
         assert_eq!(xqc.title, "Minecraft Event Winner");
@@ -337,7 +349,9 @@ mod tests {
     fn a_user_7tv_doesnt_know_is_absent_rather_than_an_error() {
         let ids = owned(&["1"]);
         let json = r#"{"data":{"users":{"u0":null}}}"#;
-        assert!(badges_from(serde_json::from_str(json).unwrap(), &ids).is_empty());
+        assert!(badges_from(serde_json::from_str(json).unwrap(), &ids)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -345,6 +359,21 @@ mod tests {
         // Nothing to draw, and an empty src renders as a broken image.
         let ids = owned(&["5"]);
         let json = r#"{"data":{"users":{"u0":{"style":{"activeBadge":{"id":"x","name":"y","images":[]}}}}}}"#;
-        assert!(badges_from(serde_json::from_str(json).unwrap(), &ids).is_empty());
+        assert!(badges_from(serde_json::from_str(json).unwrap(), &ids)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn graphql_failures_are_not_negative_badge_cache_entries() {
+        let ids = owned(&["71092938"]);
+        for json in [
+            r#"{"errors":[{"message":"Too many requests"}],"data":null}"#,
+            r#"{"errors":[{"message":"Lookup failed"}],"data":{"users":{"u0":null}}}"#,
+            r#"{"data":null}"#,
+            r#"{"data":{"users":{}}}"#,
+        ] {
+            assert!(badges_from(serde_json::from_str(json).unwrap(), &ids).is_err());
+        }
     }
 }

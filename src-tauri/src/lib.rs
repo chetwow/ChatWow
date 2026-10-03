@@ -606,11 +606,14 @@ fn restart_app(app: AppHandle) {
 /// as art we can no longer refresh.
 /// Drop every account. Tabs fall back to anonymous, as they do when a single
 /// account is removed -- see `remove_account`.
-fn clear_session(state: &AppState) {
+fn clear_session(state: &AppState, client_id_override: Option<String>) {
     {
         let mut auth_state = state.auth.write();
         auth_state.accounts.clear();
         auth_state.default_account = ANONYMOUS.to_string();
+        // Changing the client and removing its grants must be atomic with
+        // respect to a device-auth poll finishing on another runtime thread.
+        auth_state.client_id_override = client_id_override;
     }
     for tab in state.tabs.write().iter_mut() {
         tab.account = ANONYMOUS.to_string();
@@ -647,9 +650,8 @@ fn set_client_id_override(
         return state.auth_status();
     }
 
-    clear_session(&state);
+    clear_session(&state, next);
     state.eventsub_restart.notify_one();
-    state.auth.write().client_id_override = next;
     persist(&app, &state);
     client::sync(&app, &state);
     client::reconnect_all(&state);
@@ -963,6 +965,26 @@ async fn start_device_auth(state: State<'_, Shared>) -> Result<auth::DeviceCode,
         .map_err(|e| e.to_string())
 }
 
+fn store_device_account(
+    auth_state: &mut state::Auth,
+    client_id: &str,
+    account: settings::Account,
+) -> Result<(), String> {
+    if auth_state.client_id() != Some(client_id) {
+        return Err("The Twitch Client ID changed. Start sign-in again.".to_string());
+    }
+    // Reauthorization replaces the same account's credentials and scopes.
+    let account_id = account.id.clone();
+    match auth_state.accounts.iter_mut().find(|a| a.id == account.id) {
+        Some(existing) => *existing = account,
+        None => auth_state.accounts.push(account),
+    }
+    if auth_state.default_account == ANONYMOUS {
+        auth_state.default_account = account_id;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn poll_device_auth(
     app: AppHandle,
@@ -984,6 +1006,7 @@ async fn poll_device_auth(
 
     match outcome {
         auth::PollOutcome::Pending => Ok(json!({ "status": "pending" })),
+        auth::PollOutcome::SlowDown => Ok(json!({ "status": "slow_down" })),
         auth::PollOutcome::Failed(detail) => Ok(json!({ "status": "failed", "detail": detail })),
         auth::PollOutcome::Granted(tokens) => {
             let validation = auth::validate(&state.http, &tokens.access_token)
@@ -1005,18 +1028,7 @@ async fn poll_device_auth(
                     scopes: validation.scopes.clone(),
                     avatar_url: avatar.unwrap_or_default(),
                 };
-                // Signing the same account in again replaces its tokens rather
-                // than listing it twice -- which is how you widen what one
-                // account may do, scopes being granted once and only at sign-in.
-                match auth_state.accounts.iter_mut().find(|a| a.id == account.id) {
-                    Some(existing) => *existing = account,
-                    None => auth_state.accounts.push(account),
-                }
-                // The first account signed in becomes what new tabs use; after
-                // that the choice is the settings dialog's to make.
-                if auth_state.default_account == ANONYMOUS {
-                    auth_state.default_account = validation.user_id.clone();
-                }
+                store_device_account(&mut auth_state, &client_id, account)?;
             }
             persist(&app, &state);
 

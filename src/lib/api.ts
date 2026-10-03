@@ -30,7 +30,7 @@ export const api = {
     invoke<AuthStatus>("set_client_id_override", { clientId }),
   startDeviceAuth: () => invoke<DeviceCode>("start_device_auth"),
   pollDeviceAuth: (deviceCode: string) =>
-    invoke<{ status: "pending" | "granted" | "failed"; detail?: string; login?: string }>(
+    invoke<{ status: "pending" | "slow_down" | "granted" | "failed"; detail?: string; login?: string }>(
       "poll_device_auth",
       { deviceCode },
     ),

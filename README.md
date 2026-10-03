@@ -1,59 +1,33 @@
 # ChatWow
 
-ChatWow is a modern desktop client for Twitch chat, built with Tauri and React. It offers a
-clean, responsive way to follow and participate in multiple channels without keeping Twitch open
-in a browser.
+A desktop Twitch chat client for Windows, macOS, and Linux. Follow and participate in multiple
+channels without keeping Twitch open in a browser.
 
-## Key features
+[Download the latest release](https://github.com/chetwow/ChatWow/releases/latest)
 
-- Tabbed chats for multiple channels, with optional split-screen viewing
-- Child windows with tabs that can be moved between windows
-- Adjustable chat background transparency saved separately for each window
-- Multiple Twitch accounts, with per-tab account selection and permission controls
-- Chat history search
-- Six built-in color themes, plus customizable appearance and notifications
-- Support for inline playing of Youtube videos and Twitch clips as well as inline image viewing
-- Custom listener tabs for account mentions, selected users, and arbitrary phrases across open channels
-- Optional sound and tab notifications for listener matches
-- Mute notification sounds or ignore notifications from specific users and channels through settings and context menus
-- Moderator shortcuts for deleting messages, bans, unbans, and timeouts
-- Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, plus Twitch GIF messages with display and size controls
-- Animated Twitch Cheermotes with tier colors and Bits amounts, including channel-custom art
-- Twitch Gigantify power-ups, with an on/off toggle and adjustable size
-- Cosmic Abyss, Rainbow Eclipse, and Emote Party message effects, with an on/off toggle
-- Replies, whispers, badges, hover-previewable scrollbar mention markers, Twitch chat commands, and link previews
+- Organize channels in tabs, split panels, and separate windows; drag tabs between them with their history intact.
+- Sign in with multiple Twitch accounts and choose an account for each tab.
+- Create listener tabs for mentions, selected users, or phrases across open channels.
+- Search retained chat, reply, whisper, and use moderator controls.
+- See Twitch, 7TV, BetterTTV, and FrankerFaceZ emotes, GIFs, Cheermotes, and message effects.
+- Preview links and optionally open images, YouTube videos, and Twitch clips inline.
+- Customize themes, text size, notifications, and each window's chat background transparency.
 
+<img width="1400" height="1050" alt="ChatWow showing multiple Twitch channels" src="https://github.com/user-attachments/assets/e2513db3-406d-4400-ba66-8e401bc5a4c4" />
 
-ChatWow is available for Windows, macOS, and Linux.
+## Getting around
 
-<img width="1400" height="1050" alt="screenshot2" src="https://github.com/user-attachments/assets/e2513db3-406d-4400-ba66-8e401bc5a4c4" />
+Use the tab context menu to change its account, split a panel, or move it to a new window.
+Dragging a tab outside ChatWow also opens a new window. The half-filled circle in the title bar
+adjusts chat background transparency while text, media, and controls stay opaque.
 
-## Keyboard shortcuts
+| Action | Windows / Linux | macOS |
+| --- | --- | --- |
+| New window | Ctrl+N | Cmd+N |
+| Select tab 1–8 / final tab | Ctrl+1–8 / Ctrl+9 | Cmd+1–8 / Cmd+9 |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | Cmd+Option+Right / Cmd+Option+Left |
+| Reopen closed tab | Ctrl+Shift+T | Cmd+Shift+T |
+| Search current chat | Ctrl+F | Cmd+F |
+| Settings | Title-bar cog | Cmd+, |
 
-- `Ctrl+N` on Windows/Linux or `Cmd+N` on macOS opens a new chat window.
-- `Ctrl+1`–`Ctrl+8` on Windows/Linux or `Cmd+1`–`Cmd+8` on macOS selects a numbered tab.
-- `Ctrl+9` on Windows/Linux or `Cmd+9` on macOS selects the final tab.
-- `Ctrl+Tab` / `Ctrl+Shift+Tab` cycles tabs on Windows/Linux.
-- `Cmd+Option+Right` / `Cmd+Option+Left` cycles tabs on macOS.
-- `Ctrl+Shift+T` on Windows/Linux or `Cmd+Shift+T` on macOS reopens the last closed tab.
-- `Cmd+,` opens Settings on macOS.
-
-## Chat background transparency
-
-Click the half-filled circle beside the title-bar pin
-to adjust **Chat background transparency** from 0% (opaque) to 100% (fully transparent).
-Only the chat panel background changes; text, images, title bars, tabs, input controls and
-dialogs stay opaque.
-**Reset** restores an opaque background. Escape or clicking outside closes the slider.
-
-Each window remembers its own setting across restarts. All tabs and split panels in that
-window share it; moving a tab uses the destination window's setting. New windows start opaque.
-
-## Moving tabs between windows
-
-Drag a tab onto another ChatWow window to move it there, or choose **Move to new window**
-from the tab's context menu. Dropping a tab outside all
-ChatWow windows also opens it in a new child window at the drop location, preserving its chat
-history. Moving the last tab out leaves its original window open.
-
-<img width="1448" height="1086" alt="d2da58ce-a0ac-49fa-b96b-460619b790c7" src="https://github.com/user-attachments/assets/59a67fa2-48cd-4c77-9dfb-df47b6762327" />
+[Release notes](CHANGELOG.md) · [Development guide](docs/development.md) · [Architecture](ARCHITECTURE.md)

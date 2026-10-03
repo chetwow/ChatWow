@@ -144,6 +144,12 @@ pub fn snapshot(shared: &AppState) -> UpdateState {
 /// decide what to do with.
 pub async fn check(app: AppHandle, shared: Arc<AppState>) -> UpdateState {
     let _operation = shared.updates.operation.lock().await;
+    // A queued launch/manual check must not hide the restart action after an
+    // installation: this process still reports the old compiled-in version.
+    let current = snapshot(&shared);
+    if current.stage == "ready" {
+        return current;
+    }
     {
         let resting = shared.updates.state.read().reset("checking");
         set(&app, &shared, resting);
@@ -197,8 +203,6 @@ pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String
 
     let progress_app = app.clone();
     let progress_shared = Arc::clone(&shared);
-    let finish_app = app.clone();
-    let finish_shared = Arc::clone(&shared);
 
     let outcome = update
         .download_and_install(
@@ -208,13 +212,9 @@ pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String
                 state.total = total;
                 set(&progress_app, &progress_shared, state);
             },
-            move || {
-                // Windows is already gone by the time anything after this
-                // would run, so this is the last word on the other two.
-                let mut state = finish_shared.updates.state.read().clone();
-                state.stage = "ready".to_string();
-                set(&finish_app, &finish_shared, state);
-            },
+            // This callback precedes signature verification and installation.
+            // Keep restart unavailable until the entire operation succeeds.
+            || {},
         )
         .await;
 
@@ -222,6 +222,11 @@ pub async fn install(app: AppHandle, shared: Arc<AppState>) -> Result<(), String
         fail(&app, &shared, "Couldn't install", error.to_string());
         return Err("Couldn't install the update".to_string());
     }
+    // Windows exits from the installer; macOS/Linux reach this only after the
+    // replacement has finished and it is safe to offer a restart.
+    let mut state = shared.updates.state.read().clone();
+    state.stage = "ready".to_string();
+    set(&app, &shared, state);
     Ok(())
 }
 

@@ -265,6 +265,46 @@ function writeMockPreferences(preferences: Preferences) {
 }
 
 let nextKey = 1;
+const emoteIndexRequests = new Map<string, symbol>();
+let tabsRevision = 0;
+const pendingTabPlacements = new Map<string, () => void>();
+const pendingTabClosures = new Map<string, () => void>();
+
+function placePendingTabs() {
+  for (const [id, place] of pendingTabPlacements) {
+    const tab = useChat.getState().tabs.find((tab) => tab.id === id);
+    if (!tab) continue;
+    pendingTabPlacements.delete(id);
+    if (ownsTab(tab)) place();
+  }
+  for (const [id, close] of pendingTabClosures) {
+    if (useChat.getState().tabs.some((tab) => tab.id === id)) continue;
+    pendingTabClosures.delete(id);
+    close();
+  }
+}
+
+/** Native events can overtake command responses; never replay an older list. */
+async function nativeTabCommand(
+  command: () => Promise<Tab[]>,
+  placement?: { id: string; place: () => void },
+): Promise<Tab[]> {
+  const before = useChat.getState().tabs;
+  const revision = tabsRevision;
+  if (placement) pendingTabPlacements.set(placement.id, placement.place);
+  try {
+    const tabs = await command();
+    if (placement && !tabs.some((tab) => tab.id === placement.id)) pendingTabPlacements.delete(placement.id);
+    if (revision === tabsRevision && useChat.getState().tabs === before) {
+      useChat.getState().receiveTabs(tabs);
+    }
+    placePendingTabs();
+    return tabs;
+  } catch (error) {
+    if (placement) pendingTabPlacements.delete(placement.id);
+    throw error;
+  }
+}
 
 /** A tab id, minted here: the view has a key before the backend has heard of it. */
 function newTabId(): string {
@@ -832,6 +872,8 @@ function stampAvatarMode(state: ChatState, account: string): TabAvatarMode {
 
 /** Everything kept about one tab and nothing else, dropped when it closes. */
 function forgetTab(state: ChatState, id: string) {
+  emoteIndexRequests.delete(id);
+  pendingTabPlacements.delete(id);
   const drop = <T,>(map: Record<string, T>) => {
     const next = { ...map };
     delete next[id];
@@ -893,29 +935,35 @@ async function closeTabNow(id: string) {
   // Materialize legacy membership before removing a tab changes its boundary.
   if (!before.preferences.paneLayout) before.updatePreferences({ paneLayout: getPaneLayout(before) });
 
-  const tabs = IS_TAURI
-    ? await api.closeTab(id)
-    : before.tabs.filter((open) => open.id !== id);
-
-  useChat.setState((state) => ({
-    tabs,
-    lastClosedTab: closed,
-    listenerCloseWarning: null,
-    ...forgetTab(state, id),
-  }));
-  const current = useChat.getState();
-  commitTabs(Object.fromEntries(panes(current).map((id) => [id, paneTabs(current, id)])));
-  const settled = useChat.getState();
-  useChat.setState({ active: settleActive(settled, settled.active) });
-  // Only the pane whose tab was explicitly closed is eligible. New empty
-  // panes/windows and panes emptied by a move must remain available.
-  if (ownsTab(tab) && settled.preferences.autoCloseEmptySplits && paneTabs(settled, pane).length === 0) {
-    settled.removePane(pane);
-  }
-  const after = useChat.getState();
-  if (ownsTab(tab) && !IS_MAIN_WINDOW && after.preferences.autoCloseEmptyChildWindows
-    && windowTabs(after.tabs).length === 0) {
-    after.requestCloseWindow();
+  const finishClose = () => {
+    useChat.setState((state) => ({
+      lastClosedTab: closed,
+      listenerCloseWarning: null,
+      ...forgetTab(state, id),
+    }));
+    const current = useChat.getState();
+    commitTabs(Object.fromEntries(panes(current).map((id) => [id, paneTabs(current, id)])));
+    const settled = useChat.getState();
+    useChat.setState({ active: settleActive(settled, settled.active) });
+    // Only an explicit close can remove its newly empty pane/window.
+    if (ownsTab(tab) && settled.preferences.autoCloseEmptySplits && paneTabs(settled, pane).length === 0) {
+      settled.removePane(pane);
+    }
+    const after = useChat.getState();
+    if (ownsTab(tab) && !IS_MAIN_WINDOW && after.preferences.autoCloseEmptyChildWindows
+      && windowTabs(after.tabs).length === 0) after.requestCloseWindow();
+  };
+  if (IS_TAURI) {
+    pendingTabClosures.set(id, finishClose);
+    try {
+      await nativeTabCommand(() => api.closeTab(id));
+    } catch (error) {
+      pendingTabClosures.delete(id);
+      throw error;
+    }
+  } else {
+    useChat.setState({ tabs: before.tabs.filter((open) => open.id !== id) });
+    finishClose();
   }
 }
 
@@ -943,6 +991,7 @@ export const useChat = create<ChatState>((set) => ({
   tabs: [],
   windowError: null,
   receiveTabs: (tabs) => {
+    tabsRevision += 1;
     const before = useChat.getState();
     if (!before.preferences.paneLayout && before.tabs.some((tab) => ownsTab(tab) &&
       tabs.some((next) => next.id === tab.id && !ownsTab(next)))) {
@@ -954,22 +1003,28 @@ export const useChat = create<ChatState>((set) => ({
         emoteEntries: { ...state.emoteEntries }, chatters: { ...state.chatters } };
       for (const tab of tabs) {
         if (tab.kind !== "channel" || state.tabs.some((held) => held.id === tab.id && held.account === tab.account)) continue;
+        emoteIndexRequests.delete(tab.id);
         const source = state.tabs.find((held) => held.kind === "channel" && held.channel === tab.channel && held.account === tab.account);
-        if (!source) continue;
-        inherited.ready[tab.id] = state.ready[source.id] ?? false;
-        inherited.roles[tab.id] = state.roles[source.id] ?? "viewer";
-        inherited.messages[tab.id] = state.messages[tab.id] ?? state.messages[source.id] ?? [];
-        if (state.emoteEntries[source.id]) inherited.emoteEntries[tab.id] = state.emoteEntries[source.id];
-        if (state.chatters[source.id]) inherited.chatters[tab.id] = state.chatters[source.id];
+        // Account-specific state must reset in every window receiving this
+        // event, before subsequent ready/role events can fill it in again.
+        inherited.ready[tab.id] = source ? state.ready[source.id] ?? false : !IS_TAURI;
+        inherited.roles[tab.id] = source ? state.roles[source.id] ?? "viewer" : "viewer";
+        if (source) {
+          inherited.messages[tab.id] = state.messages[tab.id] ?? state.messages[source.id] ?? [];
+          if (state.emoteEntries[source.id]) inherited.emoteEntries[tab.id] = state.emoteEntries[source.id];
+          else delete inherited.emoteEntries[tab.id];
+          if (state.chatters[source.id]) inherited.chatters[tab.id] = state.chatters[source.id];
+        } else delete inherited.emoteEntries[tab.id];
       }
       const removed = state.tabs.filter((tab) => !tabs.some((held) => held.id === tab.id));
       let cleaned: Partial<ChatState> = {};
-      for (const tab of removed) cleaned = { ...cleaned, ...forgetTab({ ...state, ...cleaned }, tab.id) };
+      for (const tab of removed) cleaned = { ...cleaned, ...forgetTab({ ...state, ...inherited, ...cleaned }, tab.id) };
       return { ...inherited, ...cleaned, tabs, active: settleActive(next, state.active) };
     });
     // WebKit can lose dragend when transferring ownership unmounts its source.
     const dragging = useTabDrag.getState().drag;
     if (dragging && !tabs.some((tab) => tab.id === dragging.tab && ownsTab(tab))) useTabDrag.getState().end();
+    placePendingTabs();
   },
   newWindow: async (tabId, anchor, outsideDrop) => {
     const state = useChat.getState();
@@ -1198,9 +1253,11 @@ export const useChat = create<ChatState>((set) => ({
       return;
     }
 
-    const tabs = IS_TAURI ? await api.addTab(tab) : [...state.tabs, tab];
+    const tabs = IS_TAURI ? await nativeTabCommand(() => api.addTab(tab), {
+      id: tab.id, place: () => placeNewTab(tab.id),
+    }) : [...state.tabs, tab];
     set((current) => ({
-      tabs,
+      ...(IS_TAURI ? {} : { tabs }),
       // Nothing to wait for without a backend, so mock tabs open ready.
       ...(IS_TAURI ? {} : { ready: { ...current.ready, [tab.id]: true } }),
     }));
@@ -1213,7 +1270,7 @@ export const useChat = create<ChatState>((set) => ({
       set({ active: settleActive(settled, settled.active) });
       return;
     }
-    placeNewTab(tab.id);
+    if (!IS_TAURI) placeNewTab(tab.id);
   },
 
   openMentionsTab: async (mention, options) => {
@@ -1236,34 +1293,31 @@ export const useChat = create<ChatState>((set) => ({
       mention: listener,
     };
 
-    const tabs = IS_TAURI ? await api.addTab(tab) : [...state.tabs, tab];
-    const opened = tabs.find((candidate) => candidate.id === tab.id);
-    if (!opened) {
-      set({ tabs });
-      return;
-    }
-    set((current) => ({
-      tabs,
-      // General listeners start at creation time. The chatter-name shortcut
-      // opts into seeding that user's messages already held in its channel.
-      mentionLog: {
+    let windowOpening: Promise<void> | undefined;
+    const finishOpening = () => {
+      set((current) => ({ mentionLog: {
         ...current.mentionLog,
-        [opened.id]: options?.seedCurrentMatches
-          ? heldListenerMessages(current, opened)
-          : [],
-      },
-    }));
-    if (options?.destination === "window") {
-      await useChat.getState().newWindow(opened.id, options.anchor);
-      // Keep a failed pop-out accessible in the source window.
-      if (useChat.getState().windowError) placeNewTab(opened.id);
-    } else {
+        [tab.id]: current.mentionLog[tab.id] ?? (options?.seedCurrentMatches
+          ? heldListenerMessages(current, tab) : []),
+      } }));
+      if (options?.destination === "window") {
+        windowOpening = useChat.getState().newWindow(tab.id, options.anchor).then(() => {
+          if (useChat.getState().windowError) placeNewTab(tab.id);
+        });
+        return;
+      }
       if (options?.destination === "split") {
         const current = useChat.getState();
         current.split(current.focusedPane, "right");
       }
-      placeNewTab(opened.id);
+      placeNewTab(tab.id);
+    };
+    if (IS_TAURI) await nativeTabCommand(() => api.addTab(tab), { id: tab.id, place: finishOpening });
+    else {
+      set({ tabs: [...state.tabs, tab] });
+      finishOpening();
     }
+    await windowOpening;
   },
 
   renameMentionsTab: async (id, name) => {
@@ -1272,10 +1326,9 @@ export const useChat = create<ChatState>((set) => ({
     const clean = name.trim();
     if (!tab?.mention || !clean || clean.length > 40 || tab.mention.name === clean) return;
 
-    set({
-      tabs: IS_TAURI
-        ? await api.renameMentionsTab(id, clean)
-        : state.tabs.map((open) =>
+    if (IS_TAURI) await nativeTabCommand(() => api.renameMentionsTab(id, clean));
+    else set({
+      tabs: state.tabs.map((open) =>
             open.id === id && open.mention
               ? { ...open, mention: { ...open.mention, name: clean } }
               : open,
@@ -1289,14 +1342,14 @@ export const useChat = create<ChatState>((set) => ({
     if (!tab?.mention || tab.mention.notify === notify) return;
 
     const tabs = IS_TAURI
-      ? await api.setMentionsTabNotify(id, notify)
+      ? await nativeTabCommand(() => api.setMentionsTabNotify(id, notify))
       : state.tabs.map((open) =>
           open.id === id && open.mention
             ? { ...open, mention: { ...open.mention, notify } }
             : open,
         );
     set((current) => ({
-      tabs,
+      ...(IS_TAURI ? {} : { tabs }),
       // Turning notifications off should remove an existing rose indication
       // immediately; the ordinary unread tally is deliberately untouched.
       ...(notify ? {} : { mentions: { ...current.mentions, [id]: 0 } }),
@@ -1309,7 +1362,7 @@ export const useChat = create<ChatState>((set) => ({
     if (!tab?.mention) return;
 
     const tabs = IS_TAURI
-      ? await api.updateMentionsTab(id, mention)
+      ? await nativeTabCommand(() => api.updateMentionsTab(id, mention))
       : state.tabs.map((open) =>
           open.id === id
             ? { ...open, account: mention.accounts[0] ?? ANONYMOUS, mention }
@@ -1320,7 +1373,7 @@ export const useChat = create<ChatState>((set) => ({
     const notificationsEnabled = updated.mention.notify;
 
     set((current) => ({
-      tabs,
+      ...(IS_TAURI ? {} : { tabs }),
       // Existing rows record what matched while the previous definition was
       // active. Editing a filter only changes which future messages append.
       ...(notificationsEnabled
@@ -1363,8 +1416,35 @@ export const useChat = create<ChatState>((set) => ({
         return;
       }
 
-      let tabs = IS_TAURI ? await api.addTab(closed.tab, true) : [...state.tabs, closed.tab];
-      let opened = tabs.find((tab) => tab.id === closed.tab.id);
+      let restoring: Promise<void> | undefined;
+      const restorePlacement = () => {
+        const current = useChat.getState();
+        const created = current.tabs.find((tab) => tab.id === closed.tab.id);
+        if (!created || !ownsTab(created)) return;
+        const pane = panes(current).includes(closed.pane) ? closed.pane : current.focusedPane;
+        current.moveTab(closed.tab.id, pane, closed.index);
+        useChat.getState().setActive(closed.tab.id, pane);
+        if (!IS_TAURI) return;
+        // Restore only once creation is observed. Later edits/ownership changes
+        // must win while the two restoration commands cross IPC.
+        restoring = (async () => {
+          if (created.kind === "channel" && created.avatarMode !== closed.tab.avatarMode) {
+            await nativeTabCommand(() => api.setTabAvatarMode(created.id, closed.tab.avatarMode));
+          }
+          const latest = tabById(useChat.getState(), created.id);
+          const autohide = closed.tab.autohideComposer;
+          if (typeof autohide === "boolean" && latest && ownsTab(latest)
+            && latest.account === created.account && latest.autohideComposer === created.autohideComposer) {
+            await nativeTabCommand(() => api.setTabAutohideComposer(created.id, autohide));
+          }
+        })().catch(() => {
+          set((current) => ({ lastClosedTab: current.lastClosedTab ?? closed }));
+        });
+      };
+      const tabs = IS_TAURI ? await nativeTabCommand(() => api.addTab(closed.tab, true), {
+        id: closed.tab.id, place: restorePlacement,
+      }) : [...state.tabs, closed.tab];
+      const opened = tabs.find((tab) => tab.id === closed.tab.id);
       if (!opened) {
         // The backend can still spot a duplicate opened during the round trip.
         const existing = windowTabs(tabs).find(
@@ -1374,35 +1454,17 @@ export const useChat = create<ChatState>((set) => ({
             tab.channel === closed.tab.channel &&
             tab.account === closed.tab.account,
         );
-        set({ tabs });
+        if (!IS_TAURI) set({ tabs });
         if (existing) useChat.getState().setActive(existing.id);
         return;
       }
 
-      // `add_tab` stamps brand-new channel avatars from the preference. A
-      // reopened tab keeps its own prior choice instead.
-      if (
-        IS_TAURI &&
-        opened.kind === "channel" &&
-        opened.avatarMode !== closed.tab.avatarMode
-      ) {
-        tabs = await api.setTabAvatarMode(opened.id, closed.tab.avatarMode);
-        opened = tabs.find((tab) => tab.id === closed.tab.id) ?? opened;
-      }
-
-      if (IS_TAURI && typeof closed.tab.autohideComposer === "boolean") {
-        tabs = await api.setTabAutohideComposer(opened.id, closed.tab.autohideComposer);
-        opened = tabs.find((tab) => tab.id === closed.tab.id) ?? opened;
-      }
-
       set((current) => ({
-        tabs,
+        ...(IS_TAURI ? {} : { tabs }),
         ...(IS_TAURI ? {} : { ready: { ...current.ready, [opened.id]: true } }),
       }));
-      const current = useChat.getState();
-      const pane = panes(current).includes(closed.pane) ? closed.pane : current.focusedPane;
-      current.moveTab(opened.id, pane, closed.index);
-      useChat.getState().setActive(opened.id, pane);
+      if (!IS_TAURI) restorePlacement();
+      await restoring;
     } catch {
       // Keep the action available after a transient persistence/IPC failure.
       set((current) => ({ lastClosedTab: current.lastClosedTab ?? closed }));
@@ -1426,7 +1488,7 @@ export const useChat = create<ChatState>((set) => ({
   setTabAutohideComposer: async (id, autohide) => {
     const tab = tabById(useChat.getState(), id);
     if (!tab || tab.autohideComposer === autohide) return;
-    if (IS_TAURI) set({ tabs: await api.setTabAutohideComposer(id, autohide) });
+    if (IS_TAURI) await nativeTabCommand(() => api.setTabAutohideComposer(id, autohide));
     else set((state) => ({ tabs: state.tabs.map((open) => open.id === id
       ? { ...open, autohideComposer: autohide } : open) }));
   },
@@ -1436,11 +1498,8 @@ export const useChat = create<ChatState>((set) => ({
     const tab = tabById(state, id);
     if (!tab || tab.avatarMode === mode) return;
 
-    set({
-      tabs: IS_TAURI
-        ? await api.setTabAvatarMode(id, mode)
-        : state.tabs.map((open) => (open.id === id ? { ...open, avatarMode: mode } : open)),
-    });
+    if (IS_TAURI) await nativeTabCommand(() => api.setTabAvatarMode(id, mode));
+    else set({ tabs: state.tabs.map((open) => (open.id === id ? { ...open, avatarMode: mode } : open)) });
   },
 
   setTabAccount: async (id, account) => {
@@ -1449,10 +1508,10 @@ export const useChat = create<ChatState>((set) => ({
     if (!tab || tab.account === account) return;
 
     const tabs = IS_TAURI
-      ? await api.setTabAccount(id, account)
+      ? await nativeTabCommand(() => api.setTabAccount(id, account))
       : state.tabs.map((open) => (open.id === id ? { ...open, account } : open));
 
-    set({ tabs });
+    if (!IS_TAURI) useChat.getState().receiveTabs(tabs);
     // Refused, because that account already has this channel open -- the tab
     // is untouched, and so is everything hanging off it.
     if (tabs.find((open) => open.id === id)?.account !== account) return;
@@ -1461,13 +1520,6 @@ export const useChat = create<ChatState>((set) => ({
     // read as anyone, so they stay. What doesn't: which of Twitch's emotes are
     // completable, and what this login may do in this room -- both belonged to
     // the account that just left.
-    const source = tabs.find((other) => other.id !== id && other.kind === "channel" && other.channel === tab.channel && other.account === account);
-    const held = useChat.getState();
-    set({
-      roles: { ...held.roles, [id]: source ? held.roles[source.id] ?? "viewer" : "viewer" },
-      emoteEntries: { ...held.emoteEntries, [id]: source ? held.emoteEntries[source.id] ?? [] : [] },
-      ready: { ...held.ready, [id]: source ? held.ready[source.id] ?? false : !IS_TAURI },
-    });
     void useChat.getState().loadEmoteIndex(id);
   },
 
@@ -1535,14 +1587,29 @@ export const useChat = create<ChatState>((set) => ({
   loadEmoteIndex: async (id) => {
     const tab = tabById(useChat.getState(), id);
     if (!tab || tab.kind !== "channel") return;
-    const index = MOCK_MODE
-      ? await import("../dev/mockData").then((mock) => mock.mockEmoteIndex())
-      : await api.emoteIndex(tab.account, tab.channel);
-    set((state) => ({
-      emoteEntries: { ...state.emoteEntries, [id]: index.entries },
-      // Counts are global, and the backend's copy is the persisted one.
-      emoteUses: index.uses,
-    }));
+    const request = Symbol(id);
+    emoteIndexRequests.set(id, request);
+    try {
+      const index = __CHATWOW_MOCKS__ && MOCK_MODE
+        ? await import("../dev/mockData").then((mock) => mock.mockEmoteIndex())
+        : await api.emoteIndex(tab.account, tab.channel);
+      set((state) => {
+        const current = tabById(state, id);
+        if (emoteIndexRequests.get(id) !== request || current?.account !== tab.account
+          || current.channel !== tab.channel) return state;
+        // Usage counts only increase. A response captured before a send must
+        // not roll back its optimistic increment or another tab's newer read.
+        const emoteUses = { ...state.emoteUses };
+        for (const [name, count] of Object.entries(index.uses)) {
+          emoteUses[name] = Math.max(emoteUses[name] ?? 0, count);
+        }
+        return { emoteEntries: { ...state.emoteEntries, [id]: index.entries }, emoteUses };
+      });
+    } catch (error) {
+      if (emoteIndexRequests.get(id) === request) console.warn("Couldn't load channel emotes", error);
+    } finally {
+      if (emoteIndexRequests.get(id) === request) emoteIndexRequests.delete(id);
+    }
   },
 
   refreshAuth: async () => set({ auth: await api.authStatus() }),
@@ -1552,28 +1619,25 @@ export const useChat = create<ChatState>((set) => ({
    * The tabs it was reading stay open and fall back to anonymous -- which the
    * backend has already done to its own list by the time this lands.
    */
-  setAuth: (auth) =>
-    set((state) => {
-      const held = new Set(auth.accounts.map((account) => account.id));
-      const roles = { ...state.roles };
-      for (const tab of state.tabs) {
-        if (tab.account !== ANONYMOUS && !held.has(tab.account)) delete roles[tab.id];
-      }
-      const tabs = state.tabs.map((tab) => ({
-        ...tab,
-        account: tab.account && !held.has(tab.account) ? ANONYMOUS : tab.account,
-        mention: tab.mention
-          ? {
-              ...tab.mention,
-              accounts: tab.mention.accounts.filter((account) => held.has(account)),
-            }
-          : null,
-      }));
-      const lastClosedTab = state.lastClosedTab
-        ? restorableClosedTab(state.lastClosedTab, auth)
-        : null;
-      return { auth, roles, tabs, lastClosedTab };
-    }),
+  setAuth: (auth) => {
+    const state = useChat.getState();
+    const held = new Set(auth.accounts.map((account) => account.id));
+    const tabs = state.tabs.map((tab) => ({
+      ...tab,
+      account: tab.account && !held.has(tab.account) ? ANONYMOUS : tab.account,
+      mention: tab.mention
+        ? {
+            ...tab.mention,
+            accounts: tab.mention.accounts.filter((account) => held.has(account)),
+          }
+        : null,
+    }));
+    const lastClosedTab = state.lastClosedTab
+      ? restorableClosedTab(state.lastClosedTab, auth)
+      : null;
+    set({ auth, lastClosedTab });
+    useChat.getState().receiveTabs(tabs);
+  },
 
   changeChatZoom: (pane, action) => {
     const state = useChat.getState();
@@ -2116,6 +2180,8 @@ export async function subscribeToBackend(): Promise<() => void> {
   const stopEvents = await startBackendEvents();
   const expiry = window.setInterval(() => useChat.getState().expirePinnedMessages(), 1000);
   return () => {
+    pendingTabPlacements.clear();
+    pendingTabClosures.clear();
     window.clearInterval(expiry);
     stopEvents();
     unlisteners.forEach((off) => off());

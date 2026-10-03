@@ -1,28 +1,5 @@
-# Builds the installers on real machines of each kind and attaches them to a
-# draft GitHub release.
-#
-# Windows is why this exists: Tauri treats cross-compiling the NSIS installer
-# from macOS as a last resort it doesn't test, and a Windows runner sidesteps
-# the question.
-#
-# This is also what makes the app able to update itself. Each job signs its
-# installers with the minisign key in TAURI_SIGNING_PRIVATE_KEY and merges its
-# platform into a `latest.json` on the release; `plugins.updater` in
-# tauri.conf.json points every installed copy at that file. Publishing the
-# draft is therefore the act of shipping the update -- a draft's assets 404 for
-# everyone without push access, `releases/latest` included.
-#
-# Prefer running it from the Actions tab after pushing the version commit to
-# main. GitHub scopes caches by ref, so workflow_dispatch runs can reuse the
-# npm and Rust caches written by earlier releases. tauri-action creates the
-# version tag along with the draft release.
-#
-#   gh workflow run release.yml --ref main
-#
-# Pushing a pre-created v* tag remains a fallback. Both paths request a draft,
-# named from the version in tauri.conf.json. Verify the resulting release's
-# actual draft/prerelease flags; this configuration is not proof of its state.
-# Publication still requires explicit authorization.
+# Build native installers and signed updater assets on a draft release.
+# Release procedure and publication checks: docs/releases.md.
 name: release
 
 on:
@@ -34,6 +11,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-22.04
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
 
@@ -55,6 +34,28 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: Check release versions and classify the release
+        id: version
+        shell: bash
+        run: |
+          version="$(jq -r .version package.json)"
+          rust_version="$(cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1 | jq -r '.packages[] | select(.name == "chatwow") | .version')"
+          if [ "$(jq -r .version src-tauri/tauri.conf.json)" != "$version" ] ||
+             [ "$rust_version" != "$version" ] ||
+             ! jq -e --arg version "$version" '.version == $version and .packages[""].version == $version' package-lock.json >/dev/null; then
+            echo "::error::Release versions disagree. Run scripts/bump-version.py before releasing."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package version v$version"
+            exit 1
+          fi
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # The explicit audit below is authoritative. Avoid making every clean
       # install call the advisory endpoint too, and favor setup-node's cache.
       - run: npm ci --no-audit --prefer-offline --no-fund
@@ -63,6 +64,8 @@ jobs:
         run: |
           # npm's advisory endpoint occasionally returns a transient 5xx. Retry
           # those service failures, but fail immediately on a real audit report.
+          shopt -s nocasematch
+          transient='audit endpoint returned an error|429 Too Many Requests|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)|ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|ENOTFOUND'
           for attempt in 1 2 3; do
             if output="$(npm audit --fetch-timeout=60000 2>&1)"; then
               printf '%s\n' "$output"
@@ -72,8 +75,7 @@ jobs:
               printf '%s\n' "$output"
             fi
 
-            if ! printf '%s\n' "$output" | grep -Eqi \
-              'audit endpoint returned an error|429 Too Many Requests|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)|ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|ENOTFOUND'; then
+            if [[ ! "$output" =~ $transient ]]; then
               exit "$status"
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -88,16 +90,6 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo audit --file src-tauri/Cargo.lock
-
-      - name: Check release tag matches the app version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          expected="v$(node -p "require('./package.json').version")"
-          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package version $expected"
-            exit 1
-          fi
 
   build:
     needs: verify
@@ -228,7 +220,7 @@ jobs:
       - name: Check the updater is signable
         shell: bash
         run: |
-          if grep -q 'REPLACE_ME' src-tauri/tauri.conf.json; then
+          if jq -e '.plugins.updater.pubkey | contains("REPLACE_ME")' src-tauri/tauri.conf.json >/dev/null; then
             echo "::error::plugins.updater.pubkey is still the placeholder. Run 'npm run tauri signer generate' and commit the public key."
             exit 1
           fi
@@ -276,13 +268,9 @@ jobs:
             Windows is not code-signed yet, so SmartScreen may ask for confirmation
             on first launch.
           releaseDraft: true
-          # A tag with a hyphen in it is a semver prerelease -- v0.6.0-rc.1 and
-          # friends. That has to reach GitHub as an actual prerelease, because
-          # `releases/latest` skips those and `releases/latest/download/latest.json`
-          # is what every installed copy reads: publishing an rc as an ordinary
-          # release would hand it to everyone. Rehearsing an update against one
-          # is the whole reason CHATWOW_UPDATE_ENDPOINT exists.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # Use the version, since manual releases normally run from main.
+          # GitHub excludes prereleases from the stable updater endpoint.
+          prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
           args: ${{ matrix.args }}
 
       - name: Verify Apple signature and notarization ticket

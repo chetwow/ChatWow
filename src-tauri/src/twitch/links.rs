@@ -443,26 +443,11 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-/// Seconds since the epoch for `2023-03-03T04:14:46Z`. Twitch stamps every one
-/// of these in UTC, which is what makes this arithmetic rather than a date
-/// library: no zones, no locales, and the only use is a difference in minutes.
+/// Parse provider timestamps with the same RFC 3339 parser used for pins.
 fn epoch_seconds(iso: &str) -> Option<i64> {
-    let number = |range: std::ops::Range<usize>| -> Option<i64> { iso.get(range)?.parse().ok() };
-    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
-    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
-    Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second)
-}
-
-/// Days between 1970-01-01 and this date. Hinnant's algorithm, which is the
-/// short way to do this without pulling in a calendar.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month_position = (month + 9) % 12;
-    let day_of_year = (153 * month_position + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
+    time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .ok()
+        .map(|date| date.unix_timestamp())
 }
 
 #[cfg(test)]

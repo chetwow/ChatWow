@@ -140,17 +140,8 @@ async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &
         .or(badge_url)
         .ok_or_else(|| anyhow!("no source for {key}"))?;
 
-    let bytes = http
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(anyhow!("{key} is too big to cache"));
-    }
-    let bytes = bytes.to_vec();
+    let response = http.get(url).send().await?.error_for_status()?;
+    let bytes = image_bytes(response, key).await?;
     let mime = content_type(&bytes);
     if mime == "application/octet-stream" {
         return Err(anyhow!("{key} didn't come back as an image"));
@@ -182,6 +173,23 @@ async fn download(app: &AppHandle, key: &str, path: &Path) -> Result<(Vec<u8>, &
     }
 
     Ok((bytes, mime))
+}
+
+async fn image_bytes(mut response: reqwest::Response, key: &str) -> Result<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_IMAGE_BYTES as u64)
+    {
+        return Err(anyhow!("{key} is too big to cache"));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > MAX_IMAGE_BYTES - bytes.len() {
+            return Err(anyhow!("{key} is too big to cache"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// A cached image, downloading and storing it on a miss. Concurrent misses for
@@ -333,6 +341,65 @@ pub fn trim(app: &AppHandle, active: &HashSet<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn oversized_downloads_stop_before_the_body_finishes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for chunked in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                if chunked {
+                    socket
+                        .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+                        .await
+                        .unwrap();
+                    let chunk = vec![b'x'; 64 * 1024];
+                    for _ in 0..=MAX_IMAGE_BYTES / chunk.len() {
+                        socket.write_all(b"10000\r\n").await.unwrap();
+                        socket.write_all(&chunk).await.unwrap();
+                        socket.write_all(b"\r\n").await.unwrap();
+                    }
+                } else {
+                    socket
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                                MAX_IMAGE_BYTES + 1
+                            )
+                            .as_bytes(),
+                        )
+                        .await
+                        .unwrap();
+                }
+                // No EOF or final chunk: reading the whole body would hang.
+                std::future::pending::<()>().await;
+            });
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap();
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                image_bytes(response, "7tv-oversized"),
+            )
+            .await;
+            server.abort();
+            assert!(result
+                .expect("must reject without waiting for EOF")
+                .unwrap_err()
+                .to_string()
+                .contains("too big to cache"));
+        }
+    }
 
     #[test]
     fn keys_name_one_emote_from_a_known_provider() {

@@ -178,8 +178,6 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
   const suggestionButtons = useRef<Array<HTMLButtonElement | null>>([]);
-  /** Only the newest search may write results; earlier ones land out of order. */
-  const request = useRef(0);
 
   useEffect(() => input.current?.focus(), []);
 
@@ -194,22 +192,22 @@ export function AddChannelDialog({ onClose }: { onClose: () => void }) {
       return;
     }
 
-    const ticket = ++request.current;
+    let current = true;
     setSearching(true);
     const timer = window.setTimeout(async () => {
       try {
         const found = await searchChannels(query);
-        if (ticket === request.current) setHits(found);
+        if (current) setHits(found);
       } catch {
         // A failed search shouldn't take over the dialog -- you can still type
         // a name and press Enter, which is the path that never needed Twitch.
-        if (ticket === request.current) setHits([]);
+        if (current) setHits([]);
       } finally {
-        if (ticket === request.current) setSearching(false);
+        if (current) setSearching(false);
       }
     }, DEBOUNCE_MS);
 
-    return () => window.clearTimeout(timer);
+    return () => { current = false; window.clearTimeout(timer); };
   }, [query, canSearch]);
 
   /**

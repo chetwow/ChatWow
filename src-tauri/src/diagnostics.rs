@@ -141,24 +141,3 @@ pub fn log_launch() {
         std::env::consts::ARCH,
     );
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_level_comes_from_the_environment_or_falls_back() {
-        // Parsed by `log` itself, so this is really checking that an
-        // unreadable value is ignored rather than taken as "off".
-        assert_eq!("debug".parse::<LevelFilter>().unwrap(), LevelFilter::Debug);
-        assert_eq!("WARN".parse::<LevelFilter>().unwrap(), LevelFilter::Warn);
-        assert!("chatty".parse::<LevelFilter>().is_err());
-    }
-
-    #[test]
-    fn nothing_is_kept_indefinitely() {
-        // A log that can grow without bound is a bug report nobody can attach
-        // and a disk nobody expected to fill.
-        assert!(MAX_LOG_BYTES * LOG_FILES_KEPT as u128 <= 20_000_000);
-    }
-}

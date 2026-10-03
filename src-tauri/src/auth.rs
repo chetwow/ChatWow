@@ -168,6 +168,7 @@ pub struct Validation {
 #[derive(Debug)]
 pub enum PollOutcome {
     Pending,
+    SlowDown,
     Granted(Tokens),
     Failed(String),
 }
@@ -214,20 +215,28 @@ pub async fn poll_device(
     let status = response.status();
     let body = response.text().await?;
 
+    device_response(status, &body)
+}
+
+fn device_response(status: reqwest::StatusCode, body: &str) -> Result<PollOutcome> {
     if status.is_success() {
-        return Ok(PollOutcome::Granted(serde_json::from_str(&body)?));
+        return Ok(PollOutcome::Granted(serde_json::from_str(body)?));
     }
 
-    // Twitch reports "authorization_pending" while the user has not approved yet.
-    // It signals this in the message field rather than a distinct status code.
-    let lowered = body.to_ascii_lowercase();
-    if lowered.contains("authorization_pending") || lowered.contains("pending") {
-        return Ok(PollOutcome::Pending);
-    }
-    if lowered.contains("slow_down") {
-        return Ok(PollOutcome::Pending);
-    }
-    Ok(PollOutcome::Failed(body))
+    // Twitch uses `message`; OAuth's standard response uses `error`. Match
+    // the actual code, since a slow-down description may also mention pending.
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let code = parsed.as_ref().and_then(|value| {
+        value
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| value.get("message").and_then(serde_json::Value::as_str))
+    });
+    Ok(match code {
+        Some("authorization_pending") => PollOutcome::Pending,
+        Some("slow_down") => PollOutcome::SlowDown,
+        _ => PollOutcome::Failed(body.to_string()),
+    })
 }
 
 /// How an attempt to trade a refresh token for a new one ended.
@@ -266,18 +275,26 @@ pub async fn refresh(
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
+    refresh_response(status, &body)
+}
+
+fn refresh_response(status: reqwest::StatusCode, body: &str) -> RefreshOutcome {
     if !status.is_success() {
-        // A 4xx is Twitch telling us about the grant: the refresh token was
-        // spent, revoked, or issued to a different Client ID. A 5xx is Twitch
-        // having a bad day, which says nothing about what we hold.
-        return if status.is_client_error() {
+        // Only authentication failures invalidate the grant. Rate limits,
+        // request timeouts, and server failures must keep the saved tokens.
+        return if matches!(
+            status,
+            reqwest::StatusCode::BAD_REQUEST
+                | reqwest::StatusCode::UNAUTHORIZED
+                | reqwest::StatusCode::FORBIDDEN
+        ) {
             RefreshOutcome::Rejected(format!("Twitch refused the refresh ({status}): {body}"))
         } else {
             RefreshOutcome::Unreachable(format!("Twitch answered {status}"))
         };
     }
 
-    match serde_json::from_str(&body) {
+    match serde_json::from_str(body) {
         Ok(tokens) => RefreshOutcome::Renewed(tokens),
         // A success we can't parse is the one genuinely ambiguous case. Treat
         // it as unreachable: the cost of being wrong is one wasted retry,
@@ -300,6 +317,50 @@ pub async fn validate(client: &reqwest::Client, token: &str) -> Result<Validatio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_poll_errors_distinguish_pending_slowdown_and_denial() {
+        let status = reqwest::StatusCode::BAD_REQUEST;
+        assert!(matches!(
+            device_response(status, r#"{"message":"authorization_pending"}"#).unwrap(),
+            PollOutcome::Pending
+        ));
+        for body in [
+            r#"{"message":"slow_down"}"#,
+            r#"{"error":"slow_down","error_description":"Authorization is pending; poll less frequently"}"#,
+        ] {
+            assert!(matches!(
+                device_response(status, body).unwrap(),
+                PollOutcome::SlowDown
+            ));
+        }
+        assert!(matches!(
+            device_response(
+                status,
+                r#"{"error":"access_denied","message":"No pending grant"}"#,
+            )
+            .unwrap(),
+            PollOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn temporary_refresh_failures_do_not_invalidate_saved_credentials() {
+        for status in [408, 429, 500, 502, 503] {
+            assert!(matches!(
+                refresh_response(reqwest::StatusCode::from_u16(status).unwrap(), "try later"),
+                RefreshOutcome::Unreachable(_)
+            ));
+        }
+        assert!(matches!(
+            refresh_response(reqwest::StatusCode::BAD_REQUEST, "Invalid refresh token"),
+            RefreshOutcome::Rejected(_)
+        ));
+        assert!(matches!(
+            refresh_response(reqwest::StatusCode::OK, "truncated response"),
+            RefreshOutcome::Unreachable(_)
+        ));
+    }
 
     fn owned(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|id| id.to_string()).collect()

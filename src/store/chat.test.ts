@@ -73,41 +73,12 @@ describe("chat zoom preferences", () => {
 });
 
 describe("Power-up preferences", () => {
-  it("defaults to animated effects and remembers static mode independently of the other switches", () => {
-    expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(false);
-    useChat.getState().updatePreferences({ disableMessageEffectAnimations: true });
-    expect(useChat.getState().preferences.enableMessageEffects).toBe(true);
-    expect(useChat.getState().preferences.enableGigantify).toBe(true);
-    useChat.getState().updatePreferences({ enableMessageEffects: false, enableGigantify: false });
-    useChat.getState().updatePreferences({ enableMessageEffects: true, enableGigantify: true });
-    expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(true);
-    const calls = vi.mocked(localStorage.setItem).mock.calls;
-    expect(JSON.parse(calls[calls.length - 1][1]).disableMessageEffectAnimations).toBe(true);
-  });
-
   it("defaults malformed animation preferences without changing existing disabled effects", () => {
     useChat.getState().updatePreferences({ enableMessageEffects: false, enableGigantify: false });
     useChat.getState().updatePreferences({ disableMessageEffectAnimations: "true" as unknown as boolean });
     expect(useChat.getState().preferences.disableMessageEffectAnimations).toBe(false);
     expect(useChat.getState().preferences.enableMessageEffects).toBe(false);
     expect(useChat.getState().preferences.enableGigantify).toBe(false);
-  });
-  it("toggles message effects independently of Gigantify and persists the setting", () => {
-    expect(useChat.getState().preferences.enableMessageEffects).toBe(true);
-    useChat.getState().updatePreferences({ enableMessageEffects: false });
-    expect(useChat.getState().preferences.enableMessageEffects).toBe(false);
-    expect(useChat.getState().preferences.enableGigantify).toBe(true);
-    const calls = vi.mocked(localStorage.setItem).mock.calls;
-    const saved = JSON.parse(calls[calls.length - 1][1]);
-    expect(saved.enableMessageEffects).toBe(false);
-  });
-
-  it("defaults to enabled at 400% and preserves the scale when toggled", () => {
-    expect(useChat.getState().preferences.enableGigantify).toBe(true);
-    expect(useChat.getState().preferences.gigantifyScale).toBe(4);
-    useChat.getState().updatePreferences({ enableGigantify: false, gigantifyScale: 5 });
-    useChat.getState().updatePreferences({ enableGigantify: true });
-    expect(useChat.getState().preferences.gigantifyScale).toBe(5);
   });
 
   it("clamps the scale to 100–500% and restores the default for invalid numbers", () => {

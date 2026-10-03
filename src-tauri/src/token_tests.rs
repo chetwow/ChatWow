@@ -114,6 +114,20 @@ fn renewed() -> auth::RefreshOutcome {
     })
 }
 
+#[test]
+fn a_device_grant_cannot_restore_accounts_after_the_client_id_changes() {
+    let (state, account) = fixture();
+    state.auth.write().client_id_override = Some("old-client".into());
+    state.auth.write().default_account = account.id.clone();
+    clear_session(&state, Some("new-client".into()));
+
+    assert!(store_device_account(&mut state.auth.write(), "old-client", account).is_err());
+    let auth = state.auth.read();
+    assert_eq!(auth.client_id(), Some("new-client"));
+    assert!(auth.accounts.is_empty());
+    assert_eq!(auth.default_account, ANONYMOUS);
+}
+
 #[tokio::test]
 async fn an_expired_wake_token_is_refreshed_before_reconnect_is_allowed() {
     let (state, account) = fixture();

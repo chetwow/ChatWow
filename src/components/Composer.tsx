@@ -148,6 +148,9 @@ export function Composer({
   useEffect(() => setAccountMenu(null), [id]);
   const loadEmoteIndex = useChat((state) => state.loadEmoteIndex);
   const [value, setValue] = useState("");
+  const editRevision = useRef(0);
+  const currentReply = useRef(replyTo);
+  currentReply.current = replyTo;
   /** Mirrors the input's caret, so the `:` search knows which word it's in. */
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -184,6 +187,7 @@ export function Composer({
 
   /** Set the input's text and where the caret lands in it. */
   const applyText = (next: string, nextCaret: number) => {
+    editRevision.current += 1;
     setValue(next);
     setCaret(nextCaret);
   };
@@ -370,6 +374,7 @@ export function Composer({
   const submit = async () => {
     const text = value.trim();
     if (!text || busy.current) return;
+    const submittedRevision = editRevision.current;
 
     // `/me` is a message rather than a command -- it goes out through the send
     // path like any other text, and Twitch renders it as an action. Everything
@@ -394,7 +399,7 @@ export function Composer({
       setError(null);
       try {
         await runCommand(id, text);
-        reset();
+        if (editRevision.current === submittedRevision) reset();
       } catch (cause) {
         // The text stays put: the usual cause is an argument to fix.
         setError(String(cause));
@@ -417,8 +422,10 @@ export function Composer({
     setError(null);
     try {
       await sendMessage(id, text, replyTo?.id, replyInfo);
-      reset();
-      onCancelReply?.();
+      // Typing and choosing another reply remain available during the request.
+      // A successful send only consumes the draft and reply it actually sent.
+      if (editRevision.current === submittedRevision) reset();
+      if (currentReply.current === replyTo) onCancelReply?.();
     } catch (cause) {
       setError(String(cause));
     } finally {

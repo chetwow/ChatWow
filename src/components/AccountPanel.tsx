@@ -437,21 +437,25 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
   const selectedGroups = permissionSelection(auth.permissionCatalog, selectedAccount, permissionDrafts);
 
   const startLogin = async (expectedAccount?: AccountInfo) => {
+    stopPolling();
+    const session = pollingSession.current;
     setBusy(true);
     setError(null);
     try {
       // Save exactly this sign-in's selection; inspecting another account must
       // never change its checkboxes or create a reauthorization reminder.
-      setAuth(await api.setPermissionGroups(
+      const selected = await api.setPermissionGroups(
         permissionSelection(auth.permissionCatalog, expectedAccount ?? null, permissionDrafts),
-      ));
+      );
+      if (pollingSession.current !== session) return;
+      setAuth(selected);
       const code = await api.startDeviceAuth();
+      if (pollingSession.current !== session) return;
       setDevice(code);
       void openUrl(code.verification_uri);
 
       const deadline = Date.now() + code.expires_in * 1000;
-      const session = ++pollingSession.current;
-      const interval = Math.max(code.interval, 1) * 1000;
+      let interval = Math.max(code.interval, 1) * 1000;
       const poll = async () => {
         if (pollingSession.current !== session) return;
         if (Date.now() > deadline) {
@@ -465,9 +469,10 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
           const result = await api.pollDeviceAuth(code.device_code);
           if (pollingSession.current !== session) return;
           if (result.status === "granted") {
+            const next = await api.authStatus();
+            if (pollingSession.current !== session) return;
             stopPolling();
             setDevice(null);
-            const next = await api.authStatus();
             setAuth(next);
             const signedInLogin = result.login?.toLocaleLowerCase();
             const signedIn = signedInLogin
@@ -493,9 +498,11 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
             setDevice(null);
             setError(result.detail ?? "Authorization failed.");
           } else {
+            if (result.status === "slow_down") interval += 5000;
             polling.current = window.setTimeout(() => void poll(), interval);
           }
         } catch (cause) {
+          if (pollingSession.current !== session) return;
           stopPolling();
           setDevice(null);
           setError(String(cause));
@@ -503,9 +510,9 @@ export function AccountPanel({ onDone }: { onDone: () => void }) {
       };
       polling.current = window.setTimeout(() => void poll(), interval);
     } catch (cause) {
-      setError(String(cause));
+      if (pollingSession.current === session) setError(String(cause));
     } finally {
-      setBusy(false);
+      if (pollingSession.current === session) setBusy(false);
     }
   };
 
