@@ -114,6 +114,101 @@ function PinButton() {
   );
 }
 
+/** Chat background transparency belongs to this window's saved session. */
+function TransparencyButton() {
+  const opacity = useChat((state) => state.preferences.windowOpacity);
+  const updatePreferences = useChat((state) => state.updatePreferences);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const slider = useRef<HTMLInputElement>(null);
+  const transparency = 100 - opacity;
+
+  useEffect(() => {
+    if (!open) return;
+    slider.current?.focus();
+    const dismissOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const focusOutside = (event: FocusEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const dismiss = () => setOpen(false);
+    window.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("blur", dismiss);
+    document.addEventListener("focusin", focusOutside);
+    return () => {
+      window.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("blur", dismiss);
+      document.removeEventListener("focusin", focusOutside);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className={`relative shrink-0 ${ICON_GAP}`}
+      // WebKit can blur a range input to the document when its track is clicked.
+      // Dismiss on an actual outside pointer/focus target instead of that blur.
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+          button.current?.focus();
+        }
+      }}>
+      <button ref={button}
+        onPointerDown={(event) => { if (event.button === 0) event.preventDefault(); }}
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Chat background transparency"
+        data-tooltip={`Chat background transparency (${transparency}%)`}
+        aria-haspopup="dialog" aria-expanded={open}
+        aria-controls={open ? "window-transparency" : undefined}
+        className={`grid ${ICON_BOX} place-items-center rounded transition-colors hover:bg-surface-hover ${
+          open || transparency > 0 ? "text-accent" : "text-ink-dim hover:text-ink"
+        }`}>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={GLYPH} height={GLYPH}
+          fill="none" stroke="currentColor" strokeWidth="1.4">
+          <circle cx="8" cy="8" r="5.8" />
+          <path d="M8 2.2a5.8 5.8 0 0 0 0 11.6z" fill="currentColor" stroke="none" />
+          <path d="M8 2.2v11.6" />
+        </svg>
+      </button>
+      {open && (
+        <div id="window-transparency" role="dialog" aria-labelledby="window-transparency-title"
+          data-modal
+          className="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-100px)] rounded-lg border border-line bg-surface-raised p-3 shadow-2xl shadow-black/60">
+          <div className="flex items-center justify-between gap-2 text-[12px]">
+            <label id="window-transparency-title" htmlFor="window-transparency-slider" className="font-semibold text-ink">
+              Chat background transparency
+            </label>
+            <output htmlFor="window-transparency-slider" className="tabular-nums text-ink-dim">{transparency}%</output>
+          </div>
+          <input ref={slider} id="window-transparency-slider" type="range" min={0} max={100} step={1}
+            value={transparency} aria-valuetext={`${transparency}% transparent`}
+            onChange={(event) => updatePreferences({ windowOpacity: 100 - Number(event.currentTarget.value) })}
+            // Restore WebKit's lost track-click focus so Escape and arrow keys still work.
+            onPointerUp={(event) => event.currentTarget.focus()}
+            className="mt-3 block w-full cursor-pointer accent-accent" />
+          <div className="mt-1 flex justify-between text-[11px] text-ink-faint">
+            <span>Opaque</span><span>Transparent</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-ink-dim">Only this window</p>
+            <button onClick={() => {
+              slider.current?.focus();
+              updatePreferences({ windowOpacity: 100 });
+            }}
+              disabled={opacity === 100}
+              className="rounded px-2 py-1 text-[11px] text-accent hover:bg-surface-hover disabled:opacity-40">
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Choose a panel independently of chat focus, then split it in any direction. */
 function SplitButton() {
   const split = useChat((state) => state.split);
@@ -376,6 +471,7 @@ export function TitleBar({
       </button>
 
       <PinButton />
+      <TransparencyButton />
       <MuteButton />
       <SplitButton />
 

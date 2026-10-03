@@ -11,7 +11,8 @@ export function PinnedMessagePanel({ tabId }: { tabId: string }) {
   return (
     <section
       aria-label="Pinned message"
-      className="relative shrink-0 border-b border-line bg-accent/5 px-3 py-2"
+      className="relative shrink-0 border-b border-line px-3 py-2"
+      style={{ backgroundColor: "color-mix(in srgb, var(--color-accent) 5%, var(--color-surface))" }}
     >
       <div className="mb-1 flex items-center gap-1.5 pr-6 text-[10px] font-semibold text-ink-dim">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none">

@@ -19,6 +19,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("window ownership", () => {
+  it("normalizes and persists window opacity without transferring it with shared chat state", () => {
+    const update = useChat.getState().updatePreferences;
+    expect(useChat.getState().preferences.windowOpacity).toBe(100);
+    update({ windowOpacity: 65 });
+    const writes = vi.mocked(localStorage.setItem).mock.calls;
+    expect(JSON.parse(writes[writes.length - 1][1]).windowOpacity).toBe(65);
+    const snapshot = windowSnapshot();
+    update({ windowOpacity: 80 });
+    hydrateWindowSnapshot(snapshot);
+    expect(useChat.getState().preferences.windowOpacity).toBe(80);
+    update({ windowOpacity: 0 });
+    expect(useChat.getState().preferences.windowOpacity).toBe(0);
+    update({ windowOpacity: -20 });
+    expect(useChat.getState().preferences.windowOpacity).toBe(0);
+    update({ windowOpacity: 150 });
+    expect(useChat.getState().preferences.windowOpacity).toBe(100);
+    update({ windowOpacity: NaN });
+    expect(useChat.getState().preferences.windowOpacity).toBe(100);
+  });
+
   it("drops a remote tab into the requested split and slot, preserving its retained state", async () => {
     useChat.setState({ tabs: [channel("a"), channel("remote", "chat-1"), channel("b")],
       active: { 0: "a" }, sentHistory: { remote: ["previous message"] } });

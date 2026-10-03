@@ -10,6 +10,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Drag a tab outside all ChatWow windows to move it into a new child window.
+- Adjust chat panel background transparency from a title-bar button, with a separate saved
+  setting for each window and fully opaque text, media and controls.
 
 ## [1.7.1] - 2026-09-12
 

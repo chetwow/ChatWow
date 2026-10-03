@@ -327,6 +327,8 @@ export type Preferences = {
   showTimestamps: boolean;
   /** Keep the window above every other one. */
   alwaysOnTop: boolean;
+  /** Chat panel background opacity for this window, from 0 to 100 percent. */
+  windowOpacity: number;
   autoCloseEmptyChildWindows: boolean;
   autoCloseEmptySplits: boolean;
   autohideComposerInUnfocusedTabs: boolean;

@@ -1330,9 +1330,9 @@ Preferences live in `settings.json` next to the accounts and the tab list -- `Pr
 [src-tauri/src/settings.rs](src-tauri/src/settings.rs), mirrored by the `Preferences` type in
 [src/types.ts](src/types.ts), read at startup. The frontend sends only changed fields; Rust merges
 those under a serialized update lock and broadcasts the result to every window. Pane trees, zoom,
-pin and mute are local to each window. The main window's values and secondary windows' local
-overrides persist in settings. Shared appearance and account changes reach all
-windows. The complete settings file is written on each change. Saves are
+pin, mute and chat background transparency are local to each window. The main window's values
+and secondary windows' local overrides persist in settings. Shared appearance and account
+changes reach all windows. The complete settings file is written on each change. Saves are
 serialized, written to a private temporary file in the same directory, synced, then atomically
 renamed over the old snapshot. Missing files mean first run; malformed or unreadable files are
 logged before defaults are used, and a malformed file is moved to a timestamped
@@ -1340,7 +1340,7 @@ logged before defaults are used, and a malformed file is moved to a timestamped
 values: the store normalizes an unknown one back to the default, so a hand-edited file can't wedge
 the UI. Themes are a frontend-owned catalog of semantic color-token sets, applied to the app root
 so changing one repaints the complete window without rewriting individual components. The current
-palette is the default `Twitch` theme. Every built-in chat surface stays below the conservative
+palette is the default `Twitch` theme. Every built-in opaque chat surface stays below the conservative
 background luminance used by Rust's username-color contrast lift, so immutable messages remain
 readable as themes change without making message resolution depend on frontend state. The
 font-size preset resolves to a `--chat-font-size` custom property set on the app root;
@@ -1415,9 +1415,10 @@ All windows share accounts, connections and the backend tab list; a listener can
 tabs in any window.
 Each webview renders only its own tabs and owns its focus, split layout and notification controls.
 Settings, Info and Accounts stay on the main window's title bar. Secondary title bars contain
-Search, Pin, Mute and Split, plus platform window controls. New windows start at the configured
-minimum width (420 CSS pixels) and 75% of the main window's current content height, with a 320px
-minimum height. Menu actions anchor the window below the selected menu button, converting from
+Search, Pin, Chat background transparency, Mute and Split, plus platform window controls.
+New windows start at the configured minimum width (420 CSS pixels) and 75% of the main
+window's current content height, with a 320px minimum height. Menu actions anchor the window
+below the selected menu button, converting from
 the creating webview's coordinates to physical desktop pixels. Hotkeys center the new outer
 frame over main even when invoked from a secondary window. An outside drop aligns the new tab's
 grab point with the native release point, using the destination display's scale. Placement is
@@ -1468,6 +1469,32 @@ Each window's title-bar pin independently controls whether it stays above other 
 the main window's pin, then retain their own value across changes and restarts. Older
 saved child windows without a pin value default to unpinned rather than following main.
 The main window's pin is restored at launch and defaults to off. Appearance has no pin toggle.
+
+The adjacent **Chat background transparency** button adjusts `windowOpacity` (0–100%)
+independently for each window, using the same local preference/session routing. The stored
+field remains named `windowOpacity`, but controls only chat background alpha: the slider
+displays `100 - windowOpacity`, or 0–100% transparency. Zero stored opacity removes the chat
+background entirely while keeping text and media opaque. The frontend clamps and rounds the
+stored value and falls back to 100% for non-finite values. New and legacy child windows start
+at 100%. All tabs and splits in a window share the setting; transferred tabs use their
+destination window's value. Keep this field in both Rust's `LOCAL_PREFERENCES` and the mock
+window coordinator's `LOCAL` set so it cannot become a shared preference.
+
+The webview and native window have clear backgrounds; `App.tsx` passes the percentage through
+`--chat-background-opacity`, and `.chat-panel-background` applies `color-mix` only to the
+transcript viewport and empty panel. Keep the app root clear and apply alpha to backgrounds,
+never `opacity` to the app or chat subtree: text and media must stay opaque. Title bars,
+tabs, composers, pins, dialogs and dividers paint their own opaque backgrounds. Pins and
+dividers mix their tints with the solid surface rather than transparent pixels. macOS enables
+Tauri's `macos-private-api` feature and `macOSPrivateApi` config for the transparent webview
+backing; both native configs use `transparent: true` and a clear `backgroundColor`.
+
+The popover focuses its slider on opening. Dismiss it on an outside pointer target, focus
+moving to a control outside it, window blur, or Escape; Escape restores focus to the button.
+Do not dismiss it merely because the range input blurs with a null `relatedTarget`: macOS
+WebKit does that when its track is clicked, which would remove the slider during interaction.
+Pointer release refocuses the slider so Escape and arrow keys still work after a drag.
+Reset focuses the slider before disabling its own button, so the popover stays open.
 
 ## Updating itself
 
@@ -1744,6 +1771,21 @@ an unexpectedly empty catalog can otherwise look like a channel simply has no em
 `npm test` runs the Vitest frontend regression suite, and `npm run build` type-checks and bundles
 the production UI. The release workflow runs both, plus Rust formatting, strict Clippy and the
 Rust unit suite and npm/RustSec dependency audits, before any platform installer job can begin.
+
+### Chat background transparency verification
+
+`npm test -- src/store/windows.test.ts` covers opacity normalization, persistence and exclusion
+from transferred chat snapshots. `cd src-tauri && cargo test --lib windows::tests` covers
+independent main/child values, session restoration (including zero opacity), legacy defaults
+and opaque new windows.
+
+In a native app, click and drag the slider track, use arrow keys, Reset, Escape and an outside
+click. Verify that the popover remains open during adjustment and Reset, and that only chat
+backgrounds reveal the desktop while text, emotes, media and window controls stay opaque.
+Check populated and empty panels, splits, theme changes, independent main/child settings,
+tab transfers and restoration after restarting. Browser previews can check rendering and
+controls but do not establish desktop transparency or macOS WebKit pointer behavior. Use the
+isolated-profile procedure below and record which native platforms and scenarios were checked.
 
 ### Native tab-drag verification
 

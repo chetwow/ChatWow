@@ -26,6 +26,7 @@ const LOCAL_PREFERENCES: &[&str] = &[
     "chatZoom",
     "zoomAllSplits",
     "alwaysOnTop",
+    "windowOpacity",
     "muted",
 ];
 const EVENTS: &[&str] = &[
@@ -258,6 +259,7 @@ pub fn preferences_for(state: &Shared, label: &str) -> Preferences {
     if label != "main" {
         // Legacy sessions can lack a local pin. Never follow main's later toggles.
         value["alwaysOnTop"] = json!(false);
+        value["windowOpacity"] = json!(100.0);
         if let Some(local) = state.windows.layouts.lock().get(label) {
             for key in LOCAL_PREFERENCES {
                 if let Some(v) = local.get(*key) {
@@ -276,6 +278,7 @@ fn new_window_preferences(state: &Shared, source: &str) -> Value {
     local["paneChatZoom"] = json!({});
     local["splitLayout"] = json!("none");
     local["alwaysOnTop"] = json!(state.preferences.read().always_on_top);
+    local["windowOpacity"] = json!(100.0);
     local
 }
 
@@ -871,6 +874,41 @@ mod tests {
         *restored.preferences.write() = merged;
         assert!(preferences_for(&restored, "main").always_on_top);
         assert!(!preferences_for(&restored, "chat-1").always_on_top);
+    }
+
+    #[test]
+    fn window_opacity_is_independent_and_survives_session_restore() {
+        let state = Arc::new(AppState::new());
+        state
+            .windows
+            .layouts
+            .lock()
+            .insert("chat-0".into(), json!({}));
+        for (label, opacity) in [
+            ("main", 60.0),
+            ("chat-1", 45.0),
+            ("main", 80.0),
+            ("chat-1", 0.0),
+        ] {
+            let merged =
+                patch_preferences(&state, label, json!({"windowOpacity": opacity})).unwrap();
+            *state.preferences.write() = merged;
+            assert_eq!(preferences_for(&state, "chat-0").window_opacity, 100.0);
+        }
+        assert_eq!(preferences_for(&state, "main").window_opacity, 80.0);
+        assert_eq!(preferences_for(&state, "chat-1").window_opacity, 0.0);
+        assert_eq!(
+            new_window_preferences(&state, "chat-1")["windowOpacity"],
+            100.0
+        );
+        let restored = Arc::new(AppState::new());
+        *restored.preferences.write() = state.preferences.read().clone();
+        restored
+            .windows
+            .load_session(state.windows.session(), &mut [], &Preferences::default());
+        assert_eq!(preferences_for(&restored, "main").window_opacity, 80.0);
+        assert_eq!(preferences_for(&restored, "chat-1").window_opacity, 0.0);
+        assert_eq!(preferences_for(&restored, "chat-0").window_opacity, 100.0);
     }
 
     #[test]

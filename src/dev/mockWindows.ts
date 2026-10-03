@@ -6,7 +6,7 @@ import type { Preferences, Tab, ChatMessage } from "../types";
 
 const KEY = "chatwow.window.";
 const LOCAL = new Set(["paneLayout", "splitLayout", "splitIndex", "splitRatio", "paneChatZoom",
-  "chatZoom", "zoomAllSplits", "muted", "alwaysOnTop"]);
+  "chatZoom", "zoomAllSplits", "muted", "alwaysOnTop", "windowOpacity"]);
 let channel: BroadcastChannel | null = null;
 let receiving = false;
 const children: Window[] = [];
@@ -55,6 +55,7 @@ export function openMockWindow(tabId?: string, anchor?: WindowAnchor, outsideDro
   localStorage.setItem(KEY + label, JSON.stringify({ data: snapshot, preferences: {
     ...useChat.getState().preferences, paneLayout: null, splitLayout: "none", paneChatZoom: {},
     alwaysOnTop: mainPin,
+    windowOpacity: 100,
   } }));
   useChat.getState().receiveTabs(tabs);
   children.push(child);
@@ -67,7 +68,7 @@ export function restoreMockWindow(): boolean {
   const raw = localStorage.getItem(KEY + WINDOW_LABEL);
   const saved = raw ? JSON.parse(raw) : null;
   if (saved) hydrateWindowSnapshot(saved.data);
-  const preferences = saved?.preferences ?? DEFAULT_PREFERENCES;
+  const preferences = { ...DEFAULT_PREFERENCES, ...saved?.preferences };
   const first = windowTabs(useChat.getState().tabs)[0]?.id ?? null;
   useChat.setState({ preferences, active: { 0: first }, focusedPane: 0 });
   return true;

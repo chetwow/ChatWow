@@ -40,6 +40,7 @@ export default function App() {
   const gifScale = useChat((state) => state.preferences.gifScale);
   const gigantifyScale = useChat((state) => state.preferences.gigantifyScale);
   const theme = useChat((state) => state.preferences.theme);
+  const windowOpacity = useChat((state) => state.preferences.windowOpacity);
   const focusedTab = useChat((state) => state.active[state.focusedPane]);
 
   const openSearch = useCallback(() => {
@@ -259,12 +260,13 @@ export default function App() {
       style={
         {
           ...themeStyle(theme),
+          "--chat-background-opacity": `${windowOpacity}%`,
           "--chat-font-size": `${chatFontSize}px`,
           "--gif-scale": gifScale,
           "--gigantify-scale": gigantifyScale,
         } as CSSProperties
       }
-      className="flex h-full flex-col overflow-hidden bg-surface"
+      className="flex h-full flex-col overflow-hidden"
       onContextMenu={(event) => event.preventDefault()}
     >
       <TitleBar

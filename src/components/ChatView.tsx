@@ -876,7 +876,7 @@ export function ChatView({
         </div>
       )}
 
-      <div ref={viewport} className="relative min-h-0 flex-1">
+      <div ref={viewport} className="chat-panel-background relative min-h-0 flex-1">
         <div
           ref={scroller}
           className="scroller flex h-full flex-col overflow-y-auto overflow-x-hidden py-2"

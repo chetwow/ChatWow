@@ -219,6 +219,8 @@ pub struct Preferences {
     /// go behind anything is a nuisance to inherit on a restart you'd
     /// forgotten about.
     pub always_on_top: bool,
+    /// Window-local chat background opacity. The frontend clamps it to 0..=100.
+    pub window_opacity: f64,
     pub auto_close_empty_child_windows: bool,
     pub auto_close_empty_splits: bool,
     pub autohide_composer_in_unfocused_tabs: bool,
@@ -333,6 +335,7 @@ impl Default for Preferences {
             italic_actions: true,
             show_timestamps: true,
             always_on_top: false,
+            window_opacity: 100.0,
             auto_close_empty_child_windows: true,
             auto_close_empty_splits: false,
             autohide_composer_in_unfocused_tabs: true,

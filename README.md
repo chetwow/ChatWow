@@ -8,6 +8,7 @@ in a browser.
 
 - Tabbed chats for multiple channels, with optional split-screen viewing
 - Child windows with tabs that can be moved between windows
+- Adjustable chat background transparency saved separately for each window
 - Multiple Twitch accounts, with per-tab account selection and permission controls
 - Chat history search
 - Six built-in color themes, plus customizable appearance and notifications
@@ -36,6 +37,17 @@ ChatWow is available for Windows, macOS, and Linux.
 - `Cmd+Option+Right` / `Cmd+Option+Left` cycles tabs on macOS.
 - `Ctrl+Shift+T` on Windows/Linux or `Cmd+Shift+T` on macOS reopens the last closed tab.
 - `Cmd+,` opens Settings on macOS.
+
+## Chat background transparency
+
+In the unreleased development version, click the half-filled circle beside the title-bar pin
+to adjust **Chat background transparency** from 0% (opaque) to 100% (fully transparent).
+Only the chat panel background changes; text, images, title bars, tabs, input controls and
+dialogs stay opaque.
+**Reset** restores an opaque background. Escape or clicking outside closes the slider.
+
+Each window remembers its own setting across restarts. All tabs and split panels in that
+window share it; moving a tab uses the destination window's setting. New windows start opaque.
 
 ## Moving tabs between windows
 

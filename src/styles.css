@@ -48,7 +48,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-surface);
+  /* Chat panels paint translucent backgrounds over the clear native backing. */
+  background: transparent;
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -57,6 +58,19 @@ body {
   /* The custom title bar owns dragging; stop the OS text cursor everywhere. */
   user-select: none;
   cursor: default;
+}
+
+/* Fade only the transcript's background; text, media and controls stay opaque. */
+.chat-panel-background {
+  background-color: color-mix(in srgb, var(--color-surface) var(--chat-background-opacity, 100%), transparent);
+}
+
+/* Dividers retain their original tints over an opaque surface. */
+.pane-divider {
+  background-color: color-mix(in srgb, var(--color-line) 60%, var(--color-surface));
+}
+.pane-divider:hover {
+  background-color: color-mix(in srgb, var(--color-accent) 60%, var(--color-surface));
 }
 
 /* Chat text is the one place selection should work. */

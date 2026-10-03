@@ -25,7 +25,7 @@ export type TabSearchSession = { tabId: string; request: number };
 function EmptyPane({ onAdd, onSignIn }: { onAdd: () => void; onSignIn: () => void }) {
   const loggedIn = useChat((state) => state.auth.accounts.length > 0);
   return (
-    <div className="flex flex-1 items-center justify-center gap-2">
+    <div className="chat-panel-background flex flex-1 items-center justify-center gap-2">
       <button
         onClick={onAdd}
         className="rounded-md bg-accent px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-accent-dim"
@@ -183,7 +183,7 @@ function Divider({
       }}
       // The line itself is one pixel of border; the rest is grab area, which
       // is why the element is wider than what it looks like.
-      className={`group relative shrink-0 bg-line/60 transition-colors hover:bg-accent/60 ${
+      className={`pane-divider group relative shrink-0 transition-colors ${
         vertical ? "cursor-col-resize" : "cursor-row-resize"
       }`}
     />

@@ -103,6 +103,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   italicActions: true,
   showTimestamps: true,
   alwaysOnTop: false,
+  windowOpacity: 100,
   autoCloseEmptyChildWindows: true,
   autoCloseEmptySplits: false,
   autohideComposerInUnfocusedTabs: true,
@@ -190,6 +191,9 @@ function normalize(raw: Partial<Preferences> | null | undefined): Preferences {
   if (!isThemeId(merged.theme)) merged.theme = DEFAULT_PREFERENCES.theme;
   if (!FONT_SIZES.has(merged.chatFontSize)) merged.chatFontSize = DEFAULT_PREFERENCES.chatFontSize;
   merged.chatZoom = normalizeChatZoom(merged.chatZoom);
+  merged.windowOpacity = Number.isFinite(merged.windowOpacity)
+    ? Math.round(Math.min(100, Math.max(0, merged.windowOpacity)))
+    : DEFAULT_PREFERENCES.windowOpacity;
   merged.zoomAllSplits = merged.zoomAllSplits === true;
   merged.composerAutohideDelaySeconds = normalizeComposerAutohideDelay(merged.composerAutohideDelaySeconds);
   merged.paneChatZoom = normalizePaneChatZoom(merged.paneChatZoom);
